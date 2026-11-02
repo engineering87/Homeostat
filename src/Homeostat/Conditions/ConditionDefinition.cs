@@ -7,7 +7,7 @@ namespace Homeostat.Conditions;
 /// Immutable description of a condition: which signals matter, when it triggers, when it clears,
 /// how long it must hold and which plan heals it. Build it with <see cref="ConditionBuilder"/>.
 /// </summary>
-public sealed class ConditionDefinition
+internal sealed class ConditionDefinition
 {
     internal ConditionDefinition(
         string name,
@@ -21,8 +21,10 @@ public sealed class ConditionDefinition
         Action<Signal>? record = null,
         CompositeMode? composite = null,
         IReadOnlyList<string>? dependsOn = null,
-        IReadOnlyList<SeasonalBaseline>? baselines = null)
+        IReadOnlyList<SeasonalBaseline>? baselines = null,
+        string? source = null)
     {
+        Source = source;
         Baselines = baselines ?? [];
         Record = record;
         Composite = composite;
@@ -39,6 +41,9 @@ public sealed class ConditionDefinition
 
     /// <summary>Unique name of the condition, used in logs, metrics and endpoints.</summary>
     public string Name { get; }
+
+    /// <summary>The only source this condition listens to, or <c>null</c> when a custom filter decides alone.</summary>
+    internal string? Source { get; }
 
     /// <summary>Signals for which this returns <c>false</c> are ignored by the condition.</summary>
     internal Func<Signal, bool> IsRelevant { get; }

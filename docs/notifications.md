@@ -73,21 +73,23 @@ out to keep channels quiet (`o.Events` changes the selection).
 
 ```csharp
 // Slack incoming webhook
-o.CreatePayload = e => new { text = $"[{e.Application}] {e.Summary}" };
+o.CreatePayload = e => new JsonObject { ["text"] = $"[{e.Application}] {e.Summary}" };
 ```
 
 ```csharp
 // Include the approval link for the person on call
-o.CreatePayload = e => new
+o.CreatePayload = e => new JsonObject
 {
-    text = e.Kind == HomeostatEventKind.ApprovalRequested
+    ["text"] = e.Kind == HomeostatEventKind.ApprovalRequested
         ? $"{e.Summary} Approve: POST https://weather.example/homeostat/approvals/{e.ApprovalId}/approve"
         : e.Summary,
 };
 ```
 
-For receivers that need a specific schema (for example adaptive cards in Microsoft Teams), build the object
-in `CreatePayload`; any serializable object works.
+For receivers that need a specific schema (for example adaptive cards in Microsoft Teams), build the body in
+`CreatePayload`. A `JsonNode` (`JsonObject`, `JsonArray`) works everywhere, including trimmed and Native AOT
+applications. Other objects, such as anonymous ones (`e => new { text = e.Summary }`), are serialized with reflection:
+fine in an ordinary application, refused with a clear error when reflection-based serialization is off.
 
 ### Delivery
 

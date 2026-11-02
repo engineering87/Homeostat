@@ -7,7 +7,7 @@ namespace Homeostat.Consumers;
 /// </summary>
 /// <example>
 /// <code>
-/// var gate = new PauseGate("invoices");
+/// var gate = new PauseGate("telemetry-ingest");
 /// using var registration = consumers.Register(gate);
 /// while (!stoppingToken.IsCancellationRequested)
 /// {

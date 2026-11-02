@@ -10,14 +10,13 @@ namespace Homeostat.Notifications;
 /// <summary>Appends every event as one JSON object per line.</summary>
 internal sealed class AuditLogSink : HomeostatEventSink
 {
-    internal static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web)
+    internal static readonly JsonSerializerOptions Json = HomeostatJsonContext.CreateOptions(o =>
     {
-        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+        o.DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull;
 
         // Keeps quotes and non-ASCII text readable; the output is JSON for files and APIs, never embedded in HTML.
-        Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
-        Converters = { new JsonStringEnumConverter() },
-    };
+        o.Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping;
+    });
 
     private readonly string _pathTemplate;
 
@@ -42,7 +41,7 @@ internal sealed class AuditLogSink : HomeostatEventSink
             Directory.CreateDirectory(directory);
         }
 
-        var line = JsonSerializer.Serialize(homeostatEvent, Json) + "\n";
+        var line = JsonSerializer.Serialize(homeostatEvent, Json.TypeInfo<HomeostatEvent>()) + "\n";
 
         // Open per event: the volume is low (a few events per incident), and other processes can rotate or read the file.
         await using var stream = new FileStream(path, FileMode.Append, FileAccess.Write, FileShare.ReadWrite | FileShare.Delete);

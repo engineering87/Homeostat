@@ -14,7 +14,7 @@ public static class HomeostatEndpointRouteBuilderExtensions
     /// <summary>
     /// Maps <c>GET {prefix}/status</c>: conditions, switches, pending approvals, recent runs and budget, as JSON; and
     /// <c>GET {prefix}/coverage</c> (<c>?last=04:00:00</c> or <c>?since=2026-11-02T08:00:00Z</c>, default the last 24
-    /// hours): which conditions activated, which plans ran and which steps never ran (see <see cref="CoverageReport"/>);
+    /// hours): which conditions activated, which plans ran and which steps never ran (see <see cref="Diagnostics.CoverageReport"/>);
     /// and <c>GET {prefix}/history</c>: the latest condition activations and clears, newest first (optionally
     /// <c>?condition=name</c>).
     /// The endpoint reveals internal details (condition names, error messages, approval ids), so it requires an
@@ -73,9 +73,9 @@ public static class HomeostatEndpointRouteBuilderExtensions
         // Authorization: Bearer header without a CORS preflight. So every request must carry a bearer token or the
         // X-Requested-With header (the dashboard and the CLI send it), and browsers' cross-site requests are refused.
         group.AddEndpointFilter(static async (context, next) => IsForgeable(context.HttpContext.Request)
-            ? Results.Problem(
+            ? HomeostatResults.Problem(
                 "Control requests must carry an Authorization: Bearer token or the X-Requested-With header, and come from the same site.",
-                statusCode: StatusCodes.Status403Forbidden)
+                StatusCodes.Status403Forbidden)
             : await next(context));
 
         group.MapPost("/pause", (IHomeostatControl control, TimeProvider time, string? @for) =>
@@ -89,7 +89,7 @@ public static class HomeostatEndpointRouteBuilderExtensions
             if (!TimeSpan.TryParse(@for, System.Globalization.CultureInfo.InvariantCulture, out var duration)
                 || duration <= TimeSpan.Zero || duration > MaxPause)
             {
-                return Results.BadRequest("'for' must be a positive duration of at most 30 days, in the d.hh:mm:ss format.");
+                return HomeostatResults.BadRequest("'for' must be a positive duration of at most 30 days, in the d.hh:mm:ss format.");
             }
 
             control.PauseUntil(time.GetUtcNow() + duration);
@@ -200,7 +200,7 @@ public static class HomeostatEndpointRouteBuilderExtensions
             approvals.GetPending(),
             runInfos,
             storeError);
-        return Results.Ok(status);
+        return Results.Json(status, HomeostatAspNetCoreJsonContext.Default.HomeostatStatus);
     }
 
     private static async Task<IResult> GetHistoryAsync(IHomeostatControl control, string? condition, CancellationToken cancellationToken)
@@ -208,14 +208,14 @@ public static class HomeostatEndpointRouteBuilderExtensions
         try
         {
             var events = await control.GetConditionHistoryAsync(cancellationToken);
-            return Results.Ok(events
+            return Results.Json(events
                 .Where(e => condition is null || string.Equals(e.ConditionName, condition, StringComparison.Ordinal))
                 .Select(ConditionEventInfo.From)
-                .ToArray());
+                .ToArray(), HomeostatAspNetCoreJsonContext.Default.ConditionEventInfoArray);
         }
         catch (Exception) when (!cancellationToken.IsCancellationRequested)
         {
-            return Results.Problem("The condition history is unavailable.", statusCode: StatusCodes.Status503ServiceUnavailable);
+            return HomeostatResults.Problem("The condition history is unavailable.", StatusCodes.Status503ServiceUnavailable);
         }
     }
 
@@ -228,14 +228,14 @@ public static class HomeostatEndpointRouteBuilderExtensions
         {
             if (!DateTimeOffset.TryParse(since, System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.AssumeUniversal, out from))
             {
-                return Results.BadRequest("'since' must be a date and time, for example 2026-11-02T08:00:00Z.");
+                return HomeostatResults.BadRequest("'since' must be a date and time, for example 2026-11-02T08:00:00Z.");
             }
         }
         else if (last is not null)
         {
             if (!TimeSpan.TryParse(last, System.Globalization.CultureInfo.InvariantCulture, out var span) || span <= TimeSpan.Zero || span > TimeSpan.FromDays(365))
             {
-                return Results.BadRequest("'last' must be a positive duration in the d.hh:mm:ss format.");
+                return HomeostatResults.BadRequest("'last' must be a positive duration in the d.hh:mm:ss format.");
             }
 
             from = now - span;
@@ -248,21 +248,12 @@ public static class HomeostatEndpointRouteBuilderExtensions
         try
         {
             var report = await control.GetCoverageAsync(from, cancellationToken);
-            return Results.Ok(new
-            {
-                report.Since,
-                report.Until,
-                report.StepCoverage,
-                report.NeverActivated,
-                report.PlansNeverRun,
-                report.Truncated,
-                report.Conditions,
-            });
+            return Results.Json(report, HomeostatAspNetCoreJsonContext.Default.CoverageReport);
         }
         catch (Exception) when (!cancellationToken.IsCancellationRequested)
         {
             // No exception details: they can carry store connection details.
-            return Results.Problem("The run history is unavailable.", statusCode: StatusCodes.Status503ServiceUnavailable);
+            return HomeostatResults.Problem("The run history is unavailable.", StatusCodes.Status503ServiceUnavailable);
         }
     }
 

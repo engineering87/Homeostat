@@ -1,3 +1,4 @@
+using System.Text.Json.Nodes;
 using Homeostat.Notifications;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -28,60 +29,56 @@ internal sealed class SlackSink : HttpEventSink
     protected override Task WriteAsync(HomeostatEvent e, CancellationToken cancellationToken)
         => SendAsync(HttpMethod.Post, _options.WebhookUrl!, Payload(e, _options), null, cancellationToken);
 
-    internal static object Payload(HomeostatEvent e, SlackOptions options)
+    internal static JsonObject Payload(HomeostatEvent e, SlackOptions options)
     {
         var text = Limit($"{Icon(e)} *{Escape(e.Application)}* · {Escape(e.Summary)}", 3000);
-        var blocks = new List<object>
-        {
-            new { type = "section", text = new { type = "mrkdwn", text } },
-            new
-            {
-                type = "context",
-                elements = new object[] { new { type = "mrkdwn", text = Limit($"Condition `{Escape(e.Condition)}` · {e.Kind}", 3000) } },
-            },
-        };
+        var blocks = ArrayOf(
+            ObjectOf(("type", "section"), ("text", Text("mrkdwn", text))),
+            ObjectOf(
+                ("type", "context"),
+                ("elements", ArrayOf(Text("mrkdwn", Limit($"Condition `{Escape(e.Condition)}` · {e.Kind}", 3000))))));
 
-        var buttons = new List<object>();
+        var buttons = new JsonArray();
         if (e.Kind == HomeostatEventKind.ApprovalRequested && options.ApprovalButtons && e.ApprovalId is { } id)
         {
-            buttons.Add(new
-            {
-                type = "button",
-                action_id = ApproveAction,
-                style = "primary",
-                text = new { type = "plain_text", text = "Approve" },
-                value = id,
-                confirm = new
-                {
-                    title = new { type = "plain_text", text = "Approve this step?" },
-                    text = new { type = "plain_text", text = Truncate($"{e.Condition}: {e.Step}", 300) },
-                    confirm = new { type = "plain_text", text = "Approve" },
-                    deny = new { type = "plain_text", text = "Cancel" },
-                },
-            });
-            buttons.Add(new
-            {
-                type = "button",
-                action_id = RejectAction,
-                style = "danger",
-                text = new { type = "plain_text", text = "Reject" },
-                value = id,
-            });
+            buttons.Add((JsonNode)ObjectOf(
+                ("type", "button"),
+                ("action_id", ApproveAction),
+                ("style", "primary"),
+                ("text", Text("plain_text", "Approve")),
+                ("value", id),
+                ("confirm", ObjectOf(
+                    ("title", Text("plain_text", "Approve this step?")),
+                    ("text", Text("plain_text", Truncate($"{e.Condition}: {e.Step}", 300))),
+                    ("confirm", Text("plain_text", "Approve")),
+                    ("deny", Text("plain_text", "Cancel"))))));
+            buttons.Add((JsonNode)ObjectOf(
+                ("type", "button"),
+                ("action_id", RejectAction),
+                ("style", "danger"),
+                ("text", Text("plain_text", "Reject")),
+                ("value", id)));
         }
 
         if (options.DashboardUrl is { } dashboard)
         {
-            buttons.Add(new { type = "button", action_id = "homeostat_open", text = new { type = "plain_text", text = "Open dashboard" }, url = dashboard.AbsoluteUri });
+            buttons.Add((JsonNode)ObjectOf(
+                ("type", "button"),
+                ("action_id", "homeostat_open"),
+                ("text", Text("plain_text", "Open dashboard")),
+                ("url", dashboard.AbsoluteUri)));
         }
 
         if (buttons.Count > 0)
         {
-            blocks.Add(new { type = "actions", block_id = "homeostat", elements = buttons });
+            blocks.Add((JsonNode)ObjectOf(("type", "actions"), ("block_id", "homeostat"), ("elements", buttons)));
         }
 
         // "text" is the fallback for notifications and screen readers.
-        return new { text = Limit(Escape($"[{e.Application}] {e.Summary}"), 3000), blocks };
+        return ObjectOf(("text", Limit(Escape($"[{e.Application}] {e.Summary}"), 3000)), ("blocks", blocks));
     }
+
+    private static JsonObject Text(string type, string text) => ObjectOf(("type", type), ("text", text));
 
     /// <summary>Slack control characters: without escaping, text from an alert could mention @channel or forge links.</summary>
     internal static string Escape(string value)
@@ -140,53 +137,46 @@ internal sealed class TeamsSink : HttpEventSink
     protected override Task WriteAsync(HomeostatEvent e, CancellationToken cancellationToken)
         => SendAsync(HttpMethod.Post, _options.WebhookUrl!, Payload(e, _options), null, cancellationToken);
 
-    internal static object Payload(HomeostatEvent e, TeamsOptions options)
+    internal static JsonObject Payload(HomeostatEvent e, TeamsOptions options)
     {
-        var facts = new List<object> { new { title = "Condition", value = e.Condition } };
-        if (e.Step is { } step)
-        {
-            facts.Add(new { title = "Step", value = step });
-        }
-
-        if (e.Outcome is { } outcome)
-        {
-            facts.Add(new { title = "Outcome", value = outcome });
-        }
-
-        if (e.ExpiresAt is { } expires)
-        {
-            facts.Add(new { title = "Expires", value = expires.ToString("u", System.Globalization.CultureInfo.InvariantCulture) });
-        }
+        var facts = ArrayOf(
+            Fact("Condition", e.Condition),
+            Fact("Step", e.Step),
+            Fact("Outcome", e.Outcome),
+            Fact("Expires", e.ExpiresAt?.ToString("u", System.Globalization.CultureInfo.InvariantCulture)));
 
         var actions = options.DashboardUrl is { } dashboard
-            ? new object[] { new { type = "Action.OpenUrl", title = e.Kind == HomeostatEventKind.ApprovalRequested ? "Review in dashboard" : "Open dashboard", url = dashboard.AbsoluteUri } }
-            : [];
+            ? ArrayOf(ObjectOf(
+                ("type", "Action.OpenUrl"),
+                ("title", e.Kind == HomeostatEventKind.ApprovalRequested ? "Review in dashboard" : "Open dashboard"),
+                ("url", dashboard.AbsoluteUri)))
+            : new JsonArray();
 
-        return new
+        var body = ArrayOf(
+            ObjectOf(("type", "TextBlock"), ("text", $"{e.Application}: {e.Kind}"), ("weight", "Bolder"), ("size", "Medium"), ("wrap", true)),
+            ObjectOf(("type", "TextBlock"), ("text", e.Summary), ("wrap", true)),
+            ObjectOf(("type", "FactSet"), ("facts", facts)));
+        if (e.Kind == HomeostatEventKind.ApprovalRequested && options.ApprovalCommand is { Length: > 0 } command && e.ApprovalId is { } approvalId)
         {
-            type = "message",
-            attachments = new object[]
-            {
-                new
-                {
-                    contentType = "application/vnd.microsoft.card.adaptive",
-                    content = new Dictionary<string, object>
-                    {
-                        ["$schema"] = "http://adaptivecards.io/schemas/adaptive-card.json",
-                        ["type"] = "AdaptiveCard",
-                        ["version"] = "1.4",
-                        ["body"] = new object[]
-                        {
-                            new { type = "TextBlock", text = $"{e.Application}: {e.Kind}", weight = "Bolder", size = "Medium", wrap = true },
-                            new { type = "TextBlock", text = e.Summary, wrap = true },
-                            new { type = "FactSet", facts },
-                        }.Concat(e.Kind == HomeostatEventKind.ApprovalRequested && options.ApprovalCommand is { Length: > 0 } command && e.ApprovalId is { } approvalId
-                            ? [new { type = "TextBlock", text = $"Reply in the channel: @{command} approve {approvalId} (or reject {approvalId})", wrap = true, isSubtle = true }]
-                            : Array.Empty<object>()).ToArray(),
-                        ["actions"] = actions,
-                    },
-                },
-            },
-        };
+            body.Add((JsonNode)ObjectOf(
+                ("type", "TextBlock"),
+                ("text", $"Reply in the channel: @{command} approve {approvalId} (or reject {approvalId})"),
+                ("wrap", true),
+                ("isSubtle", true)));
+        }
+
+        return ObjectOf(
+            ("type", "message"),
+            ("attachments", ArrayOf(ObjectOf(
+                ("contentType", "application/vnd.microsoft.card.adaptive"),
+                ("content", ObjectOf(
+                    ("$schema", "http://adaptivecards.io/schemas/adaptive-card.json"),
+                    ("type", "AdaptiveCard"),
+                    ("version", "1.4"),
+                    ("body", body),
+                    ("actions", actions)))))));
     }
+
+    private static JsonObject? Fact(string title, string? value)
+        => value is null ? null : ObjectOf(("title", title), ("value", value));
 }

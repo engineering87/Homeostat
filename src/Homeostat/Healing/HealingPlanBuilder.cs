@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using Homeostat.Healing.Actions;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -30,7 +31,7 @@ public sealed class HealingPlanBuilder
     // ---------------------------------------------------------------- class-based actions
 
     /// <summary>Appends an action class. Registers <typeparamref name="TAction"/> as transient if not already registered.</summary>
-    public HealingPlanBuilder With<TAction>()
+    public HealingPlanBuilder With<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] TAction>()
         where TAction : class, IHealingAction
     {
         _services.TryAddTransient<TAction>();
@@ -38,7 +39,7 @@ public sealed class HealingPlanBuilder
     }
 
     /// <summary>Escalation step: runs only if the previous action failed (threw or timed out) or was verified as <see cref="VerificationOutcome.NotHealed"/>.</summary>
-    public HealingPlanBuilder Then<TAction>()
+    public HealingPlanBuilder Then<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] TAction>()
         where TAction : class, IHealingAction
         => With<TAction>();
 
@@ -215,7 +216,7 @@ public sealed class HealingPlanBuilder
     // ---------------------------------------------------------------- verification and pacing
 
     /// <summary>Use a custom verifier instead of waiting for the condition to clear.</summary>
-    public HealingPlanBuilder VerifyWith<TVerifier>()
+    public HealingPlanBuilder VerifyWith<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] TVerifier>()
         where TVerifier : class, IHealingVerifier
     {
         _services.TryAddTransient<TVerifier>();
@@ -316,7 +317,7 @@ public sealed class HealingPlanBuilder
     /// </summary>
     /// <typeparam name="TAction">The compensating action.</typeparam>
     /// <example><code>.Then&lt;SwitchToBackupProviderAction&gt;().UndoWith&lt;SwitchToPrimaryProviderAction&gt;()</code></example>
-    public HealingPlanBuilder UndoWith<TAction>()
+    public HealingPlanBuilder UndoWith<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] TAction>()
         where TAction : class, IHealingAction
     {
         _services.TryAddTransient<TAction>();

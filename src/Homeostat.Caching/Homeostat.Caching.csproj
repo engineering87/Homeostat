@@ -2,6 +2,7 @@
 
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
+    <IsAotCompatible>true</IsAotCompatible>
     <PackageId>Homeostat.Caching</PackageId>
     <Description>Cache integration for Homeostat: memory cache hit ratio signals, and healing actions that purge HybridCache tags, remove distributed cache keys and compact the memory cache.</Description>
     <PackageTags>$(PackageTags);caching;hybridcache;distributed-cache;memory-cache</PackageTags>

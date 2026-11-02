@@ -1,0 +1,14 @@
+namespace Homeostat
+  public static class HomeostatMongoExtensions
+    public static MongoDB.Driver.MongoClientSettings AddHomeostatSignals(this MongoDB.Driver.MongoClientSettings settings, System.IServiceProvider services, string name = "mongodb")
+    public static Homeostat.HomeostatBuilder AddMongoSignals(this Homeostat.HomeostatBuilder builder, string name = "mongodb", System.Action<Homeostat.MongoDB.MongoSignalOptions>? configure = null)
+namespace Homeostat.MongoDB
+  public sealed class MongoSignalOptions
+    public MongoSignalOptions()
+    public System.Func<System.IServiceProvider, MongoDB.Driver.IMongoClient>? Client { get; set; }
+    public System.TimeSpan Interval { get; set; }
+    public Homeostat.Probes.ProbeOptions Lag { get; }
+    public System.Collections.Generic.ISet<string> LagExcludedMembers { get; }
+    public Homeostat.Probes.ProbeOptions Ping { get; }
+    public int PoolTimeoutsUnhealthyAbove { get; set; }
+    public bool ReplicationLag { get; set; }

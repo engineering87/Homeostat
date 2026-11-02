@@ -3,7 +3,7 @@ namespace Homeostat.Healing;
 /// <summary>
 /// Ordered escalation chain of steps for one condition, with its verification and pacing rules.
 /// </summary>
-public sealed class HealingPlan
+internal sealed class HealingPlan
 {
     internal HealingPlan(
         string conditionName,

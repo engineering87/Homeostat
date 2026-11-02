@@ -159,7 +159,7 @@ public class InMemoryHomeostatStore : IHomeostatStore
     }
 
     /// <summary>Called under the lock after every change; lets a derived store persist the state.</summary>
-    protected virtual void OnChanged()
+    private protected virtual void OnChanged()
     {
     }
 

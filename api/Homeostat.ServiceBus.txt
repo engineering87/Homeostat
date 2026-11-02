@@ -1,0 +1,20 @@
+namespace Homeostat
+  public static class HomeostatServiceBusExtensions
+    public static Homeostat.HomeostatBuilder AddPausableServiceBusProcessor(this Homeostat.HomeostatBuilder builder, string name, System.Func<System.IServiceProvider, Azure.Messaging.ServiceBus.ServiceBusProcessor>? processor = null)
+    public static Homeostat.HomeostatBuilder AddPausableServiceBusSessionProcessor(this Homeostat.HomeostatBuilder builder, string name, System.Func<System.IServiceProvider, Azure.Messaging.ServiceBus.ServiceBusSessionProcessor> processor)
+    public static Homeostat.HomeostatBuilder AddServiceBusQueueSignals(this Homeostat.HomeostatBuilder builder, string queue, System.Action<Homeostat.ServiceBus.ServiceBusSignalOptions>? configure = null)
+    public static Homeostat.HomeostatBuilder AddServiceBusSubscriptionSignals(this Homeostat.HomeostatBuilder builder, string topic, string subscription, System.Action<Homeostat.ServiceBus.ServiceBusSignalOptions>? configure = null)
+namespace Homeostat.ServiceBus
+  public sealed class PausableServiceBusProcessor : Homeostat.Consumers.IPausableConsumer
+    public PausableServiceBusProcessor(string name, Azure.Messaging.ServiceBus.ServiceBusProcessor processor)
+    public PausableServiceBusProcessor(string name, Azure.Messaging.ServiceBus.ServiceBusSessionProcessor processor)
+    public string Name { get; }
+    public System.Threading.Tasks.Task PauseAsync(System.Threading.CancellationToken cancellationToken)
+    public System.Threading.Tasks.Task ResumeAsync(System.Threading.CancellationToken cancellationToken)
+  public sealed class ServiceBusSignalOptions
+    public ServiceBusSignalOptions()
+    public Homeostat.Probes.ProbeOptions Active { get; }
+    public System.Func<System.IServiceProvider, Azure.Messaging.ServiceBus.Administration.ServiceBusAdministrationClient>? Client { get; set; }
+    public Homeostat.Probes.ProbeOptions DeadLetter { get; }
+    public System.TimeSpan Interval { get; set; }
+    public string? Source { get; set; }

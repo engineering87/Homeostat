@@ -1,7 +1,8 @@
 using System.Net;
-using System.Net.Http.Json;
+using System.Text;
 using System.Text.Encodings.Web;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
 using Homeostat.Notifications;
 using Microsoft.Extensions.Logging;
@@ -14,12 +15,8 @@ namespace Homeostat.Http;
 /// </summary>
 internal abstract class HttpEventSink : HomeostatEventSink
 {
-    internal static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web)
-    {
-        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
-        Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
-        Converters = { new JsonStringEnumConverter() },
-    };
+    /// <summary>Writes payloads: no reflection, so the sinks work under trimming and Native AOT.</summary>
+    internal static readonly JsonSerializerOptions Json = CreateJsonOptions();
 
     private readonly IHttpClientFactory _clients;
     private readonly string _clientName;
@@ -47,11 +44,12 @@ internal abstract class HttpEventSink : HomeostatEventSink
     protected async Task SendAsync(
         HttpMethod method,
         Uri url,
-        object payload,
+        JsonNode payload,
         IEnumerable<KeyValuePair<string, string>>? headers,
         CancellationToken cancellationToken)
     {
         var client = _clients.CreateClient(_clientName);
+        var body = payload.ToJsonString(Json);
 
         // While the application stops, the remaining time is shared with the other sinks: one short attempt only.
         var maxAttempts = IsStopping ? 1 : MaxAttempts;
@@ -63,7 +61,7 @@ internal abstract class HttpEventSink : HomeostatEventSink
             {
                 using var request = new HttpRequestMessage(method, url)
                 {
-                    Content = JsonContent.Create(payload, payload.GetType(), options: Json),
+                    Content = new StringContent(body, Encoding.UTF8, "application/json"),
                 };
                 foreach (var (name, value) in headers ?? [])
                 {
@@ -90,6 +88,34 @@ internal abstract class HttpEventSink : HomeostatEventSink
         }
     }
 
+    private static JsonSerializerOptions CreateJsonOptions()
+    {
+        var options = new JsonSerializerOptions(HttpJsonContext.Default.Options)
+        {
+            Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
+        };
+        options.MakeReadOnly();
+        return options;
+    }
+
+    /// <summary>A JSON object without the properties whose value is null, as receivers expect.</summary>
+    internal static JsonObject ObjectOf(params (string Name, JsonNode? Value)[] properties)
+    {
+        var result = new JsonObject();
+        foreach (var (name, value) in properties)
+        {
+            if (value is not null)
+            {
+                result[name] = value;
+            }
+        }
+
+        return result;
+    }
+
+    /// <summary>A JSON array of the given items, without the null ones.</summary>
+    internal static JsonArray ArrayOf(params JsonNode?[] items) => new(items.Where(i => i is not null).ToArray());
+
     /// <summary>The receiver's Retry-After on 429 or 503, capped at one minute.</summary>
     private static TimeSpan? RetryAfter(HttpResponseMessage response)
     {
@@ -109,3 +135,12 @@ internal abstract class HttpEventSink : HomeostatEventSink
         public TimeSpan? RetryAfter { get; } = retryAfter;
     }
 }
+
+/// <summary>The types the HTTP sinks serialize, with the settings receivers expect.</summary>
+[JsonSourceGenerationOptions(
+    JsonSerializerDefaults.Web,
+    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+    UseStringEnumConverter = true)]
+[JsonSerializable(typeof(HomeostatEvent))]
+[JsonSerializable(typeof(JsonNode))]
+internal sealed partial class HttpJsonContext : JsonSerializerContext;

@@ -1,40 +1,41 @@
 namespace Homeostat.Healing;
 
 /// <summary>How a healing run ended.</summary>
+/// <remarks>Numbered from 1: the default value, 0, is none of them, so an unset value never reads as a success.</remarks>
 public enum HealingRunOutcome
 {
     /// <summary>A step was verified as healed.</summary>
-    Healed = 0,
+    Healed = 1,
 
     /// <summary>Every step was tried without success.</summary>
-    NotHealed = 1,
+    NotHealed = 2,
 
     /// <summary>Verification found no evidence either way; the run stopped without escalating.</summary>
-    Inconclusive = 2,
+    Inconclusive = 3,
 
     /// <summary>Dry-run: steps were logged, not executed.</summary>
-    DryRun = 3,
+    DryRun = 4,
 
     /// <summary>The global action budget was exhausted.</summary>
-    BudgetExhausted = 4,
+    BudgetExhausted = 5,
 
     /// <summary>Homeostat was paused during the run.</summary>
-    Paused = 5,
+    Paused = 6,
 
     /// <summary>A step requiring approval was rejected or not approved in time.</summary>
-    NotApproved = 6,
+    NotApproved = 7,
 
     /// <summary>A condition listed in <c>SuppressedBy</c> became active during the run.</summary>
-    Suppressed = 7,
+    Suppressed = 8,
 
     /// <summary>The condition cleared before the next step started, so the step was not needed.</summary>
-    ConditionCleared = 8,
+    ConditionCleared = 9,
 
     /// <summary>The application stopped during the run.</summary>
-    Cancelled = 9,
+    Cancelled = 10,
 
     /// <summary>An unexpected error interrupted the run.</summary>
-    Failed = 10,
+    Failed = 11,
 }
 
 /// <summary>Result of one executed step.</summary>

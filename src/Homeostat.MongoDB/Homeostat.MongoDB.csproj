@@ -2,6 +2,7 @@
 
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
+    <IsAotCompatible>true</IsAotCompatible>
     <PackageId>Homeostat.MongoDB</PackageId>
     <Description>MongoDB for Homeostat: ping latency, primary availability, connection pool timeouts and replication lag as signals (MongoDB.Driver 3).</Description>
     <PackageTags>$(PackageTags);mongodb;database;replica-set;connection-pool</PackageTags>

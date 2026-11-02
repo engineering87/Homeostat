@@ -1,4 +1,4 @@
-namespace Homeostat;
+namespace Homeostat.Diagnostics;
 
 /// <summary>
 /// What Homeostat exercised in a period: which conditions activated, which plans ran and how they ended, which steps

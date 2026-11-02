@@ -147,7 +147,8 @@ builder.Services.AddHomeostat(h => h
 Homeostat does not depend on Azure.Identity: `AccessToken` takes the token from the credential you already use, which
 caches and refreshes it. Resource ids are checked against the exact resource type (an App Service site or slot, a
 virtual machine, a Front Door origin), and `AzureResourceManager` actions must be plain path segments such as
-`/restart`, so a mistyped id or action cannot reach another endpoint. For sovereign clouds set `ResourceManager`. Long
+`/restart`, so a mistyped id or action cannot reach another endpoint. The optional `body` is a `JsonNode`, for example
+`new JsonObject { ["properties"] = new JsonObject { ["enabledState"] = "Disabled" } }`, so it serializes without reflection. For sovereign clouds set `ResourceManager`. Long
 operations answer `202 Accepted`: the step succeeds when Azure accepts the request, and Homeostat's verification checks
 whether the condition clears.
 

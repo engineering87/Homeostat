@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using Homeostat.Notifications;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
@@ -14,7 +15,7 @@ public static class HomeostatEventSinkExtensions
     /// </summary>
     /// <typeparam name="TSink">The sink type.</typeparam>
     /// <param name="builder">The Homeostat builder.</param>
-    public static HomeostatBuilder AddEventSink<TSink>(this HomeostatBuilder builder)
+    public static HomeostatBuilder AddEventSink<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] TSink>(this HomeostatBuilder builder)
         where TSink : HomeostatEventSink
     {
         ArgumentNullException.ThrowIfNull(builder);

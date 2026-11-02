@@ -1,4 +1,5 @@
 using Homeostat.Conditions;
+using Homeostat.Diagnostics;
 using Homeostat.Guardrails;
 using Homeostat.Persistence;
 

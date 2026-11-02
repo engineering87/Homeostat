@@ -1,4 +1,4 @@
-namespace Aspire.Hosting;
+namespace Homeostat.Aspire.Hosting;
 
 /// <summary>Settings of <c>WithHomeostat</c>.</summary>
 public sealed class HomeostatResourceOptions

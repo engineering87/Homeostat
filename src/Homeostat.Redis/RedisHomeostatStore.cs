@@ -12,10 +12,6 @@ namespace Homeostat.Redis;
 /// </summary>
 internal sealed class RedisHomeostatStore : IHomeostatStore
 {
-    private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web)
-    {
-        Converters = { new JsonStringEnumConverter() },
-    };
 
     private static readonly RedisValue[] PlanFields = ["ended", "failures", "held", "by"];
 
@@ -118,7 +114,7 @@ internal sealed class RedisHomeostatStore : IHomeostatStore
 
         var key = $"{_options.KeyPrefix}runs";
         var batch = Db.CreateBatch();
-        var push = batch.ListLeftPushAsync(key, JsonSerializer.Serialize(run, Json));
+        var push = batch.ListLeftPushAsync(key, JsonSerializer.Serialize(run, RedisJsonContext.Default.HealingRunRecord));
         var trim = batch.ListTrimAsync(key, 0, Math.Max(0, maxRuns - 1));
         batch.Execute();
         await Task.WhenAll(push, trim).ConfigureAwait(false);
@@ -142,7 +138,7 @@ internal sealed class RedisHomeostatStore : IHomeostatStore
 
             try
             {
-                if (JsonSerializer.Deserialize<HealingRunRecord>((string)value!, Json) is { } run)
+                if (JsonSerializer.Deserialize((string)value!, RedisJsonContext.Default.HealingRunRecord) is { } run)
                 {
                     runs.Add(run);
                 }
@@ -168,7 +164,7 @@ internal sealed class RedisHomeostatStore : IHomeostatStore
 
         var key = $"{_options.KeyPrefix}conditions";
         var batch = Db.CreateBatch();
-        var push = batch.ListLeftPushAsync(key, JsonSerializer.Serialize(conditionEvent, Json));
+        var push = batch.ListLeftPushAsync(key, JsonSerializer.Serialize(conditionEvent, RedisJsonContext.Default.ConditionEventRecord));
         var trim = batch.ListTrimAsync(key, 0, Math.Max(0, maxEvents - 1));
         batch.Execute();
         await Task.WhenAll(push, trim).ConfigureAwait(false);
@@ -192,7 +188,7 @@ internal sealed class RedisHomeostatStore : IHomeostatStore
 
             try
             {
-                if (JsonSerializer.Deserialize<ConditionEventRecord>((string)value!, Json) is { } conditionEvent)
+                if (JsonSerializer.Deserialize((string)value!, RedisJsonContext.Default.ConditionEventRecord) is { } conditionEvent)
                 {
                     events.Add(conditionEvent);
                 }
@@ -238,3 +234,9 @@ internal sealed class RedisHomeostatStore : IHomeostatStore
         return new PlanState { LastRunEndedAt = ended, ConsecutiveFailures = failures, Held = held, LastRunBy = by };
     }
 }
+
+/// <summary>Serialization metadata generated at compile time: no reflection, trimming and Native AOT safe.</summary>
+[JsonSourceGenerationOptions(JsonSerializerDefaults.Web, UseStringEnumConverter = true)]
+[JsonSerializable(typeof(HealingRunRecord))]
+[JsonSerializable(typeof(ConditionEventRecord))]
+internal sealed partial class RedisJsonContext : JsonSerializerContext;

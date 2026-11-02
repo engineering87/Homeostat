@@ -1,0 +1,651 @@
+namespace Homeostat
+  public static class HomeostatAuditLogExtensions
+    public static Homeostat.HomeostatBuilder AddAuditLog(this Homeostat.HomeostatBuilder builder, System.Action<Homeostat.Notifications.AuditLogOptions> configure)
+    public static Homeostat.HomeostatBuilder AddAuditLog(this Homeostat.HomeostatBuilder builder, string path)
+  public sealed class HomeostatBuilder
+    public Microsoft.Extensions.DependencyInjection.IServiceCollection Services { get; }
+    public Homeostat.HomeostatBuilder AddBackgroundServiceSignals()
+    public Homeostat.HomeostatBuilder AddCondition(string name, System.Action<Homeostat.Conditions.ConditionBuilder> configure)
+    public Homeostat.HomeostatBuilder AddDetector<TDetector>() where TDetector : class, Homeostat.Detectors.ISignalDetector
+    public Homeostat.HomeostatBuilder AddExceptionRateDetector(System.Action<Homeostat.Detectors.ExceptionRateDetectorOptions>? configure = null)
+    public Homeostat.HomeostatBuilder AddMaintenanceWindow(string name, System.Action<Homeostat.Guardrails.MaintenanceWindow> configure)
+    public Homeostat.HomeostatBuilder AddMemoryPressureDetector(System.Action<Homeostat.Detectors.MemoryPressureDetectorOptions>? configure = null)
+    public Homeostat.HomeostatBuilder AddObserver<TObserver>() where TObserver : class, Homeostat.IHealingObserver
+    public Homeostat.HomeostatBuilder AddThreadPoolStarvationDetector(System.Action<Homeostat.Detectors.ThreadPoolDetectorOptions>? configure = null)
+    public Homeostat.HomeostatBuilder Configure(System.Action<Homeostat.HomeostatOptions> configure)
+    public Homeostat.HomeostatBuilder UseCoordinator(System.Func<System.IServiceProvider, Homeostat.Coordination.IHomeostatCoordinator> factory)
+    public Homeostat.HomeostatBuilder UseCoordinator<TCoordinator>() where TCoordinator : class, Homeostat.Coordination.IHomeostatCoordinator
+    public Homeostat.HomeostatBuilder UseFileStore(string path)
+    public Homeostat.HomeostatBuilder UseStore(System.Func<System.IServiceProvider, Homeostat.Persistence.IHomeostatStore> factory)
+    public Homeostat.HomeostatBuilder UseStore<TStore>() where TStore : class, Homeostat.Persistence.IHomeostatStore
+  public static class HomeostatConfigurationExtensions
+    public static Homeostat.HomeostatBuilder AddConditionsFromConfiguration(this Homeostat.HomeostatBuilder builder, Microsoft.Extensions.Configuration.IConfiguration section)
+    public static Homeostat.HomeostatBuilder MapAction<TAction>(this Homeostat.HomeostatBuilder builder, string name) where TAction : class, Homeostat.Healing.IHealingAction
+  public static class HomeostatConsumerExtensions
+    public static Homeostat.HomeostatBuilder AddPausableConsumer(this Homeostat.HomeostatBuilder builder, System.Func<System.IServiceProvider, Homeostat.Consumers.IPausableConsumer> consumer)
+    public static Homeostat.Healing.HealingPlanBuilder PauseConsumer(this Homeostat.Healing.HealingPlanBuilder plan, string consumer, bool resumeWhenCleared = true)
+  public static class HomeostatDetectorServiceCollectionExtensions
+    public static Microsoft.Extensions.DependencyInjection.IServiceCollection AddSignalDetector<TDetector>(this Microsoft.Extensions.DependencyInjection.IServiceCollection services) where TDetector : class, Homeostat.Detectors.ISignalDetector
+  public static class HomeostatEventSinkExtensions
+    public static Homeostat.HomeostatBuilder AddEventSink<TSink>(this Homeostat.HomeostatBuilder builder) where TSink : Homeostat.Notifications.HomeostatEventSink
+  public static class HomeostatMetricExtensions
+    public static Homeostat.HomeostatBuilder AddEventCounterSignal(this Homeostat.HomeostatBuilder builder, string eventSource, string counter, System.Action<Homeostat.Metrics.EventCounterSignalOptions>? configure = null)
+    public static Homeostat.HomeostatBuilder AddMetricSignal(this Homeostat.HomeostatBuilder builder, string instrument, System.Action<Homeostat.Metrics.MetricSignalBuilder> configure)
+    public static Homeostat.HomeostatBuilder AddServerErrorRateSignal(this Homeostat.HomeostatBuilder builder, string source = "http-server-errors", double degradedAbove = 0.01, double unhealthyAbove = 0.05, int minimumRequests = 20)
+    public static Homeostat.HomeostatBuilder AddServerLatencySignal(this Homeostat.HomeostatBuilder builder, string source = "http-server-latency", double degradedAboveSeconds = 0.5, double unhealthyAboveSeconds = 2, int minimumRequests = 20)
+  public sealed class HomeostatOptions
+    public HomeostatOptions()
+    public System.TimeSpan ActionBudgetWindow { get; set; }
+    public string ApplicationName { get; set; }
+    public System.TimeSpan ClusterLeaseDuration { get; set; }
+    public int ConditionHistorySize { get; set; }
+    public System.TimeSpan DefaultActionTimeout { get; set; }
+    public System.TimeSpan DefaultApprovalTimeout { get; set; }
+    public System.TimeSpan DefaultCooldown { get; set; }
+    public System.TimeSpan DefaultVerificationTimeout { get; set; }
+    public System.TimeSpan DetectionInterval { get; set; }
+    public bool DryRun { get; set; }
+    public string InstanceId { get; set; }
+    public int MaxActionsPerWindow { get; set; }
+    public int MaxConcurrentHealings { get; set; }
+    public int RunHistorySize { get; set; }
+    public int SignalBufferCapacity { get; set; }
+    public System.TimeSpan VerificationPollInterval { get; set; }
+  public static class HomeostatProbeExtensions
+    public static Homeostat.HomeostatBuilder AddLatencyProbe(this Homeostat.HomeostatBuilder builder, string source, System.Func<System.IServiceProvider, System.Threading.CancellationToken, System.Threading.Tasks.Task> call, System.Action<Homeostat.Probes.ProbeOptions>? configure = null)
+    public static Homeostat.HomeostatBuilder AddProbe(this Homeostat.HomeostatBuilder builder, string source, System.Func<System.IServiceProvider, System.Threading.CancellationToken, System.Threading.Tasks.Task<double>> measure, System.Action<Homeostat.Probes.ProbeOptions>? configure = null)
+  public static class HomeostatRecordingExtensions
+    public static Homeostat.HomeostatBuilder RecordSignals(this Homeostat.HomeostatBuilder builder, System.Action<Homeostat.Recording.SignalRecordingOptions>? configure = null)
+  public static class HomeostatServiceCollectionExtensions
+    public static Homeostat.HomeostatBuilder AddHomeostat(this Microsoft.Extensions.DependencyInjection.IServiceCollection services, System.Action<Homeostat.HomeostatBuilder>? configure = null)
+  public interface IHealingObserver
+    public default void OnApprovalRequested(Homeostat.Healing.PendingApproval approval)
+    public default void OnApprovalResolved(Homeostat.Healing.ApprovalResolution resolution)
+    public default void OnConditionActivated(Homeostat.Conditions.ConditionSnapshot condition)
+    public default void OnConditionCleared(Homeostat.Conditions.ConditionSnapshot condition)
+    public default void OnRunCompleted(Homeostat.Healing.HealingRunResult run)
+    public default void OnStepCompleted(Homeostat.Healing.HealingStepResult step)
+  public interface IHomeostatApprovals
+    public bool Approve(string id, string? approvedBy = null)
+    public System.Collections.Generic.IReadOnlyList<Homeostat.Healing.PendingApproval> GetPending()
+    public bool Reject(string id, string? rejectedBy = null)
+  public interface IHomeostatControl
+    public bool IsDryRun { get; }
+    public bool IsPaused { get; }
+    public string? PauseReason { get; }
+    public System.Threading.Tasks.ValueTask<Homeostat.Guardrails.ActionBudgetStatus> GetBudgetAsync(System.Threading.CancellationToken cancellationToken = default)
+    public default System.Threading.Tasks.ValueTask<System.Collections.Generic.IReadOnlyList<Homeostat.Persistence.ConditionEventRecord>> GetConditionHistoryAsync(System.Threading.CancellationToken cancellationToken = default)
+    public System.Collections.Generic.IReadOnlyList<Homeostat.Conditions.ConditionSnapshot> GetConditions()
+    public System.Threading.Tasks.ValueTask<Homeostat.Diagnostics.CoverageReport> GetCoverageAsync(System.DateTimeOffset since, System.Threading.CancellationToken cancellationToken = default)
+    public System.Threading.Tasks.ValueTask<System.Collections.Generic.IReadOnlyList<Homeostat.Persistence.HealingRunRecord>> GetRecentRunsAsync(System.Threading.CancellationToken cancellationToken = default)
+    public void Pause()
+    public void PauseUntil(System.DateTimeOffset until)
+    public void Resume()
+  public interface IHomeostatSwitches
+    public event System.EventHandler<Homeostat.SwitchChangedEventArgs>? Changed
+    public System.Collections.Generic.IReadOnlyCollection<string> GetActive()
+    public bool IsOn(string name)
+    public void TurnOff(string name)
+    public void TurnOn(string name)
+  public abstract class RestartableBackgroundService : Microsoft.Extensions.Hosting.BackgroundService
+    protected RestartableBackgroundService()
+    public bool IsIdle { get; }
+    public bool IsRunning { get; }
+    public System.Exception? LastError { get; }
+    public int Restarts { get; }
+    protected sealed override System.Threading.Tasks.Task ExecuteAsync(System.Threading.CancellationToken stoppingToken)
+    protected virtual void OnRunFaulted(System.Exception exception)
+    public System.Threading.Tasks.Task RestartAsync(System.Threading.CancellationToken cancellationToken = default)
+    protected abstract System.Threading.Tasks.Task RunAsync(System.Threading.CancellationToken stoppingToken)
+  public sealed class SwitchChangedEventArgs : System.EventArgs
+    public SwitchChangedEventArgs(string name, bool isOn)
+    public bool IsOn { get; }
+    public string Name { get; }
+namespace Homeostat.Conditions
+  public enum CompositeMode : int
+    All = 0
+    Any = 1
+  public sealed class ConditionBuilder
+    public Homeostat.Conditions.ConditionBuilder ClearAfter(System.TimeSpan duration)
+    public Homeostat.Conditions.ConditionBuilder ClearWhen(System.Func<Homeostat.Signals.Signal, bool> predicate)
+    public Homeostat.Conditions.ConditionBuilder ForSource(string source)
+    public Homeostat.Conditions.ConditionBuilder Heal(System.Action<Homeostat.Healing.HealingPlanBuilder> configure)
+    public Homeostat.Conditions.ConditionBuilder Occurrences(int count, System.TimeSpan within)
+    public Homeostat.Conditions.ConditionBuilder SuppressedBy(params string[] conditionNames)
+    public Homeostat.Conditions.ConditionBuilder SustainedFor(System.TimeSpan duration)
+    public Homeostat.Conditions.ConditionBuilder When(System.Func<Homeostat.Signals.Signal, bool> predicate)
+    public Homeostat.Conditions.ConditionBuilder WhenAllActive(params string[] conditionNames)
+    public Homeostat.Conditions.ConditionBuilder WhenAnomalouslyHigh(double zScore, System.TimeSpan window, int minimumHistory = 30)
+    public Homeostat.Conditions.ConditionBuilder WhenAnomalouslyLow(double zScore, System.TimeSpan window, int minimumHistory = 30)
+    public Homeostat.Conditions.ConditionBuilder WhenAnyActive(params string[] conditionNames)
+    public Homeostat.Conditions.ConditionBuilder WhenFallingFasterThan(double perMinute, System.TimeSpan window, int minimumSamples = 5)
+    public Homeostat.Conditions.ConditionBuilder WhenProjectedAbove(double threshold, System.TimeSpan within, System.TimeSpan window, int minimumSamples = 5)
+    public Homeostat.Conditions.ConditionBuilder WhenProjectedBelow(double threshold, System.TimeSpan within, System.TimeSpan window, int minimumSamples = 5)
+    public Homeostat.Conditions.ConditionBuilder WhenRisingFasterThan(double perMinute, System.TimeSpan window, int minimumSamples = 5)
+    public Homeostat.Conditions.ConditionBuilder WhenSeasonallyHigh(double zScore, Homeostat.Conditions.Seasonality seasonality, int minimumPeriods = 3)
+    public Homeostat.Conditions.ConditionBuilder WhenSeasonallyLow(double zScore, Homeostat.Conditions.Seasonality seasonality, int minimumPeriods = 3)
+    public Homeostat.Conditions.ConditionBuilder WhenSeverityAtLeast(Homeostat.Signals.SignalSeverity severity)
+    public Homeostat.Conditions.ConditionBuilder WhenValueAbove(double threshold)
+    public Homeostat.Conditions.ConditionBuilder WhenValueBelow(double threshold)
+    public Homeostat.Conditions.ConditionBuilder Where(System.Func<Homeostat.Signals.Signal, bool> filter)
+  public sealed record ConditionSnapshot
+    public ConditionSnapshot(string Name, Homeostat.Conditions.ConditionStatus Status, System.DateTimeOffset? PendingSince, System.DateTimeOffset? ActiveSince, System.DateTimeOffset? LastSignalAt, Homeostat.Signals.Signal? LastSignal)
+    public System.DateTimeOffset? ActiveSince { get; init; }
+    public System.DateTimeOffset? ClearingSince { get; init; }
+    public Homeostat.Signals.Signal? LastSignal { get; init; }
+    public System.DateTimeOffset? LastSignalAt { get; init; }
+    public string Name { get; init; }
+    public System.DateTimeOffset? PendingSince { get; init; }
+    public Homeostat.Conditions.ConditionStatus Status { get; init; }
+    public string? SuppressedBy { get; init; }
+    public void Deconstruct(out string Name, out Homeostat.Conditions.ConditionStatus Status, out System.DateTimeOffset? PendingSince, out System.DateTimeOffset? ActiveSince, out System.DateTimeOffset? LastSignalAt, out Homeostat.Signals.Signal? LastSignal)
+    public bool Equals(Homeostat.Conditions.ConditionSnapshot? other)
+    public override bool Equals(object? obj)
+    public override int GetHashCode()
+    public override string ToString()
+    public static bool op_Equality(Homeostat.Conditions.ConditionSnapshot? left, Homeostat.Conditions.ConditionSnapshot? right)
+    public static bool op_Inequality(Homeostat.Conditions.ConditionSnapshot? left, Homeostat.Conditions.ConditionSnapshot? right)
+  public enum ConditionStatus : int
+    Inactive = 0
+    Pending = 1
+    Active = 2
+  public sealed class Seasonality
+    public System.TimeSpan Bucket { get; }
+    public System.TimeSpan Period { get; }
+    public System.TimeZoneInfo TimeZone { get; }
+    public static Homeostat.Conditions.Seasonality Daily(System.TimeSpan? bucket = null, System.TimeZoneInfo? timeZone = null)
+    public override string ToString()
+    public static Homeostat.Conditions.Seasonality Weekly(System.TimeSpan? bucket = null, System.TimeZoneInfo? timeZone = null)
+namespace Homeostat.Consumers
+  public static class ConsumerSwitches
+    public static string Paused(string name)
+  public interface IHomeostatConsumers
+    public System.Collections.Generic.IReadOnlyCollection<string> Names { get; }
+    public bool IsPaused(string name)
+    public System.IDisposable Register(Homeostat.Consumers.IPausableConsumer consumer)
+  public interface IPausableConsumer
+    public string Name { get; }
+    public System.Threading.Tasks.Task PauseAsync(System.Threading.CancellationToken cancellationToken)
+    public System.Threading.Tasks.Task ResumeAsync(System.Threading.CancellationToken cancellationToken)
+  public sealed class PauseGate : Homeostat.Consumers.IPausableConsumer
+    public PauseGate(string name)
+    public bool IsPaused { get; }
+    public string Name { get; }
+    public System.Threading.Tasks.Task PauseAsync(System.Threading.CancellationToken cancellationToken)
+    public System.Threading.Tasks.Task ResumeAsync(System.Threading.CancellationToken cancellationToken)
+    public System.Threading.Tasks.Task WaitWhilePausedAsync(System.Threading.CancellationToken cancellationToken = default)
+namespace Homeostat.Coordination
+  public interface IHomeostatCoordinator
+    public System.Threading.Tasks.ValueTask<Homeostat.Coordination.IHomeostatLease?> TryAcquireAsync(string resource, System.TimeSpan duration, System.Threading.CancellationToken cancellationToken = default)
+  public interface IHomeostatLease : System.IAsyncDisposable
+    public System.Threading.CancellationToken Lost { get; }
+  public sealed class InMemoryCoordinator : Homeostat.Coordination.IHomeostatCoordinator
+    public InMemoryCoordinator()
+    public System.Threading.Tasks.ValueTask<Homeostat.Coordination.IHomeostatLease?> TryAcquireAsync(string resource, System.TimeSpan duration, System.Threading.CancellationToken cancellationToken = default)
+namespace Homeostat.Detectors
+  public sealed class ExceptionRateDetectorOptions
+    public ExceptionRateDetectorOptions()
+    public double DegradedPerSecond { get; set; }
+    public string Source { get; set; }
+    public double UnhealthyPerSecond { get; set; }
+  public interface ISignalDetector
+    public System.Threading.Tasks.ValueTask DetectAsync(Homeostat.Signals.ISignalPublisher signals, System.Threading.CancellationToken cancellationToken)
+  public sealed class MemoryPressureDetectorOptions
+    public MemoryPressureDetectorOptions()
+    public double DegradedLoad { get; set; }
+    public string Source { get; set; }
+    public double UnhealthyLoad { get; set; }
+  public sealed class ThreadPoolDetectorOptions
+    public ThreadPoolDetectorOptions()
+    public System.TimeSpan DegradedLatency { get; set; }
+    public string Source { get; set; }
+    public System.TimeSpan UnhealthyLatency { get; set; }
+namespace Homeostat.Diagnostics
+  public sealed record ConditionCoverage
+    public ConditionCoverage(string Name, bool HasPlan, int Activations, int Runs, System.Collections.Generic.IReadOnlyDictionary<string, int> Outcomes, System.Collections.Generic.IReadOnlyList<string> StepsRun, System.Collections.Generic.IReadOnlyList<string> StepsFailed, System.Collections.Generic.IReadOnlyList<string> StepsNeverRun, System.DateTimeOffset? LastRunAt)
+    public int Activations { get; init; }
+    public bool HasPlan { get; init; }
+    public System.DateTimeOffset? LastRunAt { get; init; }
+    public string Name { get; init; }
+    public System.Collections.Generic.IReadOnlyDictionary<string, int> Outcomes { get; init; }
+    public int Runs { get; init; }
+    public System.Collections.Generic.IReadOnlyList<string> StepsFailed { get; init; }
+    public System.Collections.Generic.IReadOnlyList<string> StepsNeverRun { get; init; }
+    public System.Collections.Generic.IReadOnlyList<string> StepsRun { get; init; }
+    public void Deconstruct(out string Name, out bool HasPlan, out int Activations, out int Runs, out System.Collections.Generic.IReadOnlyDictionary<string, int> Outcomes, out System.Collections.Generic.IReadOnlyList<string> StepsRun, out System.Collections.Generic.IReadOnlyList<string> StepsFailed, out System.Collections.Generic.IReadOnlyList<string> StepsNeverRun, out System.DateTimeOffset? LastRunAt)
+    public bool Equals(Homeostat.Diagnostics.ConditionCoverage? other)
+    public override bool Equals(object? obj)
+    public override int GetHashCode()
+    public override string ToString()
+    public static bool op_Equality(Homeostat.Diagnostics.ConditionCoverage? left, Homeostat.Diagnostics.ConditionCoverage? right)
+    public static bool op_Inequality(Homeostat.Diagnostics.ConditionCoverage? left, Homeostat.Diagnostics.ConditionCoverage? right)
+  public sealed record CoverageReport
+    public CoverageReport(System.DateTimeOffset Since, System.DateTimeOffset Until, System.Collections.Generic.IReadOnlyList<Homeostat.Diagnostics.ConditionCoverage> Conditions, bool Truncated = false)
+    public System.Collections.Generic.IReadOnlyList<Homeostat.Diagnostics.ConditionCoverage> Conditions { get; init; }
+    public System.Collections.Generic.IReadOnlyList<string> NeverActivated { get; }
+    public System.Collections.Generic.IReadOnlyList<string> PlansNeverRun { get; }
+    public System.DateTimeOffset Since { get; init; }
+    public double StepCoverage { get; }
+    public bool Truncated { get; init; }
+    public System.DateTimeOffset Until { get; init; }
+    public void Deconstruct(out System.DateTimeOffset Since, out System.DateTimeOffset Until, out System.Collections.Generic.IReadOnlyList<Homeostat.Diagnostics.ConditionCoverage> Conditions, out bool Truncated)
+    public bool Equals(Homeostat.Diagnostics.CoverageReport? other)
+    public override bool Equals(object? obj)
+    public override int GetHashCode()
+    public override string ToString()
+    public static bool op_Equality(Homeostat.Diagnostics.CoverageReport? left, Homeostat.Diagnostics.CoverageReport? right)
+    public static bool op_Inequality(Homeostat.Diagnostics.CoverageReport? left, Homeostat.Diagnostics.CoverageReport? right)
+  public static class HomeostatDiagnostics
+    public const string Name = "Homeostat"
+namespace Homeostat.Guardrails
+  public sealed record ActionBudgetStatus
+    public ActionBudgetStatus(int Used, int Limit, System.TimeSpan Window)
+    public bool IsExhausted { get; }
+    public int Limit { get; init; }
+    public int Remaining { get; }
+    public int Used { get; init; }
+    public System.TimeSpan Window { get; init; }
+    public void Deconstruct(out int Used, out int Limit, out System.TimeSpan Window)
+    public bool Equals(Homeostat.Guardrails.ActionBudgetStatus? other)
+    public override bool Equals(object? obj)
+    public override int GetHashCode()
+    public override string ToString()
+    public static bool op_Equality(Homeostat.Guardrails.ActionBudgetStatus? left, Homeostat.Guardrails.ActionBudgetStatus? right)
+    public static bool op_Inequality(Homeostat.Guardrails.ActionBudgetStatus? left, Homeostat.Guardrails.ActionBudgetStatus? right)
+  public sealed class MaintenanceWindow
+    public System.Collections.Generic.IReadOnlyCollection<System.DayOfWeek> Days { get; }
+    public System.TimeSpan Duration { get; }
+    public string Name { get; }
+    public System.TimeOnly Start { get; }
+    public System.TimeZoneInfo TimeZone { get; }
+    public Homeostat.Guardrails.MaintenanceWindow Daily(System.TimeOnly start, System.TimeSpan duration)
+    public Homeostat.Guardrails.MaintenanceWindow InTimeZone(System.TimeZoneInfo timeZone)
+    public bool IsActive(System.DateTimeOffset now)
+    public Homeostat.Guardrails.MaintenanceWindow On(params System.DayOfWeek[] days)
+namespace Homeostat.Healing
+  public sealed record ApprovalResolution
+    public ApprovalResolution(Homeostat.Healing.PendingApproval Request, Homeostat.Healing.ApprovalStatus Status, string? ResolvedBy, System.DateTimeOffset ResolvedAt)
+    public Homeostat.Healing.PendingApproval Request { get; init; }
+    public System.DateTimeOffset ResolvedAt { get; init; }
+    public string? ResolvedBy { get; init; }
+    public Homeostat.Healing.ApprovalStatus Status { get; init; }
+    public void Deconstruct(out Homeostat.Healing.PendingApproval Request, out Homeostat.Healing.ApprovalStatus Status, out string? ResolvedBy, out System.DateTimeOffset ResolvedAt)
+    public bool Equals(Homeostat.Healing.ApprovalResolution? other)
+    public override bool Equals(object? obj)
+    public override int GetHashCode()
+    public override string ToString()
+    public static bool op_Equality(Homeostat.Healing.ApprovalResolution? left, Homeostat.Healing.ApprovalResolution? right)
+    public static bool op_Inequality(Homeostat.Healing.ApprovalResolution? left, Homeostat.Healing.ApprovalResolution? right)
+  public enum ApprovalStatus : int
+    Approved = 1
+    Rejected = 2
+    Expired = 3
+    Cancelled = 4
+  public sealed class ConditionClearedVerifier : Homeostat.Healing.IHealingVerifier
+    public ConditionClearedVerifier(System.TimeProvider timeProvider, Microsoft.Extensions.Options.IOptions<Homeostat.HomeostatOptions> options)
+    public System.Threading.Tasks.Task<Homeostat.Healing.VerificationOutcome> VerifyAsync(Homeostat.Healing.HealingContext context, System.TimeSpan timeout, System.Threading.CancellationToken cancellationToken)
+  public sealed class HealingContext
+    public System.DateTimeOffset? ActionCompletedAt { get; }
+    public string ConditionName { get; }
+    public System.IServiceProvider Services { get; }
+    public System.DateTimeOffset StartedAt { get; }
+    public int Step { get; }
+    public string StepName { get; }
+    public Homeostat.Signals.Signal TriggeringSignal { get; }
+    public Homeostat.Conditions.ConditionSnapshot GetConditionState()
+  public sealed class HealingPlanBuilder
+    public Homeostat.Healing.HealingPlanBuilder ActionTimeout(System.TimeSpan timeout)
+    public Homeostat.Healing.HealingPlanBuilder Adaptive(int minimumAttempts = 5)
+    public Homeostat.Healing.HealingPlanBuilder Cooldown(System.TimeSpan cooldown)
+    public Homeostat.Healing.HealingPlanBuilder CooldownBackoff(double multiplier, System.TimeSpan max)
+    public Homeostat.Healing.HealingPlanBuilder OncePerCluster()
+    public Homeostat.Healing.HealingPlanBuilder ReloadConfiguration()
+    public Homeostat.Healing.HealingPlanBuilder RequireApproval(System.TimeSpan? timeout = null)
+    public Homeostat.Healing.HealingPlanBuilder RestartApplication(int exitCode = 1, bool requireApproval = true, Homeostat.Healing.RestartLimits? limits = null)
+    public Homeostat.Healing.HealingPlanBuilder RestartHostedService<TService>() where TService : class, Microsoft.Extensions.Hosting.IHostedService
+    public Homeostat.Healing.HealingPlanBuilder Then(string name, System.Action<System.IServiceProvider> action)
+    public Homeostat.Healing.HealingPlanBuilder Then(string name, System.Func<Homeostat.Healing.HealingContext, System.Threading.CancellationToken, System.Threading.Tasks.Task> action)
+    public Homeostat.Healing.HealingPlanBuilder Then(string name, System.Func<System.IServiceProvider, System.Threading.Tasks.Task> action)
+    public Homeostat.Healing.HealingPlanBuilder Then<TAction>() where TAction : class, Homeostat.Healing.IHealingAction
+    public Homeostat.Healing.HealingPlanBuilder TurnOnSwitch(string switchName, bool turnOffWhenCleared = false)
+    public Homeostat.Healing.HealingPlanBuilder UndoWith(string name, System.Func<Homeostat.Healing.HealingContext, System.Threading.CancellationToken, System.Threading.Tasks.Task> action)
+    public Homeostat.Healing.HealingPlanBuilder UndoWith<TAction>() where TAction : class, Homeostat.Healing.IHealingAction
+    public Homeostat.Healing.HealingPlanBuilder VerificationTimeout(System.TimeSpan timeout)
+    public Homeostat.Healing.HealingPlanBuilder VerifyWith<TVerifier>() where TVerifier : class, Homeostat.Healing.IHealingVerifier
+    public Homeostat.Healing.HealingPlanBuilder With(string name, System.Action<System.IServiceProvider> action)
+    public Homeostat.Healing.HealingPlanBuilder With(string name, System.Func<Homeostat.Healing.HealingContext, System.Threading.CancellationToken, System.Threading.Tasks.Task> action)
+    public Homeostat.Healing.HealingPlanBuilder With(string name, System.Func<System.IServiceProvider, System.Threading.Tasks.Task> action)
+    public Homeostat.Healing.HealingPlanBuilder With<TAction>() where TAction : class, Homeostat.Healing.IHealingAction
+  public enum HealingRunOutcome : int
+    Healed = 1
+    NotHealed = 2
+    Inconclusive = 3
+    DryRun = 4
+    BudgetExhausted = 5
+    Paused = 6
+    NotApproved = 7
+    Suppressed = 8
+    ConditionCleared = 9
+    Cancelled = 10
+    Failed = 11
+  public sealed record HealingRunResult
+    public HealingRunResult(string ConditionName, Homeostat.Healing.HealingRunOutcome Outcome, System.Collections.Generic.IReadOnlyList<Homeostat.Healing.HealingStepResult> Steps, System.DateTimeOffset StartedAt, System.DateTimeOffset CompletedAt)
+    public System.DateTimeOffset CompletedAt { get; init; }
+    public string ConditionName { get; init; }
+    public Homeostat.Healing.HealingRunOutcome Outcome { get; init; }
+    public System.DateTimeOffset StartedAt { get; init; }
+    public System.Collections.Generic.IReadOnlyList<Homeostat.Healing.HealingStepResult> Steps { get; init; }
+    public void Deconstruct(out string ConditionName, out Homeostat.Healing.HealingRunOutcome Outcome, out System.Collections.Generic.IReadOnlyList<Homeostat.Healing.HealingStepResult> Steps, out System.DateTimeOffset StartedAt, out System.DateTimeOffset CompletedAt)
+    public bool Equals(Homeostat.Healing.HealingRunResult? other)
+    public override bool Equals(object? obj)
+    public override int GetHashCode()
+    public override string ToString()
+    public static bool op_Equality(Homeostat.Healing.HealingRunResult? left, Homeostat.Healing.HealingRunResult? right)
+    public static bool op_Inequality(Homeostat.Healing.HealingRunResult? left, Homeostat.Healing.HealingRunResult? right)
+  public sealed record HealingStepResult
+    public HealingStepResult(string ConditionName, int Step, string Name, bool Succeeded, Homeostat.Healing.VerificationOutcome? Verification, System.Exception? Error, bool? UndoSucceeded = null)
+    public string ConditionName { get; init; }
+    public System.Exception? Error { get; init; }
+    public string Name { get; init; }
+    public int Step { get; init; }
+    public bool Succeeded { get; init; }
+    public bool? UndoSucceeded { get; init; }
+    public Homeostat.Healing.VerificationOutcome? Verification { get; init; }
+    public void Deconstruct(out string ConditionName, out int Step, out string Name, out bool Succeeded, out Homeostat.Healing.VerificationOutcome? Verification, out System.Exception? Error, out bool? UndoSucceeded)
+    public bool Equals(Homeostat.Healing.HealingStepResult? other)
+    public override bool Equals(object? obj)
+    public override int GetHashCode()
+    public override string ToString()
+    public static bool op_Equality(Homeostat.Healing.HealingStepResult? left, Homeostat.Healing.HealingStepResult? right)
+    public static bool op_Inequality(Homeostat.Healing.HealingStepResult? left, Homeostat.Healing.HealingStepResult? right)
+  public interface IHealingAction
+    public System.Threading.Tasks.Task ExecuteAsync(Homeostat.Healing.HealingContext context, System.Threading.CancellationToken cancellationToken)
+  public interface IHealingVerifier
+    public System.Threading.Tasks.Task<Homeostat.Healing.VerificationOutcome> VerifyAsync(Homeostat.Healing.HealingContext context, System.TimeSpan timeout, System.Threading.CancellationToken cancellationToken)
+  public sealed record PendingApproval
+    public PendingApproval(string Id, string ConditionName, int Step, string StepName, System.DateTimeOffset RequestedAt, System.DateTimeOffset ExpiresAt, Homeostat.Signals.Signal TriggeringSignal)
+    public string ConditionName { get; init; }
+    public System.DateTimeOffset ExpiresAt { get; init; }
+    public string Id { get; init; }
+    public System.DateTimeOffset RequestedAt { get; init; }
+    public int Step { get; init; }
+    public string StepName { get; init; }
+    public Homeostat.Signals.Signal TriggeringSignal { get; init; }
+    public void Deconstruct(out string Id, out string ConditionName, out int Step, out string StepName, out System.DateTimeOffset RequestedAt, out System.DateTimeOffset ExpiresAt, out Homeostat.Signals.Signal TriggeringSignal)
+    public bool Equals(Homeostat.Healing.PendingApproval? other)
+    public override bool Equals(object? obj)
+    public override int GetHashCode()
+    public override string ToString()
+    public static bool op_Equality(Homeostat.Healing.PendingApproval? left, Homeostat.Healing.PendingApproval? right)
+    public static bool op_Inequality(Homeostat.Healing.PendingApproval? left, Homeostat.Healing.PendingApproval? right)
+  public enum PlanScope : int
+    Instance = 0
+    Cluster = 1
+  public static class RestartGuard
+    public static System.Threading.Tasks.Task EnsureAllowedAsync(Homeostat.Healing.HealingContext context, Homeostat.Healing.RestartLimits limits, System.Threading.CancellationToken cancellationToken)
+  public sealed record RestartLimits
+    public RestartLimits(System.TimeSpan MinimumUptime, int MaxRestarts, System.TimeSpan Window)
+    public static Homeostat.Healing.RestartLimits Default { get; }
+    public int MaxRestarts { get; init; }
+    public System.TimeSpan MinimumUptime { get; init; }
+    public System.TimeSpan Window { get; init; }
+    public void Deconstruct(out System.TimeSpan MinimumUptime, out int MaxRestarts, out System.TimeSpan Window)
+    public bool Equals(Homeostat.Healing.RestartLimits? other)
+    public override bool Equals(object? obj)
+    public override int GetHashCode()
+    public override string ToString()
+    public static bool op_Equality(Homeostat.Healing.RestartLimits? left, Homeostat.Healing.RestartLimits? right)
+    public static bool op_Inequality(Homeostat.Healing.RestartLimits? left, Homeostat.Healing.RestartLimits? right)
+  public enum VerificationOutcome : int
+    Healed = 1
+    NotHealed = 2
+    Inconclusive = 3
+namespace Homeostat.Metrics
+  public sealed class EventCounterSignalOptions
+    public EventCounterSignalOptions()
+    public double? DegradedAbove { get; set; }
+    public double? DegradedBelow { get; set; }
+    public int IntervalSeconds { get; set; }
+    public string? Source { get; set; }
+    public System.Func<double, double>? Transform { get; set; }
+    public double? UnhealthyAbove { get; set; }
+    public double? UnhealthyBelow { get; set; }
+  public sealed class MetricSignalBuilder
+    public Homeostat.Metrics.MetricSignalBuilder DegradedAbove(double value)
+    public Homeostat.Metrics.MetricSignalBuilder DegradedBelow(double value)
+    public Homeostat.Metrics.MetricSignalBuilder FromMeter(string meterName)
+    public Homeostat.Metrics.MetricSignalBuilder MinimumCount(int count)
+    public Homeostat.Metrics.MetricSignalBuilder RatioOf(System.Func<double, System.Collections.Generic.IReadOnlyDictionary<string, object?>, bool> match)
+    public Homeostat.Metrics.MetricSignalBuilder Source(string source)
+    public Homeostat.Metrics.MetricSignalBuilder Statistic(Homeostat.Metrics.MetricStatistic statistic)
+    public Homeostat.Metrics.MetricSignalBuilder UnhealthyAbove(double value)
+    public Homeostat.Metrics.MetricSignalBuilder UnhealthyBelow(double value)
+    public Homeostat.Metrics.MetricSignalBuilder Where(System.Func<System.Collections.Generic.IReadOnlyDictionary<string, object?>, bool> predicate)
+    public Homeostat.Metrics.MetricSignalBuilder Where(string tag, object? value)
+  public enum MetricStatistic : int
+    Mean = 0
+    Min = 1
+    Max = 2
+    Sum = 3
+    Count = 4
+    Rate = 5
+    CountRate = 6
+    P50 = 7
+    P90 = 8
+    P95 = 9
+    P99 = 10
+    Last = 11
+    Ratio = 12
+namespace Homeostat.Notifications
+  public sealed class AuditLogOptions
+    public AuditLogOptions()
+    public System.Collections.Generic.ISet<Homeostat.Notifications.HomeostatEventKind> Events { get; }
+    public string Path { get; set; }
+  public sealed record HomeostatEvent
+    public HomeostatEvent(Homeostat.Notifications.HomeostatEventKind Kind, System.DateTimeOffset Timestamp, string Application, string Condition, string Summary)
+    public string Application { get; init; }
+    public string? ApprovalId { get; init; }
+    public string? By { get; init; }
+    public string Condition { get; init; }
+    public string? Error { get; init; }
+    public System.DateTimeOffset? ExpiresAt { get; init; }
+    public Homeostat.Notifications.HomeostatEventKind Kind { get; init; }
+    public string? Outcome { get; init; }
+    public string? Step { get; init; }
+    public string Summary { get; init; }
+    public System.DateTimeOffset Timestamp { get; init; }
+    public void Deconstruct(out Homeostat.Notifications.HomeostatEventKind Kind, out System.DateTimeOffset Timestamp, out string Application, out string Condition, out string Summary)
+    public bool Equals(Homeostat.Notifications.HomeostatEvent? other)
+    public override bool Equals(object? obj)
+    public override int GetHashCode()
+    public override string ToString()
+    public static bool op_Equality(Homeostat.Notifications.HomeostatEvent? left, Homeostat.Notifications.HomeostatEvent? right)
+    public static bool op_Inequality(Homeostat.Notifications.HomeostatEvent? left, Homeostat.Notifications.HomeostatEvent? right)
+  public enum HomeostatEventKind : int
+    ConditionActivated = 0
+    ConditionCleared = 1
+    StepCompleted = 2
+    RunCompleted = 3
+    ApprovalRequested = 4
+    ApprovalResolved = 5
+  public abstract class HomeostatEventSink : Microsoft.Extensions.Hosting.BackgroundService, Homeostat.IHealingObserver, Microsoft.Extensions.Hosting.IHostedLifecycleService
+    protected HomeostatEventSink(string application, System.Collections.Generic.IEnumerable<Homeostat.Notifications.HomeostatEventKind> kinds, System.TimeProvider timeProvider, Microsoft.Extensions.Logging.ILogger logger)
+    protected bool IsStopping { get; }
+    protected Microsoft.Extensions.Logging.ILogger Logger { get; }
+    protected sealed override System.Threading.Tasks.Task ExecuteAsync(System.Threading.CancellationToken stoppingToken)
+    public void OnApprovalRequested(Homeostat.Healing.PendingApproval approval)
+    public void OnApprovalResolved(Homeostat.Healing.ApprovalResolution resolution)
+    public void OnConditionActivated(Homeostat.Conditions.ConditionSnapshot condition)
+    public void OnConditionCleared(Homeostat.Conditions.ConditionSnapshot condition)
+    public void OnRunCompleted(Homeostat.Healing.HealingRunResult run)
+    public void OnStepCompleted(Homeostat.Healing.HealingStepResult step)
+    public sealed override System.Threading.Tasks.Task StopAsync(System.Threading.CancellationToken cancellationToken)
+    protected abstract System.Threading.Tasks.Task WriteAsync(Homeostat.Notifications.HomeostatEvent homeostatEvent, System.Threading.CancellationToken cancellationToken)
+namespace Homeostat.Persistence
+  public enum ConditionEventKind : int
+    Activated = 0
+    Cleared = 1
+  public sealed record ConditionEventRecord
+    public ConditionEventRecord()
+    public System.DateTimeOffset At { get; init; }
+    public string ConditionName { get; init; }
+    public string Instance { get; init; }
+    public Homeostat.Persistence.ConditionEventKind Kind { get; init; }
+    public string? Message { get; init; }
+    public Homeostat.Signals.SignalSeverity? Severity { get; init; }
+    public string? Source { get; init; }
+    public double? Value { get; init; }
+    public bool Equals(Homeostat.Persistence.ConditionEventRecord? other)
+    public override bool Equals(object? obj)
+    public override int GetHashCode()
+    public override string ToString()
+    public static bool op_Equality(Homeostat.Persistence.ConditionEventRecord? left, Homeostat.Persistence.ConditionEventRecord? right)
+    public static bool op_Inequality(Homeostat.Persistence.ConditionEventRecord? left, Homeostat.Persistence.ConditionEventRecord? right)
+  public enum FailureCountChange : int
+    Keep = 0
+    Increment = 1
+    Reset = 2
+  public sealed class FileHomeostatStore : Homeostat.Persistence.InMemoryHomeostatStore
+    public FileHomeostatStore(string path)
+    public string Path { get; }
+  public sealed record HealingRunRecord
+    public HealingRunRecord()
+    public System.DateTimeOffset CompletedAt { get; init; }
+    public string ConditionName { get; init; }
+    public string Instance { get; init; }
+    public Homeostat.Healing.HealingRunOutcome Outcome { get; init; }
+    public System.DateTimeOffset StartedAt { get; init; }
+    public System.Collections.Generic.IReadOnlyList<Homeostat.Persistence.HealingStepRecord> Steps { get; init; }
+    public bool Equals(Homeostat.Persistence.HealingRunRecord? other)
+    public override bool Equals(object? obj)
+    public static Homeostat.Persistence.HealingRunRecord From(Homeostat.Healing.HealingRunResult run, string instance)
+    public override int GetHashCode()
+    public override string ToString()
+    public static bool op_Equality(Homeostat.Persistence.HealingRunRecord? left, Homeostat.Persistence.HealingRunRecord? right)
+    public static bool op_Inequality(Homeostat.Persistence.HealingRunRecord? left, Homeostat.Persistence.HealingRunRecord? right)
+  public sealed record HealingStepRecord
+    public HealingStepRecord()
+    public string? Error { get; init; }
+    public string Name { get; init; }
+    public bool Succeeded { get; init; }
+    public bool? UndoSucceeded { get; init; }
+    public Homeostat.Healing.VerificationOutcome? Verification { get; init; }
+    public bool Equals(Homeostat.Persistence.HealingStepRecord? other)
+    public override bool Equals(object? obj)
+    public override int GetHashCode()
+    public override string ToString()
+    public static bool op_Equality(Homeostat.Persistence.HealingStepRecord? left, Homeostat.Persistence.HealingStepRecord? right)
+    public static bool op_Inequality(Homeostat.Persistence.HealingStepRecord? left, Homeostat.Persistence.HealingStepRecord? right)
+  public interface IHomeostatStore
+    public default bool SupportsConditionHistory { get; }
+    public default System.Threading.Tasks.ValueTask AppendConditionEventAsync(Homeostat.Persistence.ConditionEventRecord conditionEvent, int maxEvents, System.Threading.CancellationToken cancellationToken = default)
+    public System.Threading.Tasks.ValueTask AppendRunAsync(Homeostat.Persistence.HealingRunRecord run, int maxRuns, System.Threading.CancellationToken cancellationToken = default)
+    public System.Threading.Tasks.ValueTask<int> GetBudgetUsedAsync(System.DateTimeOffset now, System.TimeSpan window, System.Threading.CancellationToken cancellationToken = default)
+    public default System.Threading.Tasks.ValueTask<System.Collections.Generic.IReadOnlyList<Homeostat.Persistence.ConditionEventRecord>> GetConditionEventsAsync(int maxEvents, System.Threading.CancellationToken cancellationToken = default)
+    public default System.Threading.Tasks.ValueTask<string?> GetDocumentAsync(string key, System.Threading.CancellationToken cancellationToken = default)
+    public System.Threading.Tasks.ValueTask<Homeostat.Persistence.PlanState> GetPlanStateAsync(string key, System.Threading.CancellationToken cancellationToken = default)
+    public System.Threading.Tasks.ValueTask<System.Collections.Generic.IReadOnlyList<Homeostat.Persistence.HealingRunRecord>> GetRecentRunsAsync(int maxRuns, System.Threading.CancellationToken cancellationToken = default)
+    public default System.Threading.Tasks.ValueTask SetDocumentAsync(string key, string document, System.Threading.CancellationToken cancellationToken = default)
+    public System.Threading.Tasks.ValueTask<bool> TryConsumeBudgetAsync(System.DateTimeOffset now, int limit, System.TimeSpan window, System.Threading.CancellationToken cancellationToken = default)
+    public System.Threading.Tasks.ValueTask<Homeostat.Persistence.PlanState> UpdatePlanStateAsync(string key, Homeostat.Persistence.PlanStateUpdate update, System.Threading.CancellationToken cancellationToken = default)
+  public class InMemoryHomeostatStore : Homeostat.Persistence.IHomeostatStore
+    public InMemoryHomeostatStore()
+    public bool SupportsConditionHistory { get; }
+    public System.Threading.Tasks.ValueTask AppendConditionEventAsync(Homeostat.Persistence.ConditionEventRecord conditionEvent, int maxEvents, System.Threading.CancellationToken cancellationToken = default)
+    public System.Threading.Tasks.ValueTask AppendRunAsync(Homeostat.Persistence.HealingRunRecord run, int maxRuns, System.Threading.CancellationToken cancellationToken = default)
+    public System.Threading.Tasks.ValueTask<int> GetBudgetUsedAsync(System.DateTimeOffset now, System.TimeSpan window, System.Threading.CancellationToken cancellationToken = default)
+    public System.Threading.Tasks.ValueTask<System.Collections.Generic.IReadOnlyList<Homeostat.Persistence.ConditionEventRecord>> GetConditionEventsAsync(int maxEvents, System.Threading.CancellationToken cancellationToken = default)
+    public System.Threading.Tasks.ValueTask<string?> GetDocumentAsync(string key, System.Threading.CancellationToken cancellationToken = default)
+    public System.Threading.Tasks.ValueTask<Homeostat.Persistence.PlanState> GetPlanStateAsync(string key, System.Threading.CancellationToken cancellationToken = default)
+    public System.Threading.Tasks.ValueTask<System.Collections.Generic.IReadOnlyList<Homeostat.Persistence.HealingRunRecord>> GetRecentRunsAsync(int maxRuns, System.Threading.CancellationToken cancellationToken = default)
+    public System.Threading.Tasks.ValueTask SetDocumentAsync(string key, string document, System.Threading.CancellationToken cancellationToken = default)
+    public System.Threading.Tasks.ValueTask<bool> TryConsumeBudgetAsync(System.DateTimeOffset now, int limit, System.TimeSpan window, System.Threading.CancellationToken cancellationToken = default)
+    public System.Threading.Tasks.ValueTask<Homeostat.Persistence.PlanState> UpdatePlanStateAsync(string key, Homeostat.Persistence.PlanStateUpdate update, System.Threading.CancellationToken cancellationToken = default)
+  public sealed record PlanState
+    public PlanState()
+    public int ConsecutiveFailures { get; init; }
+    public static Homeostat.Persistence.PlanState Empty { get; }
+    public bool Held { get; init; }
+    public string? LastRunBy { get; init; }
+    public System.DateTimeOffset? LastRunEndedAt { get; init; }
+    public bool Equals(Homeostat.Persistence.PlanState? other)
+    public override bool Equals(object? obj)
+    public override int GetHashCode()
+    public override string ToString()
+    public static bool op_Equality(Homeostat.Persistence.PlanState? left, Homeostat.Persistence.PlanState? right)
+    public static bool op_Inequality(Homeostat.Persistence.PlanState? left, Homeostat.Persistence.PlanState? right)
+  public sealed record PlanStateUpdate
+    public PlanStateUpdate()
+    public Homeostat.Persistence.FailureCountChange Failures { get; init; }
+    public bool? Held { get; init; }
+    public string? LastRunBy { get; init; }
+    public System.DateTimeOffset? LastRunEndedAt { get; init; }
+    public string? OnlyIfLastRunBy { get; init; }
+    public Homeostat.Persistence.PlanState ApplyTo(Homeostat.Persistence.PlanState state)
+    public bool Equals(Homeostat.Persistence.PlanStateUpdate? other)
+    public override bool Equals(object? obj)
+    public override int GetHashCode()
+    public override string ToString()
+    public static bool op_Equality(Homeostat.Persistence.PlanStateUpdate? left, Homeostat.Persistence.PlanStateUpdate? right)
+    public static bool op_Inequality(Homeostat.Persistence.PlanStateUpdate? left, Homeostat.Persistence.PlanStateUpdate? right)
+namespace Homeostat.Probes
+  public class ProbeOptions
+    public ProbeOptions()
+    public double? DegradedAbove { get; set; }
+    public double? DegradedBelow { get; set; }
+    public Homeostat.Signals.SignalSeverity FailureSeverity { get; set; }
+    public System.TimeSpan? Interval { get; set; }
+    public string? Origin { get; set; }
+    public System.TimeSpan Timeout { get; set; }
+    public double? UnhealthyAbove { get; set; }
+    public double? UnhealthyBelow { get; set; }
+    public void CopyTo(Homeostat.Probes.ProbeOptions target)
+namespace Homeostat.Recording
+  public sealed record RecordedSignal
+    public RecordedSignal(System.DateTimeOffset Timestamp, string Source, Homeostat.Signals.SignalSeverity Severity, double? Value = null, string? Message = null, System.Collections.Generic.IReadOnlyDictionary<string, string>? Tags = null, string? Instance = null)
+    public string? Instance { get; init; }
+    public string? Message { get; init; }
+    public Homeostat.Signals.SignalSeverity Severity { get; init; }
+    public string Source { get; init; }
+    public System.Collections.Generic.IReadOnlyDictionary<string, string>? Tags { get; init; }
+    public System.DateTimeOffset Timestamp { get; init; }
+    public double? Value { get; init; }
+    public void Deconstruct(out System.DateTimeOffset Timestamp, out string Source, out Homeostat.Signals.SignalSeverity Severity, out double? Value, out string? Message, out System.Collections.Generic.IReadOnlyDictionary<string, string>? Tags, out string? Instance)
+    public bool Equals(Homeostat.Recording.RecordedSignal? other)
+    public override bool Equals(object? obj)
+    public override int GetHashCode()
+    public static System.Collections.Generic.IEnumerable<Homeostat.Recording.RecordedSignal> Read(string path)
+    public Homeostat.Signals.Signal ToSignal()
+    public override string ToString()
+    public static bool op_Equality(Homeostat.Recording.RecordedSignal? left, Homeostat.Recording.RecordedSignal? right)
+    public static bool op_Inequality(Homeostat.Recording.RecordedSignal? left, Homeostat.Recording.RecordedSignal? right)
+  public sealed class SignalRecordingOptions
+    public SignalRecordingOptions()
+    public int BufferCapacity { get; set; }
+    public bool IncludeDetails { get; set; }
+    public string Path { get; set; }
+    public int RetentionDays { get; set; }
+    public System.Collections.Generic.ISet<string> Sources { get; }
+namespace Homeostat.Signals
+  public interface ISignalPublisher
+    public bool TryPublish(Homeostat.Signals.Signal signal)
+    public default bool TryPublish(string source, Homeostat.Signals.SignalSeverity severity, string? message = null)
+  public sealed record Signal
+    public Signal(string Source, Homeostat.Signals.SignalSeverity Severity, System.DateTimeOffset Timestamp)
+    public string? Message { get; init; }
+    public Homeostat.Signals.SignalSeverity Severity { get; init; }
+    public string Source { get; init; }
+    public System.Collections.Generic.IReadOnlyDictionary<string, string>? Tags { get; init; }
+    public System.DateTimeOffset Timestamp { get; init; }
+    public double? Value { get; init; }
+    public void Deconstruct(out string Source, out Homeostat.Signals.SignalSeverity Severity, out System.DateTimeOffset Timestamp)
+    public bool Equals(Homeostat.Signals.Signal? other)
+    public override bool Equals(object? obj)
+    public override int GetHashCode()
+    public override string ToString()
+    public static bool op_Equality(Homeostat.Signals.Signal? left, Homeostat.Signals.Signal? right)
+    public static bool op_Inequality(Homeostat.Signals.Signal? left, Homeostat.Signals.Signal? right)
+  public enum SignalSeverity : int
+    Healthy = 0
+    Degraded = 1
+    Unhealthy = 2

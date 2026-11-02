@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Text.Json.Nodes;
 using Homeostat.Healing;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -31,7 +32,7 @@ internal static class KubernetesActions
             api.PodName, api.Namespace, context.ConditionName);
         await api.DeleteAsync(
             podPath,
-            new Dictionary<string, object> { ["apiVersion"] = "v1", ["kind"] = "DeleteOptions", ["gracePeriodSeconds"] = gracePeriodSeconds },
+            new JsonObject { ["apiVersion"] = "v1", ["kind"] = "DeleteOptions", ["gracePeriodSeconds"] = gracePeriodSeconds },
             cancellationToken).ConfigureAwait(false);
     }
 
@@ -45,15 +46,15 @@ internal static class KubernetesActions
         // What "kubectl rollout restart" does: a new pod template annotation makes the deployment replace its pods.
         await api.PatchAsync(
             $"/apis/apps/v1/namespaces/{Segment(api.Namespace)}/deployments/{Segment(deployment)}",
-            new
+            new JsonObject
             {
-                spec = new
+                ["spec"] = new JsonObject
                 {
-                    template = new
+                    ["template"] = new JsonObject
                     {
-                        metadata = new
+                        ["metadata"] = new JsonObject
                         {
-                            annotations = new Dictionary<string, string>
+                            ["annotations"] = new JsonObject
                             {
                                 // Sub-second precision: two restarts in the same second still roll out twice.
                                 ["kubectl.kubernetes.io/restartedAt"] = now.ToString("yyyy-MM-dd'T'HH:mm:ss.fffffffK", CultureInfo.InvariantCulture),
@@ -86,9 +87,12 @@ internal static class KubernetesActions
 
         // resourceVersion makes the change conditional: a concurrent change answers 409 instead of being overwritten.
         var resourceVersion = scale?["metadata"]?["resourceVersion"]?.GetValue<string>();
-        object patch = resourceVersion is null
-            ? new { spec = new { replicas = target } }
-            : new { metadata = new { resourceVersion }, spec = new { replicas = target } };
+        var patch = new JsonObject { ["spec"] = new JsonObject { ["replicas"] = target } };
+        if (resourceVersion is not null)
+        {
+            patch["metadata"] = new JsonObject { ["resourceVersion"] = resourceVersion };
+        }
+
         await api.PatchAsync(path, patch, "application/merge-patch+json", cancellationToken).ConfigureAwait(false);
     }
 
@@ -110,7 +114,7 @@ internal static class KubernetesActions
             unschedulable ? "Cordoning" : "Uncordoning", api.NodeName, context.ConditionName);
         await api.PatchAsync(
             $"/api/v1/nodes/{Segment(api.NodeName)}",
-            new { spec = new { unschedulable } },
+            new JsonObject { ["spec"] = new JsonObject { ["unschedulable"] = unschedulable } },
             "application/merge-patch+json",
             cancellationToken).ConfigureAwait(false);
     }

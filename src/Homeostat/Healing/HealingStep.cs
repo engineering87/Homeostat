@@ -1,7 +1,7 @@
 namespace Homeostat.Healing;
 
 /// <summary>One step of a <see cref="HealingPlan"/>: a named action resolved when the step runs.</summary>
-public sealed class HealingStep
+internal sealed class HealingStep
 {
     internal HealingStep(string name, Func<IServiceProvider, IHealingAction> resolve)
     {

@@ -1,0 +1,66 @@
+namespace Homeostat
+  public static class HomeostatHttpClientBuilderExtensions
+    public static Microsoft.Extensions.DependencyInjection.IHttpClientBuilder AddHomeostatSignals(this Microsoft.Extensions.DependencyInjection.IHttpClientBuilder builder, System.Action<Homeostat.Http.HttpClientSignalOptions>? configure = null)
+  public static class HomeostatIncidentExtensions
+    public static Homeostat.HomeostatBuilder AddOpsgenieAlerts(this Homeostat.HomeostatBuilder builder, System.Action<Homeostat.Http.OpsgenieOptions> configure)
+    public static Homeostat.HomeostatBuilder AddPagerDutyIncidents(this Homeostat.HomeostatBuilder builder, System.Action<Homeostat.Http.PagerDutyOptions> configure)
+    public static Homeostat.HomeostatBuilder AddSlackNotifications(this Homeostat.HomeostatBuilder builder, System.Action<Homeostat.Http.SlackOptions> configure)
+    public static Homeostat.HomeostatBuilder AddTeamsNotifications(this Homeostat.HomeostatBuilder builder, System.Action<Homeostat.Http.TeamsOptions> configure)
+  public static class HomeostatWebhookExtensions
+    public static Homeostat.HomeostatBuilder AddWebhookNotifications(this Homeostat.HomeostatBuilder builder, System.Action<Homeostat.Http.WebhookOptions> configure)
+namespace Homeostat.Http
+  public abstract class ChatOptions
+    protected ChatOptions()
+    public System.Uri? DashboardUrl { get; set; }
+    public System.Collections.Generic.ISet<Homeostat.Notifications.HomeostatEventKind> Events { get; }
+    public int MaxAttempts { get; set; }
+    public System.TimeSpan Timeout { get; set; }
+    public System.Uri? WebhookUrl { get; set; }
+  public sealed class HttpClientSignalOptions
+    public HttpClientSignalOptions()
+    public bool CountCancellationsAsFailures { get; set; }
+    public double DegradedFailureRatio { get; set; }
+    public System.TimeSpan? DegradedLatency { get; set; }
+    public System.Func<System.Net.Http.HttpResponseMessage, bool> IsFailure { get; set; }
+    public int MinimumRequests { get; set; }
+    public string? Source { get; set; }
+    public double UnhealthyFailureRatio { get; set; }
+    public System.TimeSpan? UnhealthyLatency { get; set; }
+  public abstract class IncidentOptions
+    protected IncidentOptions()
+    public int MaxAttempts { get; set; }
+    public bool OnApprovalRequested { get; set; }
+    public bool OnConditionActivated { get; set; }
+    public bool OnHealingGaveUp { get; set; }
+    public bool ResolveWhenCleared { get; set; }
+    public System.TimeSpan Timeout { get; set; }
+  public sealed class OpsgenieOptions : Homeostat.Http.IncidentOptions
+    public static readonly System.Uri JiraServiceManagement
+    public static readonly System.Uri Opsgenie
+    public static readonly System.Uri OpsgenieEu
+    public OpsgenieOptions()
+    public string? ApiKey { get; set; }
+    public string AuthorizationScheme { get; set; }
+    public System.Collections.Generic.ISet<string> Tags { get; }
+    public System.Uri Url { get; set; }
+  public sealed class PagerDutyOptions : Homeostat.Http.IncidentOptions
+    public PagerDutyOptions()
+    public string? Component { get; set; }
+    public string? Group { get; set; }
+    public string? RoutingKey { get; set; }
+    public System.Uri Url { get; set; }
+  public sealed class SlackOptions : Homeostat.Http.ChatOptions
+    public SlackOptions()
+    public bool ApprovalButtons { get; set; }
+  public sealed class TeamsOptions : Homeostat.Http.ChatOptions
+    public TeamsOptions()
+    public string? ApprovalCommand { get; set; }
+  public sealed class WebhookOptions
+    public const string HttpClientName = "Homeostat.Webhook"
+    public WebhookOptions()
+    public System.Func<Homeostat.Notifications.HomeostatEvent, object> CreatePayload { get; set; }
+    public System.Collections.Generic.ISet<Homeostat.Notifications.HomeostatEventKind> Events { get; }
+    public System.Collections.Generic.IDictionary<string, string> Headers { get; }
+    public int MaxAttempts { get; set; }
+    public System.TimeSpan Timeout { get; set; }
+    public System.Uri? Url { get; set; }

@@ -1,6 +1,7 @@
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 
 namespace Homeostat.Artemis;
 
@@ -32,7 +33,14 @@ internal sealed class JolokiaClient(IHttpClientFactory clients, ArtemisOptions o
         using var request = new HttpRequestMessage(HttpMethod.Post, endpoint)
         {
             Content = new StringContent(
-                JsonSerializer.Serialize(new { type = "read", mbean, attribute = attributes }), Encoding.UTF8, "application/json"),
+                new JsonObject
+                {
+                    ["type"] = "read",
+                    ["mbean"] = mbean,
+                    ["attribute"] = new JsonArray([.. attributes.Select(a => (JsonNode?)a)]),
+                }.ToJsonString(),
+                Encoding.UTF8,
+                "application/json"),
         };
         request.Headers.TryAddWithoutValidation("Origin", options.Origin ?? OriginOf(options.ManagementUrl!));
         if (options.UserName is { } user)

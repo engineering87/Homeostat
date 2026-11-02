@@ -111,7 +111,7 @@ internal sealed class SeasonalBaseline
         {
             var state = new State(1, Seasonality.Signature, _slots.Select(s => new SlotState(
                 s.Mean, s.MeanOfSquares, s.Periods, s.CurrentPeriod, s.Count, s.Sum, s.SumOfSquares)).ToArray());
-            return JsonSerializer.Serialize(state, JsonOptions);
+            return JsonSerializer.Serialize(state, JsonOptions.TypeInfo<State>());
         }
     }
 
@@ -125,7 +125,7 @@ internal sealed class SeasonalBaseline
         State? state;
         try
         {
-            state = JsonSerializer.Deserialize<State>(document, JsonOptions);
+            state = JsonSerializer.Deserialize(document, JsonOptions.TypeInfo<State>());
         }
         catch (JsonException)
         {
@@ -191,7 +191,7 @@ internal sealed class SeasonalBaseline
         return true;
     }
 
-    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
+    private static readonly JsonSerializerOptions JsonOptions = HomeostatJsonContext.CreateOptions();
 
     private sealed class Slot
     {
@@ -216,7 +216,7 @@ internal sealed class SeasonalBaseline
         }
     }
 
-    private sealed record State(int Version, string Signature, SlotState[]? Slots);
+    internal sealed record State(int Version, string Signature, SlotState[]? Slots);
 
-    private sealed record SlotState(double Mean, double MeanOfSquares, int Periods, long CurrentPeriod, int Count, double Sum, double SumOfSquares);
+    internal sealed record SlotState(double Mean, double MeanOfSquares, int Periods, long CurrentPeriod, int Count, double Sum, double SumOfSquares);
 }

@@ -90,7 +90,7 @@ public abstract class HomeostatEventSink : BackgroundService, IHealingObserver, 
 
     /// <summary>Keeps the loop running: the queue is drained in <see cref="IHostedLifecycleService.StoppedAsync"/>.</summary>
     /// <param name="cancellationToken">Not used.</param>
-    public override Task StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;
+    public sealed override Task StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;
 
     /// <inheritdoc />
     async Task IHostedLifecycleService.StoppedAsync(CancellationToken cancellationToken)
@@ -115,7 +115,7 @@ public abstract class HomeostatEventSink : BackgroundService, IHealingObserver, 
     }
 
     /// <inheritdoc />
-    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+    protected sealed override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         // The stopping token is ignored on purpose: the loop ends when the queue is completed and drained,
         // or when the shutdown timeout expires.

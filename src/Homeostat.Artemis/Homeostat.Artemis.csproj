@@ -2,6 +2,7 @@
 
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
+    <IsAotCompatible>true</IsAotCompatible>
     <PackageId>Homeostat.Artemis</PackageId>
     <Description>Apache ActiveMQ Artemis for Homeostat: queue depth, consumers and dead letters as signals, read through the broker's Jolokia management API (no client library needed); pausing receive loops with PauseGate.</Description>
     <PackageTags>$(PackageTags);activemq;artemis;amqp;messaging;dead-letter</PackageTags>

@@ -46,7 +46,7 @@ public class MoreIntegrationTests
             Password = "secret",
         });
 
-        var values = await client.ReadAsync(JolokiaClient.QueueMBean("0.0.0.0", "invoices", "anycast", "invoices"), ["MessageCount", "ConsumerCount"], CancellationToken.None);
+        var values = await client.ReadAsync(JolokiaClient.QueueMBean("0.0.0.0", "telemetry-ingest", "anycast", "telemetry-ingest"), ["MessageCount", "ConsumerCount"], CancellationToken.None);
 
         Assert.Equal((1200d, 0d), (values["MessageCount"], values["ConsumerCount"]));
         var (request, body) = Assert.Single(handler.Requests);
@@ -56,7 +56,7 @@ public class MoreIntegrationTests
         var json = JsonDocument.Parse(body).RootElement;
         Assert.Equal("read", json.GetProperty("type").GetString());
         Assert.Equal(
-            "org.apache.activemq.artemis:broker=\"0.0.0.0\",component=addresses,address=\"invoices\",subcomponent=queues,routing-type=\"anycast\",queue=\"invoices\"",
+            "org.apache.activemq.artemis:broker=\"0.0.0.0\",component=addresses,address=\"telemetry-ingest\",subcomponent=queues,routing-type=\"anycast\",queue=\"telemetry-ingest\"",
             json.GetProperty("mbean").GetString());
     }
 
@@ -80,12 +80,12 @@ public class MoreIntegrationTests
     {
         var (services, detector) = ProbeTests.Build(h =>
         {
-            var options = new ArtemisQueueSignalOptions { DeadLetterQueue = "DLQ.invoices" };
+            var options = new ArtemisQueueSignalOptions { DeadLetterQueue = "DLQ.telemetry-ingest" };
             options.Messages.UnhealthyAbove = 1_000;
-            HomeostatArtemisExtensions.AddQueueSignals(h, "invoices", options, (_, queue, address, _, _) =>
-                Task.FromResult<IReadOnlyDictionary<string, double>>(queue == "invoices" && address == "invoices"
+            HomeostatArtemisExtensions.AddQueueSignals(h, "telemetry-ingest", options, (_, queue, address, _, _) =>
+                Task.FromResult<IReadOnlyDictionary<string, double>>(queue == "telemetry-ingest" && address == "telemetry-ingest"
                     ? new Dictionary<string, double> { ["MessageCount"] = 1_200, ["ConsumerCount"] = 0 }
-                    : queue == "DLQ.invoices" && address == "DLQ"
+                    : queue == "DLQ.telemetry-ingest" && address == "DLQ"
                         ? new Dictionary<string, double> { ["MessageCount"] = 3, ["ConsumerCount"] = 0 }
                         : throw new InvalidOperationException($"unexpected {address}/{queue}")));
         });
@@ -95,16 +95,16 @@ public class MoreIntegrationTests
         await detector.DetectAsync(signals, CancellationToken.None);
 
         var bySource = signals.Signals.ToDictionary(s => s.Source);
-        Assert.Equal(SignalSeverity.Unhealthy, bySource["artemis:invoices:messages"].Severity);
-        Assert.Equal(SignalSeverity.Unhealthy, bySource["artemis:invoices:consumers"].Severity);
-        Assert.Equal(3, bySource["artemis:invoices:dead-letter"].Value);
-        Assert.Equal("artemis", bySource["artemis:invoices:messages"].Tags!["origin"]);
+        Assert.Equal(SignalSeverity.Unhealthy, bySource["artemis:telemetry-ingest:messages"].Severity);
+        Assert.Equal(SignalSeverity.Unhealthy, bySource["artemis:telemetry-ingest:consumers"].Severity);
+        Assert.Equal(3, bySource["artemis:telemetry-ingest:dead-letter"].Value);
+        Assert.Equal("artemis", bySource["artemis:telemetry-ingest:messages"].Tags!["origin"]);
     }
 
     [Fact]
     public async Task A_pause_gate_holds_a_receive_loop_until_resumed()
     {
-        var gate = new PauseGate("invoices");
+        var gate = new PauseGate("telemetry-ingest");
         await gate.WaitWhilePausedAsync();                                 // open
 
         await gate.PauseAsync(CancellationToken.None);

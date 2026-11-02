@@ -1,0 +1,8 @@
+namespace Homeostat
+  public static class HealingPlanBuilderPollyExtensions
+    public static Homeostat.Healing.HealingPlanBuilder IsolateCircuit(this Homeostat.Healing.HealingPlanBuilder plan, string control, bool closeWhenCleared = true)
+  public static class HomeostatPollyExtensions
+    public static Homeostat.HomeostatBuilder AddCircuitBreakerSignals(this Homeostat.HomeostatBuilder builder)
+    public static System.Func<Polly.Simmy.EnabledGeneratorArguments, System.Threading.Tasks.ValueTask<bool>> ChaosEnabledBySwitch(this System.IServiceProvider services, string switchName)
+    public static Polly.CircuitBreaker.CircuitBreakerManualControl CircuitControl(this System.IServiceProvider services, string name)
+    public static Polly.CircuitBreaker.CircuitBreakerStateProvider TrackCircuitBreaker(this System.IServiceProvider services, string source)

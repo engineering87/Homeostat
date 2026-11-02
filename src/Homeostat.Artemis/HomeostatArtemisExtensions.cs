@@ -17,17 +17,17 @@ public static class HomeostatArtemisExtensions
     /// <param name="configure">Management address, broker name, credentials and origin.</param>
     /// <example>
     /// <code>
-    /// h.AddArtemis(o =>
+    /// h.UseArtemis(o =>
     /// {
     ///     o.ManagementUrl = new Uri("http://artemis:8161");
     ///     o.BrokerName = "0.0.0.0";
     ///     o.UserName = "monitor";
     ///     o.Password = builder.Configuration["Artemis:MonitorPassword"];
     /// })
-    /// .AddArtemisQueueSignals("invoices", q => { q.Messages.UnhealthyAbove = 20_000; q.DeadLetterQueue = "DLQ"; });
+    /// .AddArtemisQueueSignals("telemetry-ingest", q => { q.Messages.UnhealthyAbove = 20_000; q.DeadLetterQueue = "DLQ"; });
     /// </code>
     /// </example>
-    public static HomeostatBuilder AddArtemis(this HomeostatBuilder builder, Action<ArtemisOptions> configure)
+    public static HomeostatBuilder UseArtemis(this HomeostatBuilder builder, Action<ArtemisOptions> configure)
     {
         ArgumentNullException.ThrowIfNull(builder);
         ArgumentNullException.ThrowIfNull(configure);
@@ -69,7 +69,7 @@ public static class HomeostatArtemisExtensions
         return AddQueueSignals(builder, queue, options, (sp, mbeanQueue, address, routing, ct) =>
         {
             var client = sp.GetService<JolokiaClient>()
-                ?? throw new InvalidOperationException("Call AddArtemis(o => ...) to set the broker's management address.");
+                ?? throw new InvalidOperationException("Call UseArtemis(o => ...) to set the broker's management address.");
             var broker = sp.GetRequiredService<IOptions<ArtemisOptions>>().Value.BrokerName!;
             return client.ReadAsync(JolokiaClient.QueueMBean(broker, address, routing, mbeanQueue), QueueAttributes, ct);
         });

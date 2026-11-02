@@ -500,7 +500,7 @@ public sealed class ConditionBuilder
 
         return new ConditionDefinition(
             _name, relevant, trigger, clear, _sustainFor, _clearAfter, _suppressedBy.ToArray(), _plan?.Build(_name),
-            record, _composite, _dependsOn, _baseline is null ? [] : [_baseline]);
+            record, _composite, _dependsOn, _baseline is null ? [] : [_baseline], source);
     }
 
     private static bool DefaultTrigger(Signal signal) => signal.Severity >= SignalSeverity.Unhealthy;

@@ -13,7 +13,12 @@ public interface ISignalPublisher
     bool TryPublish(Signal signal);
 
     /// <summary>
-    /// Convenience overload that stamps the signal with the current time.
+    /// Convenience overload that stamps the signal with the current time. Implementations need not provide it: by
+    /// default it uses the system clock and <see cref="TryPublish(Signal)"/>.
     /// </summary>
-    bool TryPublish(string source, SignalSeverity severity, string? message = null);
+    bool TryPublish(string source, SignalSeverity severity, string? message = null)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(source);
+        return TryPublish(new Signal(source, severity, TimeProvider.System.GetUtcNow()) { Message = message });
+    }
 }

@@ -2,6 +2,7 @@
 
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
+    <IsAotCompatible>true</IsAotCompatible>
     <PackageId>Homeostat.Http</PackageId>
     <Description>Turns the failure rate and latency of IHttpClientFactory clients into Homeostat signals, with one line per client.</Description>
   </PropertyGroup>

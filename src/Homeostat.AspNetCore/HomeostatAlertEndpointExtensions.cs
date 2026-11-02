@@ -134,7 +134,7 @@ public static class HomeostatAlertEndpointExtensions
         }
         catch (JsonException)
         {
-            return Results.BadRequest("The body is not valid JSON.");
+            return HomeostatResults.BadRequest("The body is not valid JSON.");
         }
         catch (PayloadTooLargeException)
         {
@@ -150,7 +150,7 @@ public static class HomeostatAlertEndpointExtensions
             var batch = parse(document.RootElement);
             if (batch.Invalid is { } reason)
             {
-                return Results.BadRequest(reason);
+                return HomeostatResults.BadRequest(reason);
             }
 
             var accepted = state.Apply(batch.Alerts);
@@ -162,7 +162,10 @@ public static class HomeostatAlertEndpointExtensions
                 }
             }
 
-            return Results.Accepted(value: new AlertIngestionResult(accepted, batch.Skipped + (batch.Count - accepted)));
+            return Results.Json(
+                new AlertIngestionResult(accepted, batch.Skipped + (batch.Count - accepted)),
+                HomeostatAspNetCoreJsonContext.Default.AlertIngestionResult,
+                statusCode: StatusCodes.Status202Accepted);
         }
     }
 

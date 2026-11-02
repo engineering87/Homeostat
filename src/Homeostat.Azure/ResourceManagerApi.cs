@@ -25,7 +25,7 @@ internal sealed partial class ResourceManagerApi
     /// Sends a request to <c>{resourceId}{action}?api-version={apiVersion}</c> and returns the response body, if any.
     /// Long-running operations answer 202: the request is accepted, and Homeostat's verification checks the outcome.
     /// </summary>
-    public async Task<JsonNode?> SendAsync(HttpMethod method, string resourceId, string? action, string apiVersion, object? body, CancellationToken cancellationToken)
+    public async Task<JsonNode?> SendAsync(HttpMethod method, string resourceId, string? action, string apiVersion, JsonNode? body, CancellationToken cancellationToken)
     {
         var token = _options.AccessToken is { } provider
             ? await provider(cancellationToken).ConfigureAwait(false)
@@ -38,7 +38,7 @@ internal sealed partial class ResourceManagerApi
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
         if (body is not null)
         {
-            request.Content = new StringContent(JsonSerializer.Serialize(body), Encoding.UTF8, "application/json");
+            request.Content = new StringContent(body.ToJsonString(), Encoding.UTF8, "application/json");
         }
 
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);

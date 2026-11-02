@@ -1,3 +1,4 @@
+using System.Text.Json.Nodes;
 using Homeostat.Notifications;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -53,12 +54,10 @@ internal sealed class PagerDutySink : HttpEventSink
         var decision = _tracker.Decide(_options, e);
         if (decision.IsResolve)
         {
-            return SendAsync(HttpMethod.Post, _options.Url, new
-            {
-                routing_key = _options.RoutingKey,
-                event_action = "resolve",
-                dedup_key = IncidentOptions.Key(e),
-            }, null, cancellationToken);
+            return SendAsync(HttpMethod.Post, _options.Url, ObjectOf(
+                ("routing_key", _options.RoutingKey),
+                ("event_action", "resolve"),
+                ("dedup_key", IncidentOptions.Key(e))), null, cancellationToken);
         }
 
         if (!decision.IsTrigger)
@@ -66,31 +65,25 @@ internal sealed class PagerDutySink : HttpEventSink
             return Task.CompletedTask;
         }
 
-        return SendAsync(HttpMethod.Post, _options.Url, new
-        {
-            routing_key = _options.RoutingKey,
-            event_action = "trigger",
-            dedup_key = IncidentOptions.Key(e),
-            payload = new
-            {
-                summary = Truncate($"[{e.Application}] {e.Summary}", 1024),
-                source = e.Application,
-                severity = decision.Reason == IncidentReason.GaveUp ? "error" : "warning",
-                timestamp = e.Timestamp,
-                component = _options.Component,
-                group = _options.Group,
-                @class = e.Kind.ToString(),
-                custom_details = new
-                {
-                    condition = e.Condition,
-                    step = e.Step,
-                    outcome = e.Outcome,
-                    error = e.Error,
-                    approval_id = e.ApprovalId,
-                    approval_expires_at = e.ExpiresAt,
-                },
-            },
-        }, null, cancellationToken);
+        return SendAsync(HttpMethod.Post, _options.Url, ObjectOf(
+            ("routing_key", _options.RoutingKey),
+            ("event_action", "trigger"),
+            ("dedup_key", IncidentOptions.Key(e)),
+            ("payload", ObjectOf(
+                ("summary", Truncate($"[{e.Application}] {e.Summary}", 1024)),
+                ("source", e.Application),
+                ("severity", decision.Reason == IncidentReason.GaveUp ? "error" : "warning"),
+                ("timestamp", e.Timestamp),
+                ("component", _options.Component),
+                ("group", _options.Group),
+                ("class", e.Kind.ToString()),
+                ("custom_details", ObjectOf(
+                    ("condition", e.Condition),
+                    ("step", e.Step),
+                    ("outcome", e.Outcome),
+                    ("error", e.Error),
+                    ("approval_id", e.ApprovalId),
+                    ("approval_expires_at", e.ExpiresAt)))))), null, cancellationToken);
     }
 
     internal static string Truncate(string value, int max) => value.Length <= max ? value : value[..max];
@@ -127,7 +120,7 @@ internal sealed class OpsgenieSink : HttpEventSink
         if (decision.IsResolve)
         {
             var close = new Uri($"{_options.Url.AbsoluteUri.TrimEnd('/')}/{Uri.EscapeDataString(alias)}/close?identifierType=alias");
-            return SendAsync(HttpMethod.Post, close, new { source = "Homeostat", note = e.Summary }, _headers, cancellationToken);
+            return SendAsync(HttpMethod.Post, close, ObjectOf(("source", "Homeostat"), ("note", e.Summary)), _headers, cancellationToken);
         }
 
         if (!decision.IsTrigger)
@@ -135,24 +128,20 @@ internal sealed class OpsgenieSink : HttpEventSink
             return Task.CompletedTask;
         }
 
-        return SendAsync(HttpMethod.Post, _options.Url, new
-        {
-            message = PagerDutySink.Truncate($"[{e.Application}] {e.Condition}: {Reason(decision.Reason)}", 130),
-            alias,
-            description = PagerDutySink.Truncate(e.Summary, 15000),
-            priority = decision.Reason == IncidentReason.GaveUp ? "P2" : "P3",
-            source = "Homeostat",
-            entity = e.Application,
-            tags = _options.Tags.ToArray(),
-            details = new Dictionary<string, string?>
-            {
-                ["condition"] = e.Condition,
-                ["step"] = e.Step,
-                ["outcome"] = e.Outcome,
-                ["error"] = e.Error,
-                ["approvalId"] = e.ApprovalId,
-            }.Where(d => d.Value is not null).ToDictionary(d => d.Key, d => d.Value),
-        }, _headers, cancellationToken);
+        return SendAsync(HttpMethod.Post, _options.Url, ObjectOf(
+            ("message", PagerDutySink.Truncate($"[{e.Application}] {e.Condition}: {Reason(decision.Reason)}", 130)),
+            ("alias", alias),
+            ("description", PagerDutySink.Truncate(e.Summary, 15000)),
+            ("priority", decision.Reason == IncidentReason.GaveUp ? "P2" : "P3"),
+            ("source", "Homeostat"),
+            ("entity", e.Application),
+            ("tags", ArrayOf(_options.Tags.Select(t => (JsonNode?)t).ToArray())),
+            ("details", ObjectOf(
+                ("condition", e.Condition),
+                ("step", e.Step),
+                ("outcome", e.Outcome),
+                ("error", e.Error),
+                ("approvalId", e.ApprovalId)))), _headers, cancellationToken);
     }
 
     private static string Reason(IncidentReason reason) => reason switch

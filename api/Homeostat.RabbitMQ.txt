@@ -1,0 +1,20 @@
+namespace Homeostat
+  public static class HomeostatRabbitMqExtensions
+    public static Homeostat.HomeostatBuilder AddRabbitMqQueueSignals(this Homeostat.HomeostatBuilder builder, string queue, System.Action<Homeostat.RabbitMQ.RabbitMqQueueSignalOptions>? configure = null)
+namespace Homeostat.RabbitMQ
+  public sealed class PausableRabbitMqConsumer : Homeostat.Consumers.IPausableConsumer
+    public PausableRabbitMqConsumer(string name, RabbitMQ.Client.IChannel channel, string queue, bool autoAck, RabbitMQ.Client.IAsyncBasicConsumer consumer)
+    public bool IsConsuming { get; }
+    public string Name { get; }
+    public System.Threading.Tasks.Task PauseAsync(System.Threading.CancellationToken cancellationToken)
+    public System.Threading.Tasks.Task ResumeAsync(System.Threading.CancellationToken cancellationToken)
+    public System.Threading.Tasks.Task StartAsync(System.Threading.CancellationToken cancellationToken = default)
+  public sealed class RabbitMqQueueSignalOptions
+    public RabbitMqQueueSignalOptions()
+    public System.Func<System.IServiceProvider, RabbitMQ.Client.IConnection>? Connection { get; set; }
+    public Homeostat.Probes.ProbeOptions Consumers { get; }
+    public Homeostat.Probes.ProbeOptions DeadLetter { get; }
+    public string? DeadLetterQueue { get; set; }
+    public System.TimeSpan Interval { get; set; }
+    public Homeostat.Probes.ProbeOptions Messages { get; }
+    public string? Source { get; set; }

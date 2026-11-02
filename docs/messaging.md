@@ -188,17 +188,17 @@ it needs no AMQP or JMS client and works whatever client the application consume
 
 ```csharp
 builder.Services.AddHomeostat(h => h
-    .AddArtemis(o =>
+    .UseArtemis(o =>
     {
         o.ManagementUrl = new Uri("http://artemis:8161");
         o.BrokerName = "0.0.0.0";                     // <name> in broker.xml
         o.UserName = "monitor";
         o.Password = builder.Configuration["Artemis:MonitorPassword"];
     })
-    .AddArtemisQueueSignals("invoices", q =>
+    .AddArtemisQueueSignals("telemetry-ingest", q =>
     {
         q.Messages.UnhealthyAbove = 20_000;
-        q.DeadLetterQueue = "DLQ.invoices";           // with auto-create-dead-letter-resources; "DLQ" when shared
+        q.DeadLetterQueue = "DLQ.telemetry-ingest";           // with auto-create-dead-letter-resources; "DLQ" when shared
     })
     .AddArtemisQueueSignals("events.audit", q => { q.Address = "events"; q.RoutingType = "multicast"; }));
 ```
@@ -220,7 +220,7 @@ builder.Services.AddHomeostat(h => h
 Clients that receive in a loop (for example ArtemisNetClient over AMQP, below) are paused with a `PauseGate`:
 
 ```csharp
-var gate = new PauseGate("invoices");
+var gate = new PauseGate("telemetry-ingest");
 using var registration = consumers.Register(gate);
 while (!stoppingToken.IsCancellationRequested)
 {

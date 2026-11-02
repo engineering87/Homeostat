@@ -23,11 +23,15 @@
     <Project Path="src/Homeostat.Templates/Homeostat.Templates.csproj" />
     <Project Path="src/Homeostat.Testing/Homeostat.Testing.csproj" />
   </Folder>
+  <Folder Name="/benchmarks/">
+    <Project Path="benchmarks/Homeostat.Benchmarks/Homeostat.Benchmarks.csproj" />
+  </Folder>
   <Folder Name="/samples/">
     <Project Path="samples/Homeostat.Samples.WeatherFeed/Homeostat.Samples.WeatherFeed.csproj" />
     <Project Path="samples/Homeostat.Samples.Worker/Homeostat.Samples.Worker.csproj" />
   </Folder>
   <Folder Name="/tests/">
+    <Project Path="tests/Homeostat.AotSmoke/Homeostat.AotSmoke.csproj" />
     <Project Path="tests/Homeostat.Tests/Homeostat.Tests.csproj" />
   </Folder>
   <Folder Name="/Solution Items/">

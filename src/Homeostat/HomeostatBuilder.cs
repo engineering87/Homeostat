@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using Homeostat.Conditions;
 using Homeostat.Coordination;
 using Homeostat.Detectors;
@@ -40,7 +41,7 @@ public sealed class HomeostatBuilder
 
     /// <summary>Uses a custom <see cref="IHomeostatStore"/> (registered as a singleton) instead of the in-memory one.</summary>
     /// <typeparam name="TStore">The store type.</typeparam>
-    public HomeostatBuilder UseStore<TStore>()
+    public HomeostatBuilder UseStore<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] TStore>()
         where TStore : class, IHomeostatStore
     {
         Services.Replace(ServiceDescriptor.Singleton<IHomeostatStore, TStore>());
@@ -69,7 +70,7 @@ public sealed class HomeostatBuilder
 
     /// <summary>Uses a custom <see cref="IHomeostatCoordinator"/> (registered as a singleton).</summary>
     /// <typeparam name="TCoordinator">The coordinator type.</typeparam>
-    public HomeostatBuilder UseCoordinator<TCoordinator>()
+    public HomeostatBuilder UseCoordinator<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] TCoordinator>()
         where TCoordinator : class, IHomeostatCoordinator
     {
         Services.Replace(ServiceDescriptor.Singleton<IHomeostatCoordinator, TCoordinator>());
@@ -148,7 +149,7 @@ public sealed class HomeostatBuilder
     public HomeostatBuilder AddBackgroundServiceSignals() => AddDetector<BackgroundServiceSignalDetector>();
 
     /// <summary>Registers a custom <see cref="ISignalDetector"/>.</summary>
-    public HomeostatBuilder AddDetector<TDetector>()
+    public HomeostatBuilder AddDetector<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] TDetector>()
         where TDetector : class, ISignalDetector
     {
         Services.AddSignalDetector<TDetector>();
@@ -162,7 +163,7 @@ public sealed class HomeostatBuilder
     /// from the container (registered as a singleton unless you registered it yourself), so you can also inject it
     /// elsewhere. Registering the same type twice has no effect.
     /// </summary>
-    public HomeostatBuilder AddObserver<TObserver>()
+    public HomeostatBuilder AddObserver<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] TObserver>()
         where TObserver : class, IHealingObserver
     {
         if (Services.Any(d => d.ServiceType == typeof(ObserverMarker<TObserver>)))
@@ -178,7 +179,7 @@ public sealed class HomeostatBuilder
 
     private sealed class ObserverMarker<TObserver>;
 
-    private HomeostatBuilder AddBuiltInDetector<TDetector, TOptions>(Action<TOptions>? configure)
+    private HomeostatBuilder AddBuiltInDetector<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] TDetector, TOptions>(Action<TOptions>? configure)
         where TDetector : class, ISignalDetector
         where TOptions : class
     {

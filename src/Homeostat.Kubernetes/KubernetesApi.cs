@@ -34,13 +34,13 @@ internal sealed class KubernetesApi
 
     public string NodeName => KubernetesNames.Validate(Required(_options.NodeName, "node name", "NodeName (or the NODE_NAME variable, from the downward API)"), "node name");
 
-    public Task DeleteAsync(string path, object body, CancellationToken cancellationToken)
+    public Task DeleteAsync(string path, JsonNode body, CancellationToken cancellationToken)
         => SendAsync(HttpMethod.Delete, path, body, "application/json", cancellationToken);
 
     public Task<JsonNode?> GetAsync(string path, CancellationToken cancellationToken)
         => SendAsync(HttpMethod.Get, path, null, null, cancellationToken);
 
-    public Task<JsonNode?> PatchAsync(string path, object body, string contentType, CancellationToken cancellationToken)
+    public Task<JsonNode?> PatchAsync(string path, JsonNode body, string contentType, CancellationToken cancellationToken)
         => SendAsync(HttpMethod.Patch, path, body, contentType, cancellationToken);
 
     /// <summary>
@@ -98,7 +98,7 @@ internal sealed class KubernetesApi
         return chain.Build(certificate);
     }
 
-    private async Task<JsonNode?> SendAsync(HttpMethod method, string path, object? body, string? contentType, CancellationToken cancellationToken)
+    private async Task<JsonNode?> SendAsync(HttpMethod method, string path, JsonNode? body, string? contentType, CancellationToken cancellationToken)
     {
         try
         {
@@ -111,7 +111,7 @@ internal sealed class KubernetesApi
         }
     }
 
-    private async Task<JsonNode?> SendOnceAsync(HttpMethod method, string path, object? body, string? contentType, bool forceTokenRead, CancellationToken cancellationToken)
+    private async Task<JsonNode?> SendOnceAsync(HttpMethod method, string path, JsonNode? body, string? contentType, bool forceTokenRead, CancellationToken cancellationToken)
     {
         var server = _options.ApiServer
             ?? throw new InvalidOperationException(
@@ -124,7 +124,7 @@ internal sealed class KubernetesApi
         request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
         if (body is not null)
         {
-            request.Content = new StringContent(JsonSerializer.Serialize(body), Encoding.UTF8);
+            request.Content = new StringContent(body.ToJsonString(), Encoding.UTF8);
             request.Content.Headers.ContentType = new MediaTypeHeaderValue(contentType!);
         }
 

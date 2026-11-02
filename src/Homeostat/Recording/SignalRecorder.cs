@@ -29,12 +29,11 @@ public sealed record RecordedSignal(
     IReadOnlyDictionary<string, string>? Tags = null,
     string? Instance = null)
 {
-    internal static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web)
+    internal static readonly JsonSerializerOptions Json = HomeostatJsonContext.CreateOptions(o =>
     {
-        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
-        Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
-        Converters = { new JsonStringEnumConverter() },
-    };
+        o.DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull;
+        o.Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping;
+    });
 
     /// <summary>The signal to publish again.</summary>
     public Signal ToSignal() => new(Source, Severity, Timestamp) { Value = Value, Message = Message, Tags = Tags };
@@ -54,7 +53,7 @@ public sealed record RecordedSignal(
             RecordedSignal? signal;
             try
             {
-                signal = JsonSerializer.Deserialize<RecordedSignal>(line, Json);
+                signal = JsonSerializer.Deserialize(line, Json.TypeInfo<RecordedSignal>());
             }
             catch (JsonException)
             {
@@ -183,7 +182,7 @@ internal sealed class SignalRecorder : IHostedLifecycleService
                 {
                     var recorded = new RecordedSignal(signal.Timestamp, signal.Source, signal.Severity, signal.Value,
                         _options.IncludeDetails ? signal.Message : null, _options.IncludeDetails ? signal.Tags : null, _instance);
-                    text.Append(JsonSerializer.Serialize(recorded, RecordedSignal.Json)).Append('\n');
+                    text.Append(JsonSerializer.Serialize(recorded, RecordedSignal.Json.TypeInfo<RecordedSignal>())).Append('\n');
                 }
 
                 if (System.IO.Path.GetDirectoryName(group.Key) is { Length: > 0 } directory)

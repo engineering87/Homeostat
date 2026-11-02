@@ -4,6 +4,7 @@ using System.Net;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
 using Homeostat.AspNetCore;
 using Homeostat.Healing;
@@ -91,7 +92,7 @@ public static partial class HomeostatTeamsEndpointExtensions
         {
             message = TeamsMessage.Parse(body);
         }
-        catch (JsonException)
+        catch (Exception ex) when (ex is JsonException or InvalidOperationException) // Not JSON, or a value of the wrong type.
         {
             return Results.BadRequest();
         }
@@ -170,7 +171,8 @@ public static partial class HomeostatTeamsEndpointExtensions
 
     private static string Code(string value) => value.Replace('`', '\'');
 
-    private static IResult Reply(string text) => Results.Json(new { type = "message", text });
+    private static IResult Reply(string text)
+        => Results.Text(new JsonObject { ["type"] = "message", ["text"] = text }.ToJsonString(), "application/json", Encoding.UTF8);
 
     private static async Task<byte[]?> ReadBodyAsync(HttpRequest request, CancellationToken cancellationToken)
     {

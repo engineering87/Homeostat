@@ -19,7 +19,7 @@ public static class HomeostatWebhookExtensions
     /// .AddWebhookNotifications(o =>
     /// {
     ///     o.Url = new Uri(builder.Configuration["Homeostat:WebhookUrl"]!);
-    ///     o.CreatePayload = e => new { text = $"[{e.Application}] {e.Summary}" };
+    ///     o.CreatePayload = e => new JsonObject { ["text"] = $"[{e.Application}] {e.Summary}" };
     /// })
     /// </code>
     /// </example>

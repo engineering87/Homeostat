@@ -1,0 +1,12 @@
+namespace Aspire.Hosting
+  public static class HomeostatResourceBuilderExtensions
+    public static Aspire.Hosting.ApplicationModel.IResourceBuilder<T> WithHomeostat<T>(this Aspire.Hosting.ApplicationModel.IResourceBuilder<T> builder, System.Action<Homeostat.Aspire.Hosting.HomeostatResourceOptions>? configure = null) where T : Aspire.Hosting.ApplicationModel.IResourceWithEndpoints
+namespace Homeostat.Aspire.Hosting
+  public sealed class HomeostatResourceOptions
+    public HomeostatResourceOptions()
+    public System.Func<System.IServiceProvider, System.Threading.CancellationToken, System.Threading.Tasks.Task<string?>>? BearerToken { get; set; }
+    public bool Commands { get; set; }
+    public bool DashboardLink { get; set; }
+    public string? EndpointName { get; set; }
+    public System.TimeSpan? PauseFor { get; set; }
+    public string Prefix { get; set; }

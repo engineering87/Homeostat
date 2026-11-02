@@ -18,19 +18,20 @@ public sealed record PendingApproval(
     Signals.Signal TriggeringSignal);
 
 /// <summary>How an approval request ended.</summary>
+/// <remarks>Numbered from 1: the default value, 0, is none of them, so an unset value never reads as a success.</remarks>
 public enum ApprovalStatus
 {
     /// <summary>A person approved the step.</summary>
-    Approved,
+    Approved = 1,
 
     /// <summary>A person rejected the step.</summary>
-    Rejected,
+    Rejected = 2,
 
     /// <summary>Nobody answered in time.</summary>
-    Expired,
+    Expired = 3,
 
     /// <summary>The request was withdrawn: the condition cleared or the application stopped.</summary>
-    Cancelled,
+    Cancelled = 4,
 }
 
 /// <summary>Outcome of an approval request.</summary>

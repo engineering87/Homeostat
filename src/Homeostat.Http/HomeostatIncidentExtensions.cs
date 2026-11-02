@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using Homeostat.Http;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
@@ -49,7 +50,7 @@ public static class HomeostatIncidentExtensions
     public static HomeostatBuilder AddTeamsNotifications(this HomeostatBuilder builder, Action<TeamsOptions> configure)
         => Register<TeamsOptions, TeamsSink>(builder, configure, TeamsSink.HttpClientName, o => o.Validate());
 
-    private static HomeostatBuilder Register<TOptions, TSink>(
+    private static HomeostatBuilder Register<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicParameterlessConstructor)] TOptions, [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] TSink>(
         HomeostatBuilder builder, Action<TOptions> configure, string clientName, Action<TOptions> validate)
         where TOptions : class
         where TSink : Notifications.HomeostatEventSink

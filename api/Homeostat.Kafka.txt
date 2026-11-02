@@ -1,0 +1,24 @@
+namespace Homeostat
+  public static class HomeostatKafkaExtensions
+    public static Confluent.Kafka.ConsumerBuilder<TKey, TValue> SetHomeostatSignals<TKey, TValue>(this Confluent.Kafka.ConsumerBuilder<TKey, TValue> builder, System.IServiceProvider services, string name, System.Action<Homeostat.Kafka.KafkaSignalOptions>? configure = null)
+    public static Confluent.Kafka.ProducerBuilder<TKey, TValue> SetHomeostatSignals<TKey, TValue>(this Confluent.Kafka.ProducerBuilder<TKey, TValue> builder, System.IServiceProvider services, string name, System.Action<Homeostat.Kafka.KafkaSignalOptions>? configure = null)
+namespace Homeostat.Kafka
+  public sealed class KafkaPauseGate : Homeostat.Consumers.IPausableConsumer
+    public KafkaPauseGate(string name)
+    public bool IsPauseRequested { get; }
+    public string Name { get; }
+    public void Apply<TKey, TValue>(Confluent.Kafka.IConsumer<TKey, TValue> consumer)
+    public System.Threading.Tasks.Task PauseAsync(System.Threading.CancellationToken cancellationToken)
+    public System.Threading.Tasks.Task ResumeAsync(System.Threading.CancellationToken cancellationToken)
+  public sealed class KafkaSignalOptions
+    public KafkaSignalOptions()
+    public bool FromCommittedOffsets { get; set; }
+    public double? LagDegradedAbove { get; set; }
+    public double? LagUnhealthyAbove { get; set; }
+    public double QueueDegradedAbove { get; set; }
+    public double QueueUnhealthyAbove { get; set; }
+    public string? Source { get; set; }
+  public sealed class KafkaSignalReporter
+    public KafkaSignalReporter(Homeostat.Signals.ISignalPublisher publisher, string name, Homeostat.Kafka.KafkaSignalOptions? options = null, System.TimeProvider? timeProvider = null)
+    public string Source { get; }
+    public void Report(string statisticsJson)

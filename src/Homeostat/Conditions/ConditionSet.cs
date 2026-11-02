@@ -16,8 +16,18 @@ internal sealed class ConditionSet
     /// <summary>Trackers driven by signals.</summary>
     public IReadOnlyList<ConditionTracker> SignalTrackers => _state.SignalTrackers;
 
+    /// <summary>
+    /// The signal trackers that can be interested in a signal from <paramref name="source"/>, in registration order:
+    /// those listening to that source and those without a source.
+    /// </summary>
+    public ConditionTracker[] SignalTrackersFor(string? source)
+    {
+        var state = _state;
+        return source is not null && state.BySource.TryGetValue(source, out var trackers) ? trackers : state.Unsourced;
+    }
+
     /// <summary>Composite trackers, each after the composites it depends on.</summary>
-    public IReadOnlyList<ConditionTracker> CompositeTrackers => _state.CompositeTrackers;
+    public ConditionTracker[] CompositeTrackers => _state.CompositeTrackers;
 
     public ConditionTracker? Get(string name) => _state.ByName.GetValueOrDefault(name);
 
@@ -26,7 +36,17 @@ internal sealed class ConditionSet
     /// current set untouched, if the new definitions are invalid.
     /// </summary>
     public void Replace(IEnumerable<ConditionDefinition> definitions)
-        => _state = Build(definitions.ToList(), _state);
+    {
+        var updates = new List<(ConditionTracker Tracker, ConditionDefinition Definition)>();
+        _state = Build(definitions.ToList(), _state, updates);
+
+        // Kept trackers take their new definition once the new source index is in place, so a condition whose source
+        // changed is offered the signals of its new source from the moment it evaluates them.
+        foreach (var (tracker, definition) in updates)
+        {
+            tracker.Update(definition);
+        }
+    }
 
     /// <summary>
     /// Returns the first condition listed in <see cref="ConditionDefinition.SuppressedBy"/> that is pending or active.
@@ -60,7 +80,10 @@ internal sealed class ConditionSet
     public ConditionSnapshot Snapshot(ConditionTracker tracker)
         => tracker.Snapshot() with { SuppressedBy = FindActiveSuppressor(tracker.Definition) };
 
-    private static State Build(List<ConditionDefinition> definitions, State? existing)
+    private static State Build(
+        List<ConditionDefinition> definitions,
+        State? existing,
+        List<(ConditionTracker Tracker, ConditionDefinition Definition)>? updates = null)
     {
         var duplicate = definitions.GroupBy(d => d.Name, StringComparer.Ordinal).FirstOrDefault(g => g.Count() > 1);
         if (duplicate is not null)
@@ -94,7 +117,7 @@ internal sealed class ConditionSet
                     }
                 }
 
-                kept.Update(d);
+                updates!.Add((kept, d));
                 return kept;
             }
 
@@ -107,11 +130,28 @@ internal sealed class ConditionSet
             .Select(name => trackers[name])
             .ToArray();
 
+        // Most conditions listen to one source: index them, so a signal is only offered to the conditions that can
+        // use it. Conditions without a source (a custom filter only) are offered every signal, in registration order.
+        // Kept trackers still hold their previous definition until the caller applies the updates: use the new one.
+        string? SourceOf(ConditionTracker t) => definitionsByName[t.Definition.Name].Source;
+
+        var unsourced = signalTrackers.Where(t => SourceOf(t) is null).ToArray();
+        var bySource = signalTrackers
+            .Where(t => SourceOf(t) is not null)
+            .Select(t => SourceOf(t)!)
+            .Distinct(StringComparer.Ordinal)
+            .ToDictionary(
+                source => source,
+                source => signalTrackers.Where(t => SourceOf(t) is null || string.Equals(SourceOf(t), source, StringComparison.Ordinal)).ToArray(),
+                StringComparer.Ordinal);
+
         return new State(
             signalTrackers.Concat(compositeTrackers).ToArray(),
             signalTrackers,
             compositeTrackers,
-            trackers);
+            trackers,
+            bySource,
+            unsourced);
     }
 
     private static void CheckReferences(
@@ -180,5 +220,7 @@ internal sealed class ConditionSet
         ConditionTracker[] Trackers,
         ConditionTracker[] SignalTrackers,
         ConditionTracker[] CompositeTrackers,
-        Dictionary<string, ConditionTracker> ByName);
+        Dictionary<string, ConditionTracker> ByName,
+        Dictionary<string, ConditionTracker[]> BySource,
+        ConditionTracker[] Unsourced);
 }

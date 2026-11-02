@@ -2,6 +2,7 @@
 
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
+    <IsAotCompatible>true</IsAotCompatible>
     <PackageId>Homeostat.Testing</PackageId>
     <Description>Test helpers for Homeostat: an in-memory host with simulated time, run results to assert on, a HealingContext factory and HTTP fault injection.</Description>
   </PropertyGroup>

@@ -1,0 +1,28 @@
+namespace Homeostat
+  public static class HomeostatArtemisExtensions
+    public static Homeostat.HomeostatBuilder AddArtemisQueueSignals(this Homeostat.HomeostatBuilder builder, string queue, System.Action<Homeostat.Artemis.ArtemisQueueSignalOptions>? configure = null)
+    public static Homeostat.HomeostatBuilder UseArtemis(this Homeostat.HomeostatBuilder builder, System.Action<Homeostat.Artemis.ArtemisOptions> configure)
+namespace Homeostat.Artemis
+  public sealed class ArtemisManagementException : System.Exception
+    public ArtemisManagementException()
+    public ArtemisManagementException(string message)
+    public ArtemisManagementException(string message, System.Exception innerException)
+  public sealed class ArtemisOptions
+    public ArtemisOptions()
+    public string? BrokerName { get; set; }
+    public string JolokiaPath { get; set; }
+    public System.Uri? ManagementUrl { get; set; }
+    public string? Origin { get; set; }
+    public string? Password { get; set; }
+    public string? UserName { get; set; }
+  public sealed class ArtemisQueueSignalOptions
+    public ArtemisQueueSignalOptions()
+    public string? Address { get; set; }
+    public Homeostat.Probes.ProbeOptions Consumers { get; }
+    public Homeostat.Probes.ProbeOptions DeadLetter { get; }
+    public string DeadLetterAddress { get; set; }
+    public string? DeadLetterQueue { get; set; }
+    public System.TimeSpan Interval { get; set; }
+    public Homeostat.Probes.ProbeOptions Messages { get; }
+    public string RoutingType { get; set; }
+    public string? Source { get; set; }

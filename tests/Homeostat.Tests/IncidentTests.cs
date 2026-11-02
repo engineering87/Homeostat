@@ -128,12 +128,12 @@ public class IncidentTests
             ApprovalId = "a1b2",
         };
 
-        var json = JsonSerializer.SerializeToElement(SlackSink.Payload(approval, new SlackOptions
+        var json = JsonDocument.Parse(SlackSink.Payload(approval, new SlackOptions
         {
             WebhookUrl = new Uri("https://hooks.slack.com/services/x"),
             ApprovalButtons = true,
             DashboardUrl = new Uri("https://weather-api.internal/homeostat/dashboard"),
-        }), HttpEventSink.Json);
+        }).ToJsonString(HttpEventSink.Json)).RootElement;
 
         var section = json.GetProperty("blocks")[0].GetProperty("text").GetProperty("text").GetString()!;
         Assert.Contains("&lt;!channel&gt;", section);
@@ -152,7 +152,7 @@ public class IncidentTests
             Notifications.HomeostatEventKind.ConditionActivated, DateTimeOffset.UnixEpoch, "weather-api", "feed-down",
             string.Concat(Enumerable.Repeat("a > b & c < d ", 400)));
 
-        var json = JsonSerializer.SerializeToElement(SlackSink.Payload(e, new SlackOptions { WebhookUrl = new Uri("https://hooks.slack.com/x") }), HttpEventSink.Json);
+        var json = JsonDocument.Parse(SlackSink.Payload(e, new SlackOptions { WebhookUrl = new Uri("https://hooks.slack.com/x") }).ToJsonString(HttpEventSink.Json)).RootElement;
         var section = json.GetProperty("blocks")[0].GetProperty("text").GetProperty("text").GetString()!;
 
         Assert.True(section.Length <= 3000);
@@ -184,11 +184,11 @@ public class IncidentTests
             Notifications.HomeostatEventKind.RunCompleted, DateTimeOffset.UnixEpoch, "weather-api", "feed-down", "Run ended.")
         { Outcome = "Healed" };
 
-        var json = JsonSerializer.SerializeToElement(TeamsSink.Payload(e, new TeamsOptions
+        var json = JsonDocument.Parse(TeamsSink.Payload(e, new TeamsOptions
         {
             WebhookUrl = new Uri("https://example.webhook.office.com/x"),
             DashboardUrl = new Uri("https://weather-api.internal/homeostat/dashboard"),
-        }), HttpEventSink.Json);
+        }).ToJsonString(HttpEventSink.Json)).RootElement;
 
         var attachment = json.GetProperty("attachments")[0];
         Assert.Equal("application/vnd.microsoft.card.adaptive", attachment.GetProperty("contentType").GetString());

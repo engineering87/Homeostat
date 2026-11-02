@@ -2,6 +2,7 @@
 
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
+    <IsAotCompatible>true</IsAotCompatible>
     <PackageId>Homeostat.RabbitMQ</PackageId>
     <Description>RabbitMQ for Homeostat: queue depth, consumers and dead letters as signals, and consumers that plans can pause and resume (RabbitMQ.Client 7).</Description>
     <PackageTags>$(PackageTags);rabbitmq;amqp;messaging;dead-letter</PackageTags>

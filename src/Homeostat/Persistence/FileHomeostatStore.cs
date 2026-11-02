@@ -10,11 +10,7 @@ namespace Homeostat.Persistence;
 /// </summary>
 public sealed class FileHomeostatStore : InMemoryHomeostatStore
 {
-    private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web)
-    {
-        WriteIndented = true,
-        Converters = { new JsonStringEnumConverter() },
-    };
+    private static readonly JsonSerializerOptions Json = HomeostatJsonContext.CreateOptions(o => o.WriteIndented = true);
 
     private readonly string _path;
 
@@ -31,7 +27,7 @@ public sealed class FileHomeostatStore : InMemoryHomeostatStore
             try
             {
                 using var stream = File.OpenRead(_path);
-                document = JsonSerializer.Deserialize<Document>(stream, Json);
+                document = JsonSerializer.Deserialize(stream, Json.TypeInfo<Document>());
             }
             catch (Exception ex) when (ex is JsonException or NotSupportedException)
             {
@@ -56,13 +52,13 @@ public sealed class FileHomeostatStore : InMemoryHomeostatStore
     }
 
     /// <summary>Plans that did not run for this long are forgotten when the file is loaded.</summary>
-    public static TimeSpan Retention { get; } = TimeSpan.FromDays(30);
+    internal static TimeSpan Retention { get; } = TimeSpan.FromDays(30);
 
     /// <summary>Full path of the file.</summary>
     public string Path => _path;
 
     /// <inheritdoc />
-    protected override void OnChanged()
+    private protected override void OnChanged()
     {
         var snapshot = Snapshot();
         var directory = System.IO.Path.GetDirectoryName(_path);
@@ -81,14 +77,14 @@ public sealed class FileHomeostatStore : InMemoryHomeostatStore
                     Conditions = snapshot.Events.ToList(),
                     Documents = new Dictionary<string, string>(snapshot.Documents, StringComparer.Ordinal),
                 },
-                Json);
+                Json.TypeInfo<Document>());
             stream.Flush(flushToDisk: true);
         }
 
         File.Move(temporary, _path, overwrite: true);
     }
 
-    private sealed record Document(
+    internal sealed record Document(
         Dictionary<string, PlanState>? Plans,
         List<DateTimeOffset>? Budget,
         List<HealingRunRecord>? Runs)

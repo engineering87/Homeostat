@@ -67,7 +67,7 @@ public class DataTests
         await using var host = await HomeostatTestHost.StartAsync(h => h
             .AddCondition("db-stale", c => c.ForSource("catalog-db").Heal(p => p
                 .ClearConnectionPools<FakeConnection>()
-                .ThenClearConnectionPools<AsyncPoolConnection>()
+                .ClearConnectionPools<AsyncPoolConnection>()
                 .VerifyWith<NotHealedOnce>())));
 
         host.Publish("catalog-db", SignalSeverity.Unhealthy);

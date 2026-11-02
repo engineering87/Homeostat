@@ -575,6 +575,15 @@ internal sealed class HealingRunner
                 verificationError = ex;
             }
 
+            if (verification is not (VerificationOutcome.Healed or VerificationOutcome.NotHealed or VerificationOutcome.Inconclusive))
+            {
+                // For example default(VerificationOutcome): not evidence either way, so neither stop as healed nor escalate.
+                _logger.LogError(
+                    "Condition {Condition}: the verifier after {Action} returned {Value}, which is not a VerificationOutcome; treated as Inconclusive.",
+                    name, step.Name, (int)verification);
+                verification = VerificationOutcome.Inconclusive;
+            }
+
             bool? undone = null;
             if (verification == VerificationOutcome.NotHealed && step.ResolveUndo is { } resolveUndo)
             {
@@ -595,7 +604,7 @@ internal sealed class HealingRunner
                         name, step.Name);
                     return (HealingRunOutcome.Inconclusive, false);
 
-                default:
+                case VerificationOutcome.NotHealed:
                     _logger.LogWarning("Condition {Condition}: {Action} did not heal the condition.", name, step.Name);
                     break;
             }

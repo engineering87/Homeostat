@@ -108,7 +108,7 @@ See [Causes and symptoms](conditions.md#causes-and-symptoms-suppressedby).
 .AddWebhookNotifications(o =>
 {
     o.Url = new Uri(builder.Configuration["Homeostat:ChatWebhookUrl"]!);
-    o.CreatePayload = e => new { text = $"[{e.Application}] {e.Summary}" };
+    o.CreatePayload = e => new JsonObject { ["text"] = $"[{e.Application}] {e.Summary}" };
 })
 .AddAuditLog("logs/homeostat-{date}.jsonl")
 ```

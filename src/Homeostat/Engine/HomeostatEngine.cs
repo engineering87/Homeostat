@@ -78,7 +78,16 @@ internal sealed class HomeostatEngine : BackgroundService
                     recorder.Record(signal);
                 }
 
-                Process(signal, stoppingToken);
+                try
+                {
+                    Process(signal, stoppingToken);
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException)
+                {
+                    // One malformed signal must not stop self-healing for the whole application.
+                    _logger.LogError(ex, "A signal from {Source} could not be processed.", signal.Source);
+                }
+
                 _channel.MarkProcessed();
             }
         }
@@ -112,14 +121,18 @@ internal sealed class HomeostatEngine : BackgroundService
 
     private void Process(Signal signal, CancellationToken stoppingToken)
     {
-        foreach (var tracker in _conditions.SignalTrackers)
+        // Arrays and for loops: this runs for every signal, without allocating.
+        var trackers = _conditions.SignalTrackersFor(signal.Source);
+        for (var i = 0; i < trackers.Length; i++)
         {
-            Handle(tracker, signal, stoppingToken);
+            Handle(trackers[i], signal, stoppingToken);
         }
 
         // Composite conditions follow the conditions they combine, in dependency order.
-        foreach (var composite in _conditions.CompositeTrackers)
+        var composites = _conditions.CompositeTrackers;
+        for (var i = 0; i < composites.Length; i++)
         {
+            var composite = composites[i];
             var definition = composite.Definition;
             var holds = _conditions.CompositeHolds(definition);
             var synthetic = new Signal(

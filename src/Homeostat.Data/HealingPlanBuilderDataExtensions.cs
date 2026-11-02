@@ -20,7 +20,7 @@ public static class HealingPlanBuilderDataExtensions
     /// <typeparam name="TConnection">The provider's connection type.</typeparam>
     /// <param name="plan">The plan builder.</param>
     /// <exception cref="InvalidOperationException"><typeparamref name="TConnection"/> has no public static ClearAllPools method.</exception>
-    /// <example><code>.Heal(p => p.With&lt;FailoverProbe&gt;().ThenClearConnectionPools&lt;SqlConnection&gt;())</code></example>
+    /// <example><code>.Heal(p => p.With&lt;FailoverProbe&gt;().ClearConnectionPools&lt;SqlConnection&gt;())</code></example>
     public static HealingPlanBuilder ClearConnectionPools<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicMethods)] TConnection>(
         this HealingPlanBuilder plan)
         where TConnection : DbConnection
@@ -36,14 +36,6 @@ public static class HealingPlanBuilderDataExtensions
             await clear(ct).ConfigureAwait(false);
         });
     }
-
-    /// <summary>Escalation step that clears the connection pools (see <see cref="ClearConnectionPools{TConnection}"/>).</summary>
-    /// <typeparam name="TConnection">The provider's connection type.</typeparam>
-    /// <param name="plan">The plan builder.</param>
-    public static HealingPlanBuilder ThenClearConnectionPools<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicMethods)] TConnection>(
-        this HealingPlanBuilder plan)
-        where TConnection : DbConnection
-        => plan.ClearConnectionPools<TConnection>();
 
     internal static Func<CancellationToken, Task> FindClearAllPools(
         [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicMethods)] Type connectionType)

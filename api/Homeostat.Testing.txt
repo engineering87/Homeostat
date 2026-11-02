@@ -1,0 +1,84 @@
+namespace Homeostat.Testing
+  public sealed class FaultInjectingHandler : System.Net.Http.DelegatingHandler
+    public FaultInjectingHandler(Homeostat.Testing.FaultSwitch fault, System.Net.HttpStatusCode statusCode = 503)
+    protected override System.Threading.Tasks.Task<System.Net.Http.HttpResponseMessage> SendAsync(System.Net.Http.HttpRequestMessage request, System.Threading.CancellationToken cancellationToken)
+  public sealed class FaultSwitch
+    public FaultSwitch()
+    public bool IsActive { get; }
+    public void Activate()
+    public void Deactivate()
+  public static class HealingContextFactory
+    public static Homeostat.Healing.HealingContext Create(string conditionName = "test-condition", Homeostat.Signals.Signal? triggeringSignal = null, System.IServiceProvider? services = null, Homeostat.Conditions.ConditionSnapshot? conditionState = null, string stepName = "test-step", int step = 0, System.DateTimeOffset? now = null)
+  public static class HomeostatReplay
+    public static System.Threading.Tasks.Task<Homeostat.Testing.ReplayReport> RunAsync(System.Collections.Generic.IEnumerable<Homeostat.Recording.RecordedSignal> signals, Microsoft.Extensions.Configuration.IConfiguration conditions, System.Action<Homeostat.HomeostatOptions>? options = null, System.Threading.CancellationToken cancellationToken = default)
+    public static System.Threading.Tasks.Task<Homeostat.Testing.ReplayReport> RunAsync(System.Collections.Generic.IEnumerable<Homeostat.Recording.RecordedSignal> signals, System.Action<Homeostat.HomeostatBuilder> configure, System.Threading.CancellationToken cancellationToken = default)
+    public static System.Threading.Tasks.Task<Homeostat.Testing.ReplayReport> RunFilesAsync(System.Collections.Generic.IEnumerable<string> paths, Microsoft.Extensions.Configuration.IConfiguration conditions, System.Action<Homeostat.HomeostatOptions>? options = null, System.Threading.CancellationToken cancellationToken = default)
+    public static System.Threading.Tasks.Task<Homeostat.Testing.ReplayReport> RunFilesAsync(System.Collections.Generic.IEnumerable<string> paths, System.Action<Homeostat.HomeostatBuilder> configure, System.Threading.CancellationToken cancellationToken = default)
+  public sealed class HomeostatTestHost : System.IAsyncDisposable
+    public Homeostat.IHomeostatApprovals Approvals { get; }
+    public System.Collections.Generic.IReadOnlyList<Homeostat.Healing.HealingRunResult> CompletedRuns { get; }
+    public Homeostat.IHomeostatControl Control { get; }
+    public System.IServiceProvider Services { get; }
+    public Homeostat.Signals.ISignalPublisher Signals { get; }
+    public Homeostat.IHomeostatSwitches Switches { get; }
+    public Microsoft.Extensions.Time.Testing.FakeTimeProvider Time { get; }
+    public System.Threading.Tasks.ValueTask DisposeAsync()
+    public bool Publish(string source, Homeostat.Signals.SignalSeverity severity, string? message = null)
+    public static System.Threading.Tasks.Task<Homeostat.Testing.HomeostatTestHost> StartAsync(System.Action<Homeostat.HomeostatBuilder> configure, System.Action<Microsoft.Extensions.DependencyInjection.IServiceCollection>? services = null, Homeostat.Testing.HomeostatTestHostOptions? options = null, System.Threading.CancellationToken cancellationToken = default)
+    public System.Threading.Tasks.Task<Homeostat.Healing.PendingApproval> WaitForApprovalAsync(string conditionName, System.TimeSpan? timeout = null, System.Threading.CancellationToken cancellationToken = default)
+    public System.Threading.Tasks.Task WaitForConditionAsync(string conditionName, Homeostat.Conditions.ConditionStatus status, System.TimeSpan? timeout = null, System.Threading.CancellationToken cancellationToken = default)
+    public System.Threading.Tasks.Task<Homeostat.Healing.HealingRunResult> WaitForRunAsync(string conditionName, System.TimeSpan? timeout = null, System.Threading.CancellationToken cancellationToken = default)
+  public sealed class HomeostatTestHostOptions
+    public HomeostatTestHostOptions()
+    public System.TimeSpan AutoAdvanceInterval { get; set; }
+    public System.TimeSpan? AutoAdvanceStep { get; set; }
+    public System.TimeSpan DefaultTimeout { get; set; }
+    public bool DryRun { get; set; }
+    public System.DateTimeOffset StartTime { get; set; }
+  public sealed record ReplayConditionSummary
+    public ReplayConditionSummary(string Condition, int Activations, int WouldHeal, System.Collections.Generic.IReadOnlyList<string> PlanSteps)
+    public int Activations { get; init; }
+    public string Condition { get; init; }
+    public System.Collections.Generic.IReadOnlyList<string> PlanSteps { get; init; }
+    public int WouldHeal { get; init; }
+    public void Deconstruct(out string Condition, out int Activations, out int WouldHeal, out System.Collections.Generic.IReadOnlyList<string> PlanSteps)
+    public bool Equals(Homeostat.Testing.ReplayConditionSummary? other)
+    public override bool Equals(object? obj)
+    public override int GetHashCode()
+    public override string ToString()
+    public static bool op_Equality(Homeostat.Testing.ReplayConditionSummary? left, Homeostat.Testing.ReplayConditionSummary? right)
+    public static bool op_Inequality(Homeostat.Testing.ReplayConditionSummary? left, Homeostat.Testing.ReplayConditionSummary? right)
+  public sealed record ReplayEvent
+    public ReplayEvent(System.DateTimeOffset At, string Condition, Homeostat.Testing.ReplayEventKind Kind, string? Detail)
+    public System.DateTimeOffset At { get; init; }
+    public string Condition { get; init; }
+    public string? Detail { get; init; }
+    public Homeostat.Testing.ReplayEventKind Kind { get; init; }
+    public void Deconstruct(out System.DateTimeOffset At, out string Condition, out Homeostat.Testing.ReplayEventKind Kind, out string? Detail)
+    public bool Equals(Homeostat.Testing.ReplayEvent? other)
+    public override bool Equals(object? obj)
+    public override int GetHashCode()
+    public override string ToString()
+    public static bool op_Equality(Homeostat.Testing.ReplayEvent? left, Homeostat.Testing.ReplayEvent? right)
+    public static bool op_Inequality(Homeostat.Testing.ReplayEvent? left, Homeostat.Testing.ReplayEvent? right)
+  public enum ReplayEventKind : int
+    Activated = 0
+    Cleared = 1
+    WouldHeal = 2
+    Blocked = 3
+  public sealed record ReplayReport
+    public ReplayReport(System.DateTimeOffset From, System.DateTimeOffset To, int Signals, System.Collections.Generic.IReadOnlyList<Homeostat.Testing.ReplayEvent> Events, System.Collections.Generic.IReadOnlyList<Homeostat.Testing.ReplayConditionSummary> Conditions, System.Collections.Generic.IReadOnlyList<Homeostat.Healing.HealingRunResult> Runs)
+    public System.Collections.Generic.IReadOnlyList<Homeostat.Testing.ReplayConditionSummary> Conditions { get; init; }
+    public System.Collections.Generic.IReadOnlyList<Homeostat.Testing.ReplayEvent> Events { get; init; }
+    public System.DateTimeOffset From { get; init; }
+    public System.Collections.Generic.IReadOnlyList<Homeostat.Healing.HealingRunResult> Runs { get; init; }
+    public int Signals { get; init; }
+    public System.DateTimeOffset To { get; init; }
+    public void Deconstruct(out System.DateTimeOffset From, out System.DateTimeOffset To, out int Signals, out System.Collections.Generic.IReadOnlyList<Homeostat.Testing.ReplayEvent> Events, out System.Collections.Generic.IReadOnlyList<Homeostat.Testing.ReplayConditionSummary> Conditions, out System.Collections.Generic.IReadOnlyList<Homeostat.Healing.HealingRunResult> Runs)
+    public bool Equals(Homeostat.Testing.ReplayReport? other)
+    public override bool Equals(object? obj)
+    public override int GetHashCode()
+    public override string ToString()
+    public string ToText()
+    public static bool op_Equality(Homeostat.Testing.ReplayReport? left, Homeostat.Testing.ReplayReport? right)
+    public static bool op_Inequality(Homeostat.Testing.ReplayReport? left, Homeostat.Testing.ReplayReport? right)

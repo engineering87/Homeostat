@@ -66,10 +66,12 @@ public sealed class HomeostatTestHost : IAsyncDisposable
     /// <param name="configure">Homeostat configuration: conditions, plans, detectors, options.</param>
     /// <param name="services">Your own services, such as the components your actions use.</param>
     /// <param name="options">Host settings.</param>
+    /// <param name="cancellationToken">Cancels the start.</param>
     public static async Task<HomeostatTestHost> StartAsync(
         Action<HomeostatBuilder> configure,
         Action<IServiceCollection>? services = null,
-        HomeostatTestHostOptions? options = null)
+        HomeostatTestHostOptions? options = null,
+        CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(configure);
         options ??= new HomeostatTestHostOptions();
@@ -99,17 +101,17 @@ public sealed class HomeostatTestHost : IAsyncDisposable
 
             foreach (var lifecycle in host._hostedServices.OfType<IHostedLifecycleService>())
             {
-                await lifecycle.StartingAsync(CancellationToken.None).ConfigureAwait(false);
+                await lifecycle.StartingAsync(cancellationToken).ConfigureAwait(false);
             }
 
             foreach (var hosted in host._hostedServices)
             {
-                await hosted.StartAsync(CancellationToken.None).ConfigureAwait(false);
+                await hosted.StartAsync(cancellationToken).ConfigureAwait(false);
             }
 
             foreach (var lifecycle in host._hostedServices.OfType<IHostedLifecycleService>())
             {
-                await lifecycle.StartedAsync(CancellationToken.None).ConfigureAwait(false);
+                await lifecycle.StartedAsync(cancellationToken).ConfigureAwait(false);
             }
         }
         catch
@@ -130,15 +132,20 @@ public sealed class HomeostatTestHost : IAsyncDisposable
     /// Waits for a run of <paramref name="conditionName"/> to complete and returns its result.
     /// Each run is returned once: call again to get the next run of the same condition.
     /// </summary>
-    public async Task<HealingRunResult> WaitForRunAsync(string conditionName, TimeSpan? timeout = null)
+    /// <param name="conditionName">The condition.</param>
+    /// <param name="timeout">How long to wait, in real time; <c>null</c> means <see cref="HomeostatTestHostOptions.DefaultTimeout"/>.</param>
+    /// <param name="cancellationToken">Stops waiting with an <see cref="OperationCanceledException"/>.</param>
+    /// <exception cref="TimeoutException">No run completed in time.</exception>
+    public async Task<HealingRunResult> WaitForRunAsync(string conditionName, TimeSpan? timeout = null, CancellationToken cancellationToken = default)
     {
         var limit = timeout ?? _options.DefaultTimeout;
-        using var cts = new CancellationTokenSource(limit);
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        cts.CancelAfter(limit);
         try
         {
             return await _recorder.NextAsync(conditionName, cts.Token).ConfigureAwait(false);
         }
-        catch (OperationCanceledException) when (cts.IsCancellationRequested)
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
             throw new TimeoutException(
                 $"No healing run of condition '{conditionName}' completed within {limit} (real time). " +
@@ -147,10 +154,16 @@ public sealed class HomeostatTestHost : IAsyncDisposable
     }
 
     /// <summary>Waits until a condition reaches <paramref name="status"/>.</summary>
-    public async Task WaitForConditionAsync(string conditionName, ConditionStatus status, TimeSpan? timeout = null)
+    /// <param name="conditionName">The condition.</param>
+    /// <param name="status">The status to wait for.</param>
+    /// <param name="timeout">How long to wait, in real time; <c>null</c> means <see cref="HomeostatTestHostOptions.DefaultTimeout"/>.</param>
+    /// <param name="cancellationToken">Stops waiting with an <see cref="OperationCanceledException"/>.</param>
+    /// <exception cref="TimeoutException">The condition did not reach the status in time.</exception>
+    public async Task WaitForConditionAsync(string conditionName, ConditionStatus status, TimeSpan? timeout = null, CancellationToken cancellationToken = default)
     {
         var limit = timeout ?? _options.DefaultTimeout;
-        using var cts = new CancellationTokenSource(limit);
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        cts.CancelAfter(limit);
 
         while (!cts.IsCancellationRequested)
         {
@@ -169,6 +182,7 @@ public sealed class HomeostatTestHost : IAsyncDisposable
             }
         }
 
+        cancellationToken.ThrowIfCancellationRequested();
         throw new TimeoutException(
             $"Condition '{conditionName}' did not reach {status} within {limit} (real time). Current state: {Describe(conditionName)}.");
     }
@@ -177,10 +191,15 @@ public sealed class HomeostatTestHost : IAsyncDisposable
     /// Waits until a step of <paramref name="conditionName"/> is waiting for approval and returns the request.
     /// Simulated time keeps moving, so answer before the approval timeout expires.
     /// </summary>
-    public async Task<PendingApproval> WaitForApprovalAsync(string conditionName, TimeSpan? timeout = null)
+    /// <param name="conditionName">The condition.</param>
+    /// <param name="timeout">How long to wait, in real time; <c>null</c> means <see cref="HomeostatTestHostOptions.DefaultTimeout"/>.</param>
+    /// <param name="cancellationToken">Stops waiting with an <see cref="OperationCanceledException"/>.</param>
+    /// <exception cref="TimeoutException">No approval was requested in time.</exception>
+    public async Task<PendingApproval> WaitForApprovalAsync(string conditionName, TimeSpan? timeout = null, CancellationToken cancellationToken = default)
     {
         var limit = timeout ?? _options.DefaultTimeout;
-        using var cts = new CancellationTokenSource(limit);
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        cts.CancelAfter(limit);
 
         while (!cts.IsCancellationRequested)
         {
@@ -200,6 +219,7 @@ public sealed class HomeostatTestHost : IAsyncDisposable
             }
         }
 
+        cancellationToken.ThrowIfCancellationRequested();
         throw new TimeoutException(
             $"No approval request for condition '{conditionName}' within {limit} (real time). Condition state: {Describe(conditionName)}.");
     }

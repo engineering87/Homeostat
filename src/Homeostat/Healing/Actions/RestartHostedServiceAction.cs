@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 
@@ -53,6 +54,8 @@ internal sealed class RestartHostedServiceAction<TService> : IHealingAction
     /// Microsoft.Extensions.Hosting, which Homeostat does not reference, so it is read by name. The check is
     /// conservative: when the type is available, the default (StopHost) applies unless Ignore is configured.
     /// </summary>
+    [UnconditionalSuppressMessage("Trimming", "IL2075",
+        Justification = "HostOptions is read by reflection to avoid a dependency on Microsoft.Extensions.Hosting. If trimming removed the property, the value reads as null and the restart is refused: the safe default.")]
     internal static bool HostIgnoresBackgroundServiceFailures(IServiceProvider services)
     {
         var hostOptionsType = Type.GetType("Microsoft.Extensions.Hosting.HostOptions, Microsoft.Extensions.Hosting", throwOnError: false);

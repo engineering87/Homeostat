@@ -2,6 +2,7 @@
 
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
+    <IsAotCompatible>true</IsAotCompatible>
     <PackageId>Homeostat.Polly</PackageId>
     <Description>Polly v8 integration for Homeostat: circuit breaker state as signals, manual circuit isolation as a healing action, and chaos strategies enabled by switches for game days.</Description>
   </PropertyGroup>

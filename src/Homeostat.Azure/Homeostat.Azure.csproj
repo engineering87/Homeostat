@@ -2,6 +2,7 @@
 
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
+    <IsAotCompatible>true</IsAotCompatible>
     <PackageId>Homeostat.Azure</PackageId>
     <Description>Azure actions for Homeostat through Azure Resource Manager: restart App Service apps and slots and virtual machines, take a Front Door origin out of rotation, or call any ARM operation. No SDK dependency: bring a token from Azure.Identity; every action requires approval by default.</Description>
     <PackageTags>$(PackageTags);azure;app-service;front-door;arm</PackageTags>

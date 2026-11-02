@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using Homeostat.AspNetCore;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
@@ -96,7 +97,7 @@ public static class HomeostatSlackEndpointExtensions
         {
             action = SlackAction.Parse(payloadText[0]!);
         }
-        catch (JsonException)
+        catch (Exception ex) when (ex is JsonException or InvalidOperationException) // Not JSON, or a value of the wrong type.
         {
             return Results.BadRequest();
         }
@@ -182,12 +183,12 @@ public static class HomeostatSlackEndpointExtensions
         try
         {
             var client = http.RequestServices.GetService<IHttpClientFactory>()?.CreateClient("Homeostat.Slack") ?? SharedClient;
-            var payload = JsonSerializer.Serialize(new Dictionary<string, object>
+            var payload = new JsonObject
             {
                 ["text"] = text,
                 ["replace_original"] = replaceOriginal,
                 ["response_type"] = replaceOriginal ? "in_channel" : "ephemeral",
-            });
+            }.ToJsonString();
             using var content = new StringContent(payload, Encoding.UTF8, "application/json");
             using var cts = CancellationTokenSource.CreateLinkedTokenSource(http.RequestAborted);
             cts.CancelAfter(TimeSpan.FromSeconds(2)); // Slack expects an answer within 3 seconds.

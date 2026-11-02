@@ -1,0 +1,16 @@
+namespace Homeostat
+  public static class HomeostatAzureExtensions
+    public static Homeostat.Healing.HealingPlanBuilder AzureResourceManager(this Homeostat.Healing.HealingPlanBuilder plan, string name, System.Net.Http.HttpMethod method, string resourceId, string? action, string apiVersion, System.Text.Json.Nodes.JsonNode? body = null, bool requireApproval = true)
+    public static Homeostat.Healing.HealingPlanBuilder DisableFrontDoorOrigin(this Homeostat.Healing.HealingPlanBuilder plan, string originResourceId, bool requireApproval = true)
+    public static Homeostat.Healing.HealingPlanBuilder RestartAppService(this Homeostat.Healing.HealingPlanBuilder plan, string siteResourceId, bool softRestart = false, bool requireApproval = true)
+    public static Homeostat.Healing.HealingPlanBuilder RestartVirtualMachine(this Homeostat.Healing.HealingPlanBuilder plan, string vmResourceId, bool requireApproval = true)
+    public static Homeostat.HomeostatBuilder UseAzure(this Homeostat.HomeostatBuilder builder, System.Action<Homeostat.Azure.AzureOptions> configure)
+namespace Homeostat.Azure
+  public sealed class AzureOptions
+    public static readonly System.Uri PublicCloud
+    public AzureOptions()
+    public System.Func<System.Threading.CancellationToken, System.Threading.Tasks.ValueTask<string>>? AccessToken { get; set; }
+    public System.Uri ResourceManager { get; set; }
+    public System.TimeSpan Timeout { get; set; }
+  public sealed class ResourceManagerException : System.Exception
+    public System.Net.HttpStatusCode StatusCode { get; }

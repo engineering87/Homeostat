@@ -28,8 +28,10 @@ public sealed class WebhookOptions
     public IDictionary<string, string> Headers { get; } = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
-    /// Builds the JSON body from an event. By default the event itself is sent. Return an anonymous object to match
-    /// what the receiver expects, for example <c>e =&gt; new { text = e.Summary }</c> for a Slack incoming webhook.
+    /// Builds the JSON body from an event. By default the event itself is sent. Return a
+    /// <see cref="System.Text.Json.Nodes.JsonNode"/> to match what the receiver expects, for example
+    /// <c>e =&gt; new JsonObject { ["text"] = e.Summary }</c> for a Slack incoming webhook. Other objects, such as
+    /// anonymous ones, are serialized with reflection: they work in ordinary applications, not in trimmed or Native AOT ones.
     /// </summary>
     public Func<HomeostatEvent, object> CreatePayload { get; set; } = static e => e;
 

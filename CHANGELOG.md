@@ -18,6 +18,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Fixed
 
+- A signed Slack interaction or Teams command with a value of the wrong JSON type is answered 400 instead of 500.
+- A signal that the engine cannot process is logged and skipped instead of stopping the engine.
+
 - A switch that a person turned on (dashboard, CLI, code) is no longer taken over by a plan step that turns it on
   with `turnOffWhenCleared`, so the condition clearing no longer turns it off.
 - A condition that cleared while a switch step was running left the switch on: it is now turned off.
@@ -38,6 +41,19 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - Notifier HTTP clients no longer log request URLs, which carry the webhook secret.
 
 ### Added
+
+- Toward 1.0:
+  - Trimming and Native AOT: every library except the tools is `IsAotCompatible` and builds without trimming or AOT
+    warnings; JSON is written with source-generated metadata or `JsonNode` (stores, audit log, recordings, notifiers,
+    Kubernetes, Azure and Artemis requests); the endpoints use the request delegate generator and write their answers,
+    problem details included, without reflection. `tests/Homeostat.AotSmoke` is published with Native AOT and run in
+    CI. See `docs/native-aot.md`.
+  - Public API listings in `api/`, one per package, checked by `PublicApiTests` (`HOMEOSTAT_ACCEPT_API=1` updates
+    them); API rules for 1.0 in `CONTRIBUTING.md`.
+  - `benchmarks/Homeostat.Benchmarks` and `docs/performance.md`: the cost of publishing, of the engine per signal and
+    of the HTTP client handler, measured.
+  - Supply chain: the release workflow adds an SBOM (SPDX) and a build provenance attestation per package, and signs
+    the packages when a certificate is configured; every action is pinned to a commit; OpenSSF Scorecard workflow.
 
 - Integrations (closing wave 2):
   - Pausable consumers in the core: `IPausableConsumer`, `IHomeostatConsumers`, `AddPausableConsumer`, the plan step
@@ -91,6 +107,33 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
     failed steps and a warning when the run history does not cover the period.
 
 ### Changed
+
+- Toward 1.0 (breaking, before the API is frozen):
+  - `HealingRunOutcome`, `VerificationOutcome` and `ApprovalStatus` are numbered from 1, so an unset value is never a
+    success. Stores, the audit log and recordings write the names, so saved data is not affected.
+  - `ConditionDefinition`, `HealingPlan` and `HealingStep` are internal: no public member used them.
+  - `CoverageReport` and `ConditionCoverage` moved to the `Homeostat.Diagnostics` namespace.
+  - `HomeostatEventSink`: `ExecuteAsync` and `StopAsync` are sealed; `WriteAsync` is the extension point.
+  - `InMemoryHomeostatStore.OnChanged` can no longer be overridden outside Homeostat; `FileHomeostatStore.Retention`
+    is internal.
+  - `ISignalPublisher.TryPublish(source, severity, message)` is a default interface member: implementations need
+    only `TryPublish(Signal)`.
+  - Homeostat.Artemis: `AddArtemis` is `UseArtemis`, like `UseRedis`, `UseAzure` and `UseKubernetes`.
+  - Homeostat.Data: `ThenClearConnectionPools` is removed; `ClearConnectionPools` works at any position in a plan.
+  - Homeostat.Aspire.Hosting: `HomeostatResourceOptions` is in the `Homeostat.Aspire.Hosting` namespace.
+  - Homeostat.Testing: `StartAsync`, `WaitForRunAsync`, `WaitForConditionAsync` and `WaitForApprovalAsync` take a
+    `CancellationToken`.
+  - Homeostat.Azure: the `body` of `AzureResourceManager` is a `JsonNode`.
+  - Homeostat.Http: `WebhookOptions.CreatePayload` should return a `JsonNode` (or the event); anonymous objects still
+    work, with reflection, outside trimmed and AOT applications.
+  - Homeostat.AspNetCore: the endpoints write JSON with their own source-generated settings (web defaults, enums as
+    names, so `triggeringSignal.severity` in `/status` is now a name like every other field), no longer with the
+    application's `HttpJsonOptions`.
+  - A verifier that returns a value that is not a `VerificationOutcome` (such as `default`) is logged as an error and
+    treated as `Inconclusive`: the run stops instead of escalating.
+- Performance: a signal is offered only to the conditions that listen to its source (and those with a custom filter
+  only), so the engine's cost per signal no longer grows with the number of conditions; trend, projection and anomaly
+  rules keep running sums instead of scanning their window; the per-signal path does not allocate in steady state.
 
 - Trend and anomaly conditions no longer clear on a signal without a value (such as a failed probe) or with too
   little history: they clear only on a signal they evaluate as good.

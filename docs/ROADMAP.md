@@ -71,9 +71,11 @@ ships as previews. It is indicative and changes with feedback: open an issue to 
 
 ## Toward 1.0
 
-- [ ] Stable public API, enforced by package validation baselines and API analyzers
-- [ ] Native AOT and trimming compatibility, published benchmarks of the overhead
-- [ ] Signed packages, SBOM, OpenSSF Scorecard
+- [x] Public API recorded per package (`api/*.txt`) and checked by a test; API review for 1.0 (internal model types, outcome enums numbered from 1, sealed sink pipeline, consistent names)
+- [x] Trimming and Native AOT compatibility: `IsAotCompatible` libraries, source-generated JSON, a Native AOT smoke test in CI
+- [x] Published benchmarks of the overhead ([performance](performance.md)); per-signal engine work without allocations
+- [x] SBOM and build provenance on every release, optional author signing, actions pinned by commit, OpenSSF Scorecard
+- [ ] Package validation baseline set to the first stable version, once it is published
 - [ ] .NET Foundation application
 
 ## Out of scope

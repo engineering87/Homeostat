@@ -1,3 +1,4 @@
+using System.Text.Json.Nodes;
 using Homeostat.Azure;
 using Homeostat.Healing;
 using Microsoft.Extensions.DependencyInjection;
@@ -111,10 +112,10 @@ public static class HomeostatAzureExtensions
 
             context.Services.GetService<ILoggerFactory>()?.CreateLogger("Homeostat.Azure")
                 .LogWarning("Disabling Front Door origin {Origin} for condition {Condition}.", Name(id), context.ConditionName);
-            await api.SendAsync(HttpMethod.Patch, id, null, FrontDoorApiVersion, new { properties = new { enabledState = "Disabled" } }, ct).ConfigureAwait(false);
+            await api.SendAsync(HttpMethod.Patch, id, null, FrontDoorApiVersion, new JsonObject { ["properties"] = new JsonObject { ["enabledState"] = "Disabled" } }, ct).ConfigureAwait(false);
         });
         plan.UndoWith($"Enable Front Door origin {Name(id)}", (context, ct) => context.Services.GetRequiredService<ResourceManagerApi>()
-            .SendAsync(HttpMethod.Patch, id, null, FrontDoorApiVersion, new { properties = new { enabledState = "Enabled" } }, ct));
+            .SendAsync(HttpMethod.Patch, id, null, FrontDoorApiVersion, new JsonObject { ["properties"] = new JsonObject { ["enabledState"] = "Enabled" } }, ct));
         return requireApproval ? plan.RequireApproval() : plan;
     }
 
@@ -138,7 +139,7 @@ public static class HomeostatAzureExtensions
     /// </example>
     public static HealingPlanBuilder AzureResourceManager(
         this HealingPlanBuilder plan, string name, HttpMethod method, string resourceId, string? action, string apiVersion,
-        object? body = null, bool requireApproval = true)
+        JsonNode? body = null, bool requireApproval = true)
     {
         ArgumentNullException.ThrowIfNull(plan);
         ArgumentException.ThrowIfNullOrWhiteSpace(name);
@@ -155,7 +156,7 @@ public static class HomeostatAzureExtensions
 
     private static HealingPlanBuilder Step(
         HealingPlanBuilder plan, string name, HttpMethod method, string resourceId, string? action, string apiVersion,
-        object? body, bool requireApproval)
+        JsonNode? body, bool requireApproval)
     {
         plan.With(name, async (context, ct) =>
         {

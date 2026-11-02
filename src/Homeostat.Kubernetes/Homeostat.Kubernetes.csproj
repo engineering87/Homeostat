@@ -2,6 +2,7 @@
 
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
+    <IsAotCompatible>true</IsAotCompatible>
     <PackageId>Homeostat.Kubernetes</PackageId>
     <Description>Kubernetes actions for Homeostat: restart the application's own pod, rollout restart and scale a deployment, cordon the node. Talks to the API server directly with the pod's service account (no client SDK); every action requires approval by default.</Description>
     <PackageTags>$(PackageTags);kubernetes;k8s;orchestration</PackageTags>

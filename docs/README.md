@@ -30,6 +30,8 @@ New to Homeostat? Read the pages in this order: each one builds on the previous.
 | [ASP.NET Core endpoints](aspnetcore.md) | Status and control endpoints, dashboard, Slack approvals, Homeostat as a health check |
 | [Tools](tools.md) | `homeostat` command-line tool, `dotnet new` templates |
 | [Analyzers](analyzers.md) | Build-time checks HOMEO001 to HOMEO005 |
+| [Performance](performance.md) | What publishing a signal, the engine and the HTTP handler cost, measured |
+| [Trimming and Native AOT](native-aot.md) | What works in trimmed and AOT-compiled applications, and how it is checked |
 | [Testing](testing.md) | Scenario tests with simulated time, approvals, fault injection, unit testing actions |
 
 ## Practice

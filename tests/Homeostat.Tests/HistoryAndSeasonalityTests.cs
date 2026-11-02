@@ -526,8 +526,8 @@ public class HistoryAndSeasonalityTests
             Notifications.HomeostatEventKind.ApprovalRequested, DateTimeOffset.UnixEpoch, "weather-api", "feed-down", "Approval needed.")
         { ApprovalId = "a1b2" };
 
-        var with = JsonSerializer.SerializeToElement(TeamsSink.Payload(e, new TeamsOptions { ApprovalCommand = "Homeostat" }), HttpEventSink.Json);
-        var without = JsonSerializer.SerializeToElement(TeamsSink.Payload(e, new TeamsOptions()), HttpEventSink.Json);
+        var with = JsonDocument.Parse(TeamsSink.Payload(e, new TeamsOptions { ApprovalCommand = "Homeostat" }).ToJsonString(HttpEventSink.Json)).RootElement;
+        var without = JsonDocument.Parse(TeamsSink.Payload(e, new TeamsOptions()).ToJsonString(HttpEventSink.Json)).RootElement;
 
         var body = with.GetProperty("attachments")[0].GetProperty("content").GetProperty("body");
         Assert.Contains("@Homeostat approve a1b2", body[3].GetProperty("text").GetString());

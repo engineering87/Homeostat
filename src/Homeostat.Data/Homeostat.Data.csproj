@@ -2,6 +2,7 @@
 
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
+    <IsAotCompatible>true</IsAotCompatible>
     <PackageId>Homeostat.Data</PackageId>
     <Description>Database integration for Homeostat: connectivity and latency probes for any ADO.NET provider (SQL Server, PostgreSQL, MySQL, SQLite, Oracle), transient error tagging and connection pool reset actions.</Description>
     <PackageTags>$(PackageTags);database;ado-net;sqlclient;npgsql;connection-pool</PackageTags>

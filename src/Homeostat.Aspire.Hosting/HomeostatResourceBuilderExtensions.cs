@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Net.Http.Headers;
 using Aspire.Hosting.ApplicationModel;
+using Homeostat.Aspire.Hosting;
 
 namespace Aspire.Hosting;
 

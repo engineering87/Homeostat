@@ -1,15 +1,17 @@
 name: Release
 
 # Publishes the packages to NuGet and creates a GitHub release when a version tag is pushed:
-#   git tag v0.1.0-preview.1 && git push origin v0.1.0-preview.1
-# Requires the repository secret NUGET_API_KEY (a key scoped to the Homeostat* packages).
+#   git tag v1.0.0 && git push origin v1.0.0
+# Requires the secret NUGET_API_KEY (a key scoped to the Homeostat* packages). Optional: NUGET_SIGNING_CERTIFICATE
+# (a code signing certificate as base64 PFX, registered on nuget.org) and NUGET_SIGNING_PASSWORD sign the packages.
+# Every release carries an SBOM (SPDX) and a build provenance attestation for each package: see SECURITY.md.
 
 on:
   push:
     tags: [ 'v*' ]
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: release
@@ -19,6 +21,10 @@ jobs:
   release:
     runs-on: ubuntu-latest
     environment: nuget
+    permissions:
+      contents: write      # the GitHub release
+      id-token: write      # signing the provenance attestations
+      attestations: write  # storing them
 
     services:
       redis:
@@ -34,9 +40,8 @@ jobs:
       HOMEOSTAT_TEST_REDIS: localhost:6379
 
     steps:
-      - uses: actions/checkout@v7
-
-      - uses: actions/setup-dotnet@v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
         with:
           dotnet-version: 10.0.x
 
@@ -61,11 +66,54 @@ jobs:
       - name: Pack
         run: dotnet pack Homeostat.slnx --configuration Release --no-build -p:Version=$VERSION --output artifacts
 
+      - name: Sign packages
+        # Only when a certificate is configured; nuget.org then also checks the signature against the certificate
+        # registered on the account.
+        env:
+          NUGET_SIGNING_CERTIFICATE: ${{ secrets.NUGET_SIGNING_CERTIFICATE }}
+          NUGET_SIGNING_PASSWORD: ${{ secrets.NUGET_SIGNING_PASSWORD }}
+        run: |
+          if [ -z "$NUGET_SIGNING_CERTIFICATE" ]; then
+            echo "No signing certificate configured: packages are published unsigned (nuget.org adds its repository signature)."
+            exit 0
+          fi
+          certificate="$RUNNER_TEMP/signing.pfx"
+          trap 'rm -f "$certificate"' EXIT
+          echo "$NUGET_SIGNING_CERTIFICATE" | base64 --decode > "$certificate"
+          for package in artifacts/*.nupkg; do
+            dotnet nuget sign "$package" \
+              --certificate-path "$certificate" \
+              --certificate-password "$NUGET_SIGNING_PASSWORD" \
+              --timestamper http://timestamp.digicert.com \
+              --overwrite
+            dotnet nuget verify "$package" --all
+          done
+
+      - name: SBOM
+        # The dependencies of every package, from the build output (.deps.json), in SPDX.
+        uses: anchore/sbom-action@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3
+        with:
+          path: ./src
+          format: spdx-json
+          output-file: artifacts/homeostat-${{ env.VERSION }}.spdx.json
+          upload-release-assets: false
+
+      - name: Build provenance
+        # Signed statements that each package was built by this workflow from this commit:
+        #   gh attestation verify Homeostat.1.0.0.nupkg --repo engineering87/Homeostat
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: |
+            artifacts/*.nupkg
+            artifacts/*.spdx.json
+
       - name: Push to NuGet
         # Symbol packages (.snupkg) next to the .nupkg files are pushed automatically.
+        env:
+          NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
         run: >
           dotnet nuget push "artifacts/*.nupkg"
-          --api-key "${{ secrets.NUGET_API_KEY }}"
+          --api-key "$NUGET_API_KEY"
           --source https://api.nuget.org/v3/index.json
           --skip-duplicate
 

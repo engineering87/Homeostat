@@ -9,7 +9,9 @@
   <a href="https://www.nuget.org/packages/Homeostat"><img src="https://img.shields.io/nuget/vpre/Homeostat?logo=nuget&label=NuGet&color=6366F1" alt="NuGet version"></a>
   <a href="https://www.nuget.org/packages/Homeostat"><img src="https://img.shields.io/nuget/dt/Homeostat?label=downloads&color=06B6D4" alt="NuGet downloads"></a>
   <a href="https://github.com/engineering87/Homeostat/actions/workflows/ci.yml"><img src="https://github.com/engineering87/Homeostat/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://scorecard.dev/viewer/?uri=github.com/engineering87/Homeostat"><img src="https://api.scorecard.dev/projects/github.com/engineering87/Homeostat/badge" alt="OpenSSF Scorecard"></a>
   <img src="https://img.shields.io/badge/.NET-10-512BD4?logo=dotnet" alt=".NET 10">
+  <img src="https://img.shields.io/badge/Native%20AOT-ready-0EA5E9" alt="Native AOT ready">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-10B981" alt="MIT license"></a>
 </p>
 
@@ -290,6 +292,8 @@ where retries are no longer enough.
 | 🧾 [Configuration](docs/configuration.md) | Conditions and plans in `appsettings.json`, applied at runtime |
 | 🌐 [ASP.NET Core endpoints](docs/aspnetcore.md) | Status and control endpoints, Homeostat as a health check |
 | 🧪 [Testing](docs/testing.md) | Scenario tests with simulated time and fault injection |
+| ⚡ [Performance](docs/performance.md) | What Homeostat costs your application, measured |
+| 📦 [Trimming and Native AOT](docs/native-aot.md) | Publishing with `PublishAot`, and how it is checked |
 | 🍳 [Recipes](docs/recipes.md) | Ready-to-adapt solutions for common scenarios |
 | ❓ [FAQ & troubleshooting](docs/faq.md) | "Why didn't it act?" and other questions |
 
@@ -297,7 +301,10 @@ A runnable example lives in [`samples/Homeostat.Samples.WeatherFeed`](samples/Ho
 
 ## Project status
 
-Homeostat is in **preview** (`0.1.0-preview.1`): the API may change before 1.0.
+Homeostat is in **preview** (`0.1.0-preview.1`) and getting ready for 1.0: the public API of every package is
+recorded in [`api/`](api) and checked by a test, the libraries are trimming and Native AOT compatible, the overhead is
+[measured](docs/performance.md), and releases come with an SBOM and build provenance ([SECURITY.md](SECURITY.md)).
+Until 1.0 the API may still change; after it, breaking changes wait for a major version.
 See the [roadmap](docs/ROADMAP.md) for what is coming next. Feedback and ideas are very welcome in the
 [issues](https://github.com/engineering87/Homeostat/issues).
 

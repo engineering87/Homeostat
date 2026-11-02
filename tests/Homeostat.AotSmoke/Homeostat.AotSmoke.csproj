@@ -1,0 +1,30 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <!--
+    Published with Native AOT in CI and run: it fails when Homeostat code needs reflection or runtime code generation.
+    dotnet publish tests/Homeostat.AotSmoke -c Release -r linux-x64, then run the executable: exit code 0 means it worked.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <OutputType>Exe</OutputType>
+    <PublishAot>true</PublishAot>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <IsPackable>false</IsPackable>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <!-- One warning per problem, and every trimming or AOT warning fails the publish. -->
+    <TrimmerSingleWarn>false</TrimmerSingleWarn>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <WarningsNotAsErrors>$(WarningsNotAsErrors);NU1901;NU1902;NU1903;NU1904</WarningsNotAsErrors>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Homeostat\Homeostat.csproj" />
+    <ProjectReference Include="..\..\src\Homeostat.AspNetCore\Homeostat.AspNetCore.csproj" />
+    <ProjectReference Include="..\..\src\Homeostat.HealthChecks\Homeostat.HealthChecks.csproj" />
+    <ProjectReference Include="..\..\src\Homeostat.Http\Homeostat.Http.csproj" />
+    <ProjectReference Include="..\..\src\Homeostat.Azure\Homeostat.Azure.csproj" />
+    <ProjectReference Include="..\..\src\Homeostat.Caching\Homeostat.Caching.csproj" />
+    <ProjectReference Include="..\..\src\Homeostat.Kubernetes\Homeostat.Kubernetes.csproj" />
+  </ItemGroup>
+
+</Project>
