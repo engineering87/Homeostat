@@ -1,5 +1,6 @@
 using Homeostat.Conditions;
 using Homeostat.Engine;
+using Homeostat.Signals;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Primitives;
@@ -18,6 +19,9 @@ internal sealed class ConditionReloader : IHostedService, IDisposable
     private readonly ILogger<ConditionReloader> _logger;
     private readonly List<IDisposable> _subscriptions = [];
     private readonly object _gate = new();
+    private readonly Diagnostics.ConditionHistory _history;
+    private readonly Conditions.SeasonalBaselineKeeper _keeper;
+    private readonly TimeProvider _timeProvider;
 
     public ConditionReloader(
         ConditionSet conditions,
@@ -26,8 +30,14 @@ internal sealed class ConditionReloader : IHostedService, IDisposable
         SwitchOwnership ownership,
         IHomeostatSwitches switches,
         HomeostatApprovals approvals,
-        ILogger<ConditionReloader> logger)
+        ILogger<ConditionReloader> logger,
+        Diagnostics.ConditionHistory history,
+        Conditions.SeasonalBaselineKeeper keeper,
+        TimeProvider timeProvider)
     {
+        _history = history;
+        _keeper = keeper;
+        _timeProvider = timeProvider;
         _conditions = conditions;
         _ownership = ownership;
         _switches = switches;
@@ -76,13 +86,21 @@ internal sealed class ConditionReloader : IHostedService, IDisposable
     {
         try
         {
-            var before = _conditions.Trackers.Select(t => t.Definition.Name).ToHashSet(StringComparer.Ordinal);
+            var before = _conditions.Trackers.ToDictionary(t => t.Definition.Name, StringComparer.Ordinal);
             var definitions = _codeDefinitions.Concat(_sources.SelectMany(s => s.Load())).ToList();
             _conditions.Replace(definitions);
 
             // A removed condition will never clear: release what it holds.
-            foreach (var removed in before.Except(definitions.Select(d => d.Name), StringComparer.Ordinal))
+            foreach (var removed in before.Keys.Except(definitions.Select(d => d.Name), StringComparer.Ordinal))
             {
+                // Close it in the history, which would otherwise show it active forever.
+                if (before[removed].Snapshot().Status == ConditionStatus.Active)
+                {
+                    _history.Record(removed, Persistence.ConditionEventKind.Cleared,
+                        new Signal(removed, SignalSeverity.Healthy, _timeProvider.GetUtcNow()) { Message = "Removed from configuration." },
+                        _timeProvider.GetUtcNow());
+                }
+
                 _approvals.CancelFor(removed);
                 foreach (var name in _ownership.Release(removed))
                 {
@@ -95,6 +113,9 @@ internal sealed class ConditionReloader : IHostedService, IDisposable
             }
 
             _logger.LogInformation("Homeostat conditions reloaded from configuration ({Count} conditions).", definitions.Count);
+
+            // New seasonal rules load their baseline now, and replaced ones are saved, without waiting for the timer.
+            _keeper.SyncSoon();
         }
         catch (Exception ex)
         {

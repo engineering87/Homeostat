@@ -156,6 +156,70 @@ internal sealed class RedisHomeostatStore : IHomeostatStore
         return runs;
     }
 
+    public bool SupportsConditionHistory => true;
+
+    public async ValueTask AppendConditionEventAsync(ConditionEventRecord conditionEvent, int maxEvents, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(conditionEvent);
+        if (maxEvents <= 0)
+        {
+            return;
+        }
+
+        var key = $"{_options.KeyPrefix}conditions";
+        var batch = Db.CreateBatch();
+        var push = batch.ListLeftPushAsync(key, JsonSerializer.Serialize(conditionEvent, Json));
+        var trim = batch.ListTrimAsync(key, 0, Math.Max(0, maxEvents - 1));
+        batch.Execute();
+        await Task.WhenAll(push, trim).ConfigureAwait(false);
+    }
+
+    public async ValueTask<IReadOnlyList<ConditionEventRecord>> GetConditionEventsAsync(int maxEvents, CancellationToken cancellationToken = default)
+    {
+        if (maxEvents <= 0)
+        {
+            return [];
+        }
+
+        var values = await Db.ListRangeAsync($"{_options.KeyPrefix}conditions", 0, maxEvents - 1).ConfigureAwait(false);
+        var events = new List<ConditionEventRecord>(values.Length);
+        foreach (var value in values)
+        {
+            if (!value.HasValue)
+            {
+                continue;
+            }
+
+            try
+            {
+                if (JsonSerializer.Deserialize<ConditionEventRecord>((string)value!, Json) is { } conditionEvent)
+                {
+                    events.Add(conditionEvent);
+                }
+            }
+            catch (JsonException)
+            {
+                // Written by another version: skip it.
+            }
+        }
+
+        return events;
+    }
+
+    public async ValueTask<string?> GetDocumentAsync(string key, CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(key);
+        var value = await Db.StringGetAsync($"{_options.KeyPrefix}doc:{key}").ConfigureAwait(false);
+        return value.HasValue ? (string?)value : null;
+    }
+
+    public async ValueTask SetDocumentAsync(string key, string document, CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(key);
+        ArgumentNullException.ThrowIfNull(document);
+        await Db.StringSetAsync($"{_options.KeyPrefix}doc:{key}", document, _options.DocumentRetention).ConfigureAwait(false);
+    }
+
     private RedisKey PlanKey(string key) => $"{_options.KeyPrefix}plan:{key}";
 
     private static PlanState ToState(RedisValue[] values)

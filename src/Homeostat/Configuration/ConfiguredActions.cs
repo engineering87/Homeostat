@@ -18,8 +18,27 @@ internal sealed class ConfiguredActions
         _actions[name] = (add, undo);
     }
 
+    /// <summary>
+    /// Maps action names that were not mapped, when set. Replays use it to evaluate a configuration without the
+    /// application's action classes: a replay never executes actions, it only needs their names.
+    /// </summary>
+    public Func<string, (Action<HealingPlanBuilder> Add, Action<HealingPlanBuilder> Undo)>? Fallback { get; set; }
+
     public bool TryGet(string name, out (Action<HealingPlanBuilder> Add, Action<HealingPlanBuilder> Undo) action)
-        => _actions.TryGetValue(name, out action);
+    {
+        if (_actions.TryGetValue(name, out action))
+        {
+            return true;
+        }
+
+        if (Fallback is { } fallback)
+        {
+            action = fallback(name);
+            return true;
+        }
+
+        return false;
+    }
 
     public IEnumerable<string> Names => _actions.Keys;
 }

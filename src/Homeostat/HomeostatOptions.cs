@@ -42,6 +42,14 @@ public sealed class HomeostatOptions
     public int RunHistorySize { get; set; } = 50;
 
     /// <summary>
+    /// How many condition events (a condition becoming active or clearing) the history keeps (see
+    /// <see cref="IHomeostatControl.GetConditionHistoryAsync"/>). The file and Redis stores keep it, so it survives
+    /// restarts and, with a shared store, spans every instance; with the in-memory store or a store that does not support
+    /// it, the history covers this process. Defaults to 200; 0 disables the history.
+    /// </summary>
+    public int ConditionHistorySize { get; set; } = 200;
+
+    /// <summary>
     /// Identifies this instance in run records, leases and the keys of instance-scoped plan state. Defaults to the
     /// machine name, which is stable across restarts and, in containers, is the pod or container name. Set it
     /// explicitly when several processes on the same machine share a store.

@@ -34,6 +34,7 @@ public static class HomeostatServiceCollectionExtensions
             .Validate(o => o.SignalBufferCapacity > 0, "SignalBufferCapacity must be positive.")
             .Validate(o => Guardrails.TimerLimits.IsValid(o.DefaultApprovalTimeout), "DefaultApprovalTimeout must be positive and at most about 49 days.")
             .Validate(o => o.RunHistorySize >= 0, "RunHistorySize cannot be negative.")
+            .Validate(o => o.ConditionHistorySize >= 0, "ConditionHistorySize cannot be negative.")
             .Validate(o => !string.IsNullOrWhiteSpace(o.InstanceId), "InstanceId cannot be empty.")
             .Validate(o => Guardrails.TimerLimits.IsValid(o.ClusterLeaseDuration) && o.ClusterLeaseDuration >= TimeSpan.FromSeconds(1), "ClusterLeaseDuration must be at least one second.")
             .Validate(o => Guardrails.TimerLimits.IsValid(o.DetectionInterval), "DetectionInterval must be positive and at most about 49 days.");
@@ -58,6 +59,12 @@ public static class HomeostatServiceCollectionExtensions
         services.TryAddSingleton<Healing.Actions.ApplicationClock>();
         services.TryAddSingleton<Diagnostics.ActivationLog>();
         services.TryAddTransient<ConditionClearedVerifier>();
+        services.TryAddSingleton<Diagnostics.ConditionHistory>();
+        services.TryAddSingleton<Conditions.SeasonalBaselineKeeper>();
+
+        // Registered before the engine, so they stop after it: the last events and baselines are written.
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IHostedService, Diagnostics.ConditionHistory>(sp => sp.GetRequiredService<Diagnostics.ConditionHistory>()));
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IHostedService, Conditions.SeasonalBaselineKeeper>(sp => sp.GetRequiredService<Conditions.SeasonalBaselineKeeper>()));
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IHostedService, HomeostatEngine>());
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IHostedService, DetectorHost>());
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IHostedService, Diagnostics.HomeostatGauges>());

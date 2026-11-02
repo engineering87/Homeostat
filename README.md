@@ -156,6 +156,7 @@ app.MapHomeostatControl("operations");                 // pause, resume, approve
 | Alertmanager, Grafana, Azure Monitor alerts | Trends and anomalies from `appsettings.json` | Circuit isolation, feature flags | Dashboard, CLI, Grafana dashboard |
 | Probes: queues, lag, any number you can fetch | Predictions: "full in two hours" | Safe restart of crashed or stuck workers | PagerDuty, Opsgenie, Slack and Teams, chaos for game days |
 | Recorded signals, replayed against new rules | Adaptive plans that learn which step works | Kubernetes and Azure actions, self-restart | Coverage reports for game days |
+| Daily and weekly rhythms | Seasonal anomalies: "unusual for a Monday at 10:00" | Approvals from Slack, Teams and the dashboard | Persisted condition history, offline replay from the CLI |
 
 ## Why Homeostat
 

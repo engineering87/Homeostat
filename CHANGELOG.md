@@ -16,6 +16,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Fixed
 
+- `AddConditionsFromConfiguration` without any `MapAction` registered its action catalog only when the conditions
+  were first resolved, after the host had made the service collection read-only.
+
 - `RestartHostedService<T>()` on a `BackgroundService` stopped the whole application: the generic host treats a
   background service stopped outside a shutdown as failed (`BackgroundServiceExceptionBehavior.StopHost`). Workers
   now derive from `RestartableBackgroundService`, restarted inside the service; a plain `BackgroundService` is
@@ -30,6 +33,25 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Added
 
+- Closing waves 3 and 5:
+  - Seasonal anomalies `WhenSeasonallyHigh` and `WhenSeasonallyLow` with `Seasonality.Daily()` and
+    `Seasonality.Weekly()` (time slots, time zone), also from configuration (`SeasonallyHigh`, `SeasonallyLow`). The
+    learned baselines are kept in the store and survive restarts and deployments.
+  - Persisted condition history: activations and clears with the causing signal, in the file and Redis stores
+    (`ConditionHistorySize`, 200 by default); `IHomeostatControl.GetConditionHistoryAsync`, `GET /homeostat/history`,
+    `homeostat history`. Coverage reports count activations from it, across instances and restarts.
+  - `IHomeostatStore` gains optional members with default implementations (condition history and documents), so
+    existing stores keep compiling; `RedisHomeostatOptions.DocumentRetention`. Condition events refused by a failing
+    store are retried; history reads fall back to this instance's events.
+  - `IHomeostatControl` gains `GetConditionHistoryAsync` (with a default implementation) and, since wave 5,
+    `GetCoverageAsync`: custom implementations of the interface must add the latter.
+  - `homeostat replay`: recorded signals against the conditions of a configuration file, offline, with the
+    application's `HomeostatOptions` and `--max-heals` (exit code 5) for pipelines;
+    `HomeostatReplay.RunFilesAsync(paths, IConfiguration, options)`. Recording files are merged in time order.
+  - Dashboard panels for the condition history and the coverage of the last 24 hours.
+  - Approvals from Microsoft Teams through an outgoing webhook (`MapHomeostatTeamsCommands`): HMAC signature, message
+    age and id checks, approvers by Microsoft Entra object ID; `TeamsOptions.ApprovalCommand` adds the instructions to
+    approval cards.
 - Learning and foresight (wave 5):
   - Predictive conditions `WhenProjectedAbove` and `WhenProjectedBelow` (and `ProjectedAbove`, `ProjectedBelow` in
     configuration), which clear soon after a fix when the latest values stop moving toward the threshold.

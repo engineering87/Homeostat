@@ -139,6 +139,62 @@
     }
   }
 
+  function renderHistory(events) {
+    const list = $("history");
+    list.replaceChildren();
+    if (!events) { list.append(el("li", { class: "empty" }, "Unavailable.")); return; }
+    if (events.length === 0) { list.append(el("li", { class: "empty" }, "No condition has changed state yet.")); return; }
+    for (const e of events.slice(0, 50)) {
+      list.append(el("li", {},
+        badge(e.kind === "Activated" ? "Active" : "Cleared", e.kind === "Activated" ? "bad" : "ok"),
+        el("span", { class: "name" }, e.condition),
+        el("span", { class: "small" }, time(e.at), " on ", e.instance),
+        e.message ? el("span", { class: "small" }, e.message) : null));
+    }
+  }
+
+  function renderCoverage(report) {
+    const box = $("coverage");
+    box.replaceChildren();
+    if (!report) { box.append(el("p", { class: "empty" }, "Unavailable.")); return; }
+    const share = Math.round(report.stepCoverage * 100);
+    const meter = el("div", { class: "meter", role: "meter", "aria-valuemin": "0", "aria-valuemax": "100", "aria-valuenow": String(share) }, el("div", {}));
+    meter.firstChild.style.width = `${share}%`;
+    box.append(el("div", {}, el("strong", {}, `${share}%`), " of plan steps completed at least once"), meter);
+    if (report.truncated) box.append(el("p", { class: "small" }, "The history does not reach back 24 hours: older activity is not counted."));
+    const list = el("ul", { class: "coverage-list" });
+    for (const c of report.conditions.filter((x) => x.hasPlan)) {
+      const outcomes = Object.entries(c.outcomes).map(([k, v]) => `${k} ${v}`).join(", ");
+      const item = el("li", {}, el("span", { class: "name" }, c.name), " ",
+        el("span", { class: "small" }, `${c.activations} activations, ${c.runs} runs${outcomes ? ` (${outcomes})` : ""}`));
+      if (c.stepsFailed.length > 0) item.append(el("div", { class: "small" }, `Always failed: ${c.stepsFailed.join(", ")}`));
+      if (c.stepsNeverRun.length > 0) item.append(el("div", { class: "small" }, `Never ran: ${c.stepsNeverRun.join(", ")}`));
+      list.append(item);
+    }
+    if (list.childElementCount === 0) list.append(el("li", { class: "empty" }, "No conditions with a plan."));
+    box.append(list);
+  }
+
+  // History and coverage change slowly and cost store reads: refreshed every 30 seconds, not every 5.
+  let lastSlowRefresh = 0;
+
+  async function getJson(path) {
+    try {
+      const response = await fetch(path, { credentials: "same-origin", headers: { Accept: "application/json" } });
+      return response.ok ? await response.json() : null;
+    } catch {
+      return null;
+    }
+  }
+
+  async function refreshSlow(force) {
+    if (!force && Date.now() - lastSlowRefresh < 30000) return;
+    lastSlowRefresh = Date.now();
+    const [history, coverage] = await Promise.all([getJson("history"), getJson("coverage")]);
+    renderHistory(history);
+    renderCoverage(coverage);
+  }
+
   function render(status) {
     document.title = `${status.application} · Homeostat`;
     $("app").textContent = status.application;
@@ -167,6 +223,7 @@
       if (response.status === 401 || response.status === 403) throw new Error("You are not allowed to see the status.");
       if (!response.ok) throw new Error(`The status endpoint answered ${response.status}. Is MapHomeostatStatus mapped with the same prefix?`);
       render(await response.json());
+      await refreshSlow(false);
     } catch (error) {
       showError(error.message);
     }

@@ -37,9 +37,18 @@ public interface IHomeostatControl
     ValueTask<IReadOnlyList<HealingRunRecord>> GetRecentRunsAsync(CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// What was exercised since <paramref name="since"/>: activations (on this instance), runs and their outcomes, steps
-    /// that never ran. Runs come from the run history, so a period longer than <see cref="HomeostatOptions.RunHistorySize"/>
-    /// runs is truncated.
+    /// Latest condition events (activations and clears), newest first: from the store when it keeps the condition
+    /// history (the built-in stores do; with a shared store, of every instance), otherwise from this process.
+    /// </summary>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    ValueTask<IReadOnlyList<ConditionEventRecord>> GetConditionHistoryAsync(CancellationToken cancellationToken = default)
+        => ValueTask.FromResult<IReadOnlyList<ConditionEventRecord>>([]);
+
+    /// <summary>
+    /// What was exercised since <paramref name="since"/>: activations, runs and their outcomes, steps that never ran.
+    /// Activations come from the condition history (see <see cref="GetConditionHistoryAsync"/>) and runs from the run
+    /// history: when either does not reach back to <paramref name="since"/>, the report says so in
+    /// <see cref="CoverageReport.Truncated"/>.
     /// </summary>
     /// <param name="since">Start of the period, for example the start of a game day.</param>
     /// <param name="cancellationToken">Cancellation token.</param>

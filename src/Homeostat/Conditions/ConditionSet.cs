@@ -83,6 +83,17 @@ internal sealed class ConditionSet
         {
             if (existing?.ByName.GetValueOrDefault(d.Name) is { } kept)
             {
+                // A changed condition gets a new definition: its seasonal baseline keeps what it learned when the cycle
+                // is the same (same key), instead of waiting for the keeper to reload a copy up to minutes old.
+                foreach (var baseline in d.Baselines)
+                {
+                    if (kept.Definition.Baselines.FirstOrDefault(b => b.Key == baseline.Key) is { } previous && !ReferenceEquals(previous, baseline))
+                    {
+                        baseline.Import(previous.Export());
+                        baseline.Loaded = previous.Loaded;
+                    }
+                }
+
                 kept.Update(d);
                 return kept;
             }

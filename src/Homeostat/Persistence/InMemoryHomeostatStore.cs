@@ -7,6 +7,8 @@ public class InMemoryHomeostatStore : IHomeostatStore
     private readonly Dictionary<string, PlanState> _plans = new(StringComparer.Ordinal);
     private readonly Queue<DateTimeOffset> _budget = new();
     private readonly LinkedList<HealingRunRecord> _runs = new();
+    private readonly LinkedList<ConditionEventRecord> _events = new();
+    private readonly Dictionary<string, string> _documents = new(StringComparer.Ordinal);
 
     /// <inheritdoc />
     public ValueTask<PlanState> GetPlanStateAsync(string key, CancellationToken cancellationToken = default)
@@ -94,6 +96,68 @@ public class InMemoryHomeostatStore : IHomeostatStore
         }
     }
 
+    /// <inheritdoc />
+    public bool SupportsConditionHistory => true;
+
+    /// <inheritdoc />
+    public ValueTask AppendConditionEventAsync(ConditionEventRecord conditionEvent, int maxEvents, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(conditionEvent);
+        lock (_gate)
+        {
+            if (maxEvents <= 0)
+            {
+                return ValueTask.CompletedTask;
+            }
+
+            _events.AddFirst(conditionEvent);
+            while (_events.Count > maxEvents)
+            {
+                _events.RemoveLast();
+            }
+
+            OnChanged();
+        }
+
+        return ValueTask.CompletedTask;
+    }
+
+    /// <inheritdoc />
+    public ValueTask<IReadOnlyList<ConditionEventRecord>> GetConditionEventsAsync(int maxEvents, CancellationToken cancellationToken = default)
+    {
+        lock (_gate)
+        {
+            return ValueTask.FromResult<IReadOnlyList<ConditionEventRecord>>(_events.Take(Math.Max(0, maxEvents)).ToArray());
+        }
+    }
+
+    /// <inheritdoc />
+    public ValueTask<string?> GetDocumentAsync(string key, CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(key);
+        lock (_gate)
+        {
+            return ValueTask.FromResult(_documents.TryGetValue(key, out var document) ? document : null);
+        }
+    }
+
+    /// <inheritdoc />
+    public ValueTask SetDocumentAsync(string key, string document, CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(key);
+        ArgumentNullException.ThrowIfNull(document);
+        lock (_gate)
+        {
+            if (!_documents.TryGetValue(key, out var current) || !string.Equals(current, document, StringComparison.Ordinal))
+            {
+                _documents[key] = document;
+                OnChanged();
+            }
+        }
+
+        return ValueTask.CompletedTask;
+    }
+
     /// <summary>Called under the lock after every change; lets a derived store persist the state.</summary>
     protected virtual void OnChanged()
     {
@@ -101,7 +165,11 @@ public class InMemoryHomeostatStore : IHomeostatStore
 
     /// <summary>Copies the state, under the lock, for a derived store to persist.</summary>
     private protected StoreSnapshot Snapshot()
-        => new(new Dictionary<string, PlanState>(_plans, StringComparer.Ordinal), _budget.ToArray(), _runs.ToArray());
+        => new(new Dictionary<string, PlanState>(_plans, StringComparer.Ordinal), _budget.ToArray(), _runs.ToArray())
+        {
+            Events = _events.ToArray(),
+            Documents = new Dictionary<string, string>(_documents, StringComparer.Ordinal),
+        };
 
     /// <summary>Replaces the state, for a derived store loading persisted data.</summary>
     private protected void Restore(StoreSnapshot snapshot)
@@ -125,6 +193,18 @@ public class InMemoryHomeostatStore : IHomeostatStore
             {
                 _runs.AddLast(run);
             }
+
+            _events.Clear();
+            foreach (var conditionEvent in snapshot.Events)
+            {
+                _events.AddLast(conditionEvent);
+            }
+
+            _documents.Clear();
+            foreach (var (key, document) in snapshot.Documents)
+            {
+                _documents[key] = document;
+            }
         }
     }
 
@@ -140,5 +220,10 @@ public class InMemoryHomeostatStore : IHomeostatStore
     private protected sealed record StoreSnapshot(
         IReadOnlyDictionary<string, PlanState> Plans,
         IReadOnlyList<DateTimeOffset> Budget,
-        IReadOnlyList<HealingRunRecord> Runs);
+        IReadOnlyList<HealingRunRecord> Runs)
+    {
+        public IReadOnlyList<ConditionEventRecord> Events { get; init; } = [];
+
+        public IReadOnlyDictionary<string, string> Documents { get; init; } = new Dictionary<string, string>();
+    }
 }

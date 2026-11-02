@@ -14,6 +14,7 @@ internal sealed class HomeostatControl : IHomeostatControl
     private readonly HomeostatOptions _options;
     private readonly object _gate = new();
     private readonly Diagnostics.ActivationLog _activations;
+    private readonly Diagnostics.ConditionHistory _history;
     private bool _paused;
     private DateTimeOffset? _pausedUntil;
 
@@ -23,8 +24,10 @@ internal sealed class HomeostatControl : IHomeostatControl
         MaintenanceWindows maintenance,
         TimeProvider timeProvider,
         IOptions<HomeostatOptions> options,
-        Diagnostics.ActivationLog activations)
+        Diagnostics.ActivationLog activations,
+        Diagnostics.ConditionHistory history)
     {
+        _history = history;
         _activations = activations;
         _conditions = conditions;
         _store = store;
@@ -96,13 +99,34 @@ internal sealed class HomeostatControl : IHomeostatControl
         return new ActionBudgetStatus(used, _options.MaxActionsPerWindow, _options.ActionBudgetWindow);
     }
 
+    public ValueTask<IReadOnlyList<ConditionEventRecord>> GetConditionHistoryAsync(CancellationToken cancellationToken = default)
+        => _history.ReadAsync(cancellationToken);
+
     public async ValueTask<CoverageReport> GetCoverageAsync(DateTimeOffset since, CancellationToken cancellationToken = default)
     {
         var history = await GetRecentRunsAsync(cancellationToken).ConfigureAwait(false);
         var runs = history.Where(r => r.CompletedAt >= since).ToList();
 
-        // A full history whose oldest run is inside the period has lost the older runs of the period.
+        // A full history whose oldest entry is inside the period has lost the older entries of the period.
         var truncated = history.Count >= _options.RunHistorySize && history.Count > 0 && history.Min(r => r.CompletedAt) > since;
+
+        // Activations: from the condition history (with the built-in stores, every instance and across restarts,
+        // merged with this process's events not stored yet), plus this process's activations that the history no
+        // longer holds (it keeps ConditionHistorySize events).
+        var events = await _history.ReadAsync(cancellationToken).ConfigureAwait(false);
+        if (events.Count >= _options.ConditionHistorySize && events.Count > 0 && events.Min(e => e.At) > since)
+        {
+            truncated = true;
+        }
+
+        var stored = events.Where(e => e.Kind == ConditionEventKind.Activated && e.At >= since).ToList();
+        int Activations(string condition)
+        {
+            var mine = stored.Where(e => string.Equals(e.ConditionName, condition, StringComparison.Ordinal)).ToList();
+            var local = _activations.Since(condition, since).Count(at => !mine.Any(e => Diagnostics.ConditionHistory.Same(e,
+                new ConditionEventRecord { ConditionName = condition, Kind = ConditionEventKind.Activated, At = at, Instance = _options.InstanceId })));
+            return mine.Count + local;
+        }
 
         var conditions = new List<ConditionCoverage>();
         foreach (var tracker in _conditions.Trackers)
@@ -115,7 +139,7 @@ internal sealed class HomeostatControl : IHomeostatControl
             conditions.Add(new ConditionCoverage(
                 definition.Name,
                 definition.Plan is not null,
-                _activations.Since(definition.Name, since).Count,
+                Activations(definition.Name),
                 mine.Count,
                 mine.GroupBy(r => r.Outcome.ToString()).ToDictionary(g => g.Key, g => g.Count(), StringComparer.Ordinal),
                 [.. planSteps.Where(ran.Contains)],

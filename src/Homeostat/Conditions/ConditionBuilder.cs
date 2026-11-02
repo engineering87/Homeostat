@@ -21,6 +21,8 @@ public sealed class ConditionBuilder
     private TimeSpan _clearAfter = TimeSpan.Zero;
     private readonly List<string> _suppressedBy = [];
     private readonly List<Action<Signal>> _recorders = [];
+    private SeasonalBaseline? _baseline;
+    private Func<Signal, bool>? _seasonalTrigger;
     private (int Count, TimeSpan Within)? _occurrences;
     private CompositeMode? _composite;
     private string[] _dependsOn = [];
@@ -143,6 +145,43 @@ public sealed class ConditionBuilder
     /// </remarks>
     public ConditionBuilder WhenAnomalouslyHigh(double zScore, TimeSpan window, int minimumHistory = 30)
         => Anomaly(window, minimumHistory, z => z >= zScore);
+
+    /// <summary>
+    /// Trigger when a value is unusually high for the time of day or of the week: at least <paramref name="zScore"/>
+    /// standard deviations above the values seen in the same time slot of earlier periods. For metrics with a daily or
+    /// weekly rhythm (traffic, queue depth, latency under load), where a fixed threshold or a comparison with the last
+    /// hour would fire every morning or miss a problem at night.
+    /// </summary>
+    /// <param name="zScore">How many standard deviations count as anomalous.</param>
+    /// <param name="seasonality">The cycle: <see cref="Seasonality.Daily"/> or <see cref="Seasonality.Weekly"/>.</param>
+    /// <param name="minimumPeriods">
+    /// Periods (days or weeks) a time slot needs before the rule can trigger in it; defaults to 3. Until then the rule
+    /// neither triggers nor clears.
+    /// </param>
+    /// <remarks>
+    /// The baseline is learned from every value, with recent periods weighing more (an exponential weight of 0.25 per
+    /// period), so a lasting change of level becomes the new normal within a few periods. It is kept in the store
+    /// (<see cref="Persistence.IHomeostatStore.SetDocumentAsync"/>), so restarts and deployments do not reset it; with a
+    /// shared store, the instances share one baseline.
+    /// </remarks>
+    /// <example>
+    /// <code>
+    /// c.ForSource("ingest-queue-depth")
+    ///  .WhenSeasonallyHigh(4, Seasonality.Weekly(timeZone: TimeZoneInfo.FindSystemTimeZoneById("Europe/Rome")))
+    /// </code>
+    /// </example>
+    public ConditionBuilder WhenSeasonallyHigh(double zScore, Seasonality seasonality, int minimumPeriods = 3)
+        => Seasonal(zScore, seasonality, minimumPeriods, high: true);
+
+    /// <summary>
+    /// Trigger when a value is unusually low for the time of day or of the week (see <see cref="WhenSeasonallyHigh"/>),
+    /// for example requests served dropping during business hours.
+    /// </summary>
+    /// <param name="zScore">How many standard deviations count as anomalous.</param>
+    /// <param name="seasonality">The cycle: <see cref="Seasonality.Daily"/> or <see cref="Seasonality.Weekly"/>.</param>
+    /// <param name="minimumPeriods">Periods a time slot needs before the rule can trigger in it; defaults to 3.</param>
+    public ConditionBuilder WhenSeasonallyLow(double zScore, Seasonality seasonality, int minimumPeriods = 3)
+        => Seasonal(zScore, seasonality, minimumPeriods, high: false);
 
     /// <summary>Trigger when a value is unusually low compared with the recent past (see <see cref="WhenAnomalouslyHigh"/>).</summary>
     /// <param name="zScore">How many standard deviations count as anomalous.</param>
@@ -340,6 +379,31 @@ public sealed class ConditionBuilder
         return this;
     }
 
+    private ConditionBuilder Seasonal(double zScore, Seasonality seasonality, int minimumPeriods, bool high)
+    {
+        EnsureNotComposite("a seasonal rule");
+        ArgumentNullException.ThrowIfNull(seasonality);
+        if (!double.IsFinite(zScore) || zScore <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(zScore), "The z-score must be a positive number.");
+        }
+
+        ArgumentOutOfRangeException.ThrowIfLessThan(minimumPeriods, 1);
+        if (_baseline is not null)
+        {
+            throw new InvalidOperationException($"Condition '{_name}' already has a seasonal rule; use one per condition.");
+        }
+
+        var baseline = new SeasonalBaseline($"{_name}:{seasonality.Signature}", seasonality);
+        _baseline = baseline;
+        _recorders.Add(baseline.Add);
+        Func<double, bool> rule = high ? z => z >= zScore : z => z <= -zScore;
+        _trigger = s => baseline.ZScore(s, minimumPeriods) is { } z && rule(z);
+        _seasonalTrigger = _trigger;
+        _seriesClear = s => baseline.ZScore(s, minimumPeriods) is { } z && !rule(z);
+        return this;
+    }
+
     private ConditionBuilder Composite(CompositeMode mode, string[] conditionNames)
     {
         ArgumentNullException.ThrowIfNull(conditionNames);
@@ -373,6 +437,13 @@ public sealed class ConditionBuilder
             throw new InvalidOperationException(
                 $"Condition '{_name}' must either call ForSource(...) or define ClearWhen(...); " +
                 "otherwise a healthy signal from any component would clear it.");
+        }
+
+        if (_baseline is not null && !ReferenceEquals(_trigger, _seasonalTrigger))
+        {
+            // The baseline would keep learning and being saved for a rule that no longer decides anything.
+            throw new InvalidOperationException(
+                $"Condition '{_name}': another trigger rule replaced its seasonal rule; use one trigger rule per condition.");
         }
 
         var source = _source;
@@ -429,7 +500,7 @@ public sealed class ConditionBuilder
 
         return new ConditionDefinition(
             _name, relevant, trigger, clear, _sustainFor, _clearAfter, _suppressedBy.ToArray(), _plan?.Build(_name),
-            record, _composite, _dependsOn);
+            record, _composite, _dependsOn, _baseline is null ? [] : [_baseline]);
     }
 
     private static bool DefaultTrigger(Signal signal) => signal.Severity >= SignalSeverity.Unhealthy;

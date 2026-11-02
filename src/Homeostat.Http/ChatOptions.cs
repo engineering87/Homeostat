@@ -57,4 +57,10 @@ public sealed class SlackOptions : ChatOptions
 /// <summary>Settings of the Microsoft Teams notifier (a Teams workflow that posts an Adaptive Card to a channel).</summary>
 public sealed class TeamsOptions : ChatOptions
 {
+    /// <summary>
+    /// Name of the Teams outgoing webhook mapped with <c>MapHomeostatTeamsCommands</c>, for example <c>Homeostat</c>.
+    /// When set, approval request cards tell people how to answer from the channel
+    /// (<c>@Homeostat approve &lt;id&gt;</c>). The webhook must belong to the team of the channel the workflow posts to.
+    /// </summary>
+    public string? ApprovalCommand { get; set; }
 }

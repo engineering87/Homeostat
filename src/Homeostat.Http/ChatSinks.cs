@@ -180,7 +180,9 @@ internal sealed class TeamsSink : HttpEventSink
                             new { type = "TextBlock", text = $"{e.Application}: {e.Kind}", weight = "Bolder", size = "Medium", wrap = true },
                             new { type = "TextBlock", text = e.Summary, wrap = true },
                             new { type = "FactSet", facts },
-                        },
+                        }.Concat(e.Kind == HomeostatEventKind.ApprovalRequested && options.ApprovalCommand is { Length: > 0 } command && e.ApprovalId is { } approvalId
+                            ? [new { type = "TextBlock", text = $"Reply in the channel: @{command} approve {approvalId} (or reject {approvalId})", wrap = true, isSubtle = true }]
+                            : Array.Empty<object>()).ToArray(),
                         ["actions"] = actions,
                     },
                 },

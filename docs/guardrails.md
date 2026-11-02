@@ -151,6 +151,7 @@ These logs are good candidates for alerts (see [Observability](observability.md)
 | `DetectionInterval` | 10 seconds | How often [detectors](detectors.md) take a sample |
 | `DefaultApprovalTimeout` | 15 minutes | Time to wait for a person to approve a step |
 | `RunHistorySize` | `50` | Completed runs kept by the store, for `GetRecentRunsAsync()` and the status endpoint |
+| `ConditionHistorySize` | `200` | Condition activations and clears kept by the store, for `GetConditionHistoryAsync()`, the history endpoint and coverage; `0` disables it |
 | `ApplicationName` | entry assembly name | Included in notifications and audit records |
 | `InstanceId` | machine name | Identifies the instance in runs, leases, traces and instance plan keys |
 | `ClusterLeaseDuration` | 1 minute | Lease of `OncePerCluster()` plans, renewed while a run lasts |

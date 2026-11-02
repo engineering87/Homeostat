@@ -7,7 +7,7 @@
     <PackAsTool>true</PackAsTool>
     <ToolCommandName>homeostat</ToolCommandName>
     <RootNamespace>Homeostat.Cli</RootNamespace>
-    <Description>Command-line tool for Homeostat: read the status, pause and resume, approve or reject steps, flip switches and send test signals, against the endpoints of a running application.</Description>
+    <Description>Command-line tool for Homeostat: read the status, coverage and condition history, pause and resume, approve or reject steps, flip switches and send test signals against a running application; replay recorded signals against a configuration offline.</Description>
     <PackageTags>$(PackageTags);cli;dotnet-tool</PackageTags>
     <!-- A tool is not a library: no public API to validate. -->
     <EnablePackageValidation>false</EnablePackageValidation>
@@ -15,6 +15,12 @@
 
   <ItemGroup>
     <PackageReference Include="System.CommandLine" />
+    <PackageReference Include="Microsoft.Extensions.Configuration.Json" />
+    <PackageReference Include="Microsoft.Extensions.Configuration.Binder" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Homeostat.Testing\Homeostat.Testing.csproj" />
   </ItemGroup>
 
   <ItemGroup>

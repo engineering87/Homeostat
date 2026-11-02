@@ -15,8 +15,8 @@ public static class HomeostatDashboardExtensions
     private static readonly Lazy<(string Name, byte[] Content, string ContentType)[]> Assets = new(Load);
 
     /// <summary>
-    /// Maps <c>GET {prefix}/dashboard</c>: a page that shows conditions, pending approvals, switches, the action budget
-    /// and recent runs, refreshed every 5 seconds, with buttons to approve or reject steps, pause and resume, and
+    /// Maps <c>GET {prefix}/dashboard</c>: a page that shows conditions, pending approvals, switches, the action budget,
+    /// recent runs, the condition history and the coverage of the last 24 hours, refreshed every 5 seconds, with buttons to approve or reject steps, pause and resume, and
     /// turn switches on and off. It reads <c>{prefix}/status</c> and calls the control endpoints, so map
     /// <see cref="HomeostatEndpointRouteBuilderExtensions.MapHomeostatStatus"/> and
     /// <see cref="HomeostatEndpointRouteBuilderExtensions.MapHomeostatControl"/> with the same prefix (without the

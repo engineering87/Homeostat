@@ -168,7 +168,9 @@ with interactivity enabled, and the clicks are received by `MapHomeostatSlackInt
 
 Create a Teams workflow from the template "Post to a channel when a webhook request is received" and use its URL.
 Each event is an Adaptive Card with the condition, step, outcome and expiry; approval requests link to the dashboard
-("Review in dashboard"), where the step is approved.
+("Review in dashboard"), where the step is approved. To approve from the channel instead, map a Teams outgoing webhook
+with `MapHomeostatTeamsCommands` ([ASP.NET Core endpoints](aspnetcore.md#microsoft-teams-approvals)) and set
+`o.ApprovalCommand` to its name: the cards then say `Reply in the channel: @Homeostat approve <id>`.
 
 Both notifiers send the same events as the webhook by default (condition activated and cleared, run completed,
 approval requested and resolved); change `Events` to send fewer.

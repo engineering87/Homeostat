@@ -16,4 +16,10 @@ public sealed class RedisHomeostatOptions
 
     /// <summary>How long plan state is kept after its last change; refreshed at every run.</summary>
     public TimeSpan PlanStateRetention { get; set; } = TimeSpan.FromDays(7);
+
+    /// <summary>
+    /// How long documents (such as the learned baselines of seasonal rules) are kept after their last update. Defaults
+    /// to 90 days, longer than the weeks a weekly baseline needs to learn.
+    /// </summary>
+    public TimeSpan DocumentRetention { get; set; } = TimeSpan.FromDays(90);
 }

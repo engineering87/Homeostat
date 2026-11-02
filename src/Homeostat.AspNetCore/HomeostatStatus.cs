@@ -84,3 +84,19 @@ public sealed record RunInfo(string Condition, string Outcome, DateTimeOffset St
 /// <param name="Error">Error message, if the action or verifier failed.</param>
 /// <param name="UndoSucceeded">Whether the compensating action succeeded; <c>null</c> if it did not run.</param>
 public sealed record StepInfo(string Name, bool Succeeded, string? Verification, string? Error, bool? UndoSucceeded);
+
+/// <summary>A condition becoming active or clearing.</summary>
+/// <param name="Condition">Condition name.</param>
+/// <param name="Kind"><c>Activated</c> or <c>Cleared</c>.</param>
+/// <param name="At">When it happened.</param>
+/// <param name="Instance">Instance where it happened.</param>
+/// <param name="Source">Source of the signal that caused it.</param>
+/// <param name="Severity">Severity of that signal.</param>
+/// <param name="Value">Value of that signal, if any.</param>
+/// <param name="Message">Message of that signal, if any.</param>
+public sealed record ConditionEventInfo(
+    string Condition, string Kind, DateTimeOffset At, string Instance, string? Source, string? Severity, double? Value, string? Message)
+{
+    internal static ConditionEventInfo From(ConditionEventRecord e) => new(
+        e.ConditionName, e.Kind.ToString(), e.At, e.Instance, e.Source, e.Severity?.ToString(), e.Value, e.Message);
+}

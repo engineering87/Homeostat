@@ -21,6 +21,8 @@ internal sealed class HomeostatEngine : BackgroundService
     private readonly Diagnostics.ActivationLog _activations;
     private readonly Recording.SignalRecorder[] _recorders;
     private readonly TimeProvider _timeProvider;
+    private readonly Diagnostics.ConditionHistory _history;
+    private readonly SeasonalBaselineKeeper _keeper;
 
     public HomeostatEngine(
         SignalChannel channel,
@@ -34,8 +36,12 @@ internal sealed class HomeostatEngine : BackgroundService
         Healing.Actions.ApplicationClock clock,
         Diagnostics.ActivationLog activations,
         IEnumerable<Recording.SignalRecorder> recorders,
-        TimeProvider timeProvider)
+        TimeProvider timeProvider,
+        Diagnostics.ConditionHistory history,
+        SeasonalBaselineKeeper keeper)
     {
+        _history = history;
+        _keeper = keeper;
         _activations = activations;
         _recorders = recorders.ToArray();
         _timeProvider = timeProvider;
@@ -61,6 +67,10 @@ internal sealed class HomeostatEngine : BackgroundService
 
         try
         {
+            // Seasonal rules compare with baselines saved by earlier runs: wait until they are loaded (the keeper
+            // starts first, but hosts can start services concurrently). Signals queue meanwhile.
+            await _keeper.Ready.WaitAsync(stoppingToken).ConfigureAwait(false);
+
             await foreach (var signal in _channel.Reader.ReadAllAsync(stoppingToken).ConfigureAwait(false))
             {
                 foreach (var recorder in _recorders)
@@ -144,7 +154,9 @@ internal sealed class HomeostatEngine : BackgroundService
                     "Condition {Condition} is active (source {Source}, severity {Severity}).",
                     tracker.Definition.Name, signal.Source, signal.Severity);
                 var snapshot = _conditions.Snapshot(tracker);
-                _activations.Record(tracker.Definition.Name, _timeProvider.GetUtcNow());
+                var now = _timeProvider.GetUtcNow();
+                _activations.Record(tracker.Definition.Name, now);
+                _history.Record(tracker.Definition.Name, Persistence.ConditionEventKind.Activated, signal, now);
                 _notifier.Notify(o => o.OnConditionActivated(snapshot));
                 if (snapshot.SuppressedBy is { } cause && tracker.Definition.Plan is not null)
                 {
@@ -165,6 +177,7 @@ internal sealed class HomeostatEngine : BackgroundService
             case ConditionTransition.Cleared:
             {
                 _logger.LogInformation("Condition {Condition} cleared.", tracker.Definition.Name);
+                _history.Record(tracker.Definition.Name, Persistence.ConditionEventKind.Cleared, signal, _timeProvider.GetUtcNow());
                 _approvals.CancelFor(tracker.Definition.Name);
                 _runner.OnConditionCleared(tracker.Definition);
                 ResetSwitches(tracker.Definition);

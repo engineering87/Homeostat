@@ -157,19 +157,56 @@ c.ForSource("http:forecast").WhenAnomalouslyHigh(3, TimeSpan.FromHours(1))    //
 |---|---|---|
 | `WhenValueAbove(x)`, `WhenValueBelow(x)` | The value crosses a threshold | Limits you know |
 | `WhenRisingFasterThan(perMinute, window)`, `WhenFallingFasterThan(...)` | The least-squares slope over the window exceeds the rate (at least 5 values, spanning at least half the window) | Leaks, growing backlogs, draining pools: act **before** the limit |
-| `WhenAnomalouslyHigh(z, window)`, `WhenAnomalouslyLow(...)` | The value is `z` standard deviations from the mean of the window (at least 30 earlier values by default) | Metrics without a natural threshold, such as latency that depends on the time of day |
+| `WhenAnomalouslyHigh(z, window)`, `WhenAnomalouslyLow(...)` | The value is `z` standard deviations from the mean of the window (at least 30 earlier values by default) | Metrics without a natural threshold that change slowly |
+| `WhenSeasonallyHigh(z, seasonality)`, `WhenSeasonallyLow(...)` | The value is `z` standard deviations from the values of the same time of day or week in earlier periods | Metrics with a daily or weekly rhythm: [below](#seasonal-anomalies-whenseasonallyhigh-and-whenseasonallylow) |
 
 Things to know:
 
-- Signals without a value never trigger these rules (and, with the default clear rule, count as recovery).
+- Signals without a value never trigger these rules, and never clear them either (see below).
 - An anomaly that lasts becomes the new baseline, so the condition eventually clears even if the value stays
   high. Combine it with a fixed threshold when a high level must keep the condition active.
-- The history lives in memory and starts empty after a restart, or when the condition's own configuration changes
-  (for conditions defined in [configuration](configuration.md)).
+- The history of trend, anomaly and projection rules lives in memory and starts empty after a restart, or when the
+  condition's own configuration changes (for conditions defined in [configuration](configuration.md)). Seasonal
+  baselines are kept in the store instead (below).
 - Unless you set `ClearWhen`, trend, anomaly and projection rules clear only on a signal they can evaluate and find
   good: a signal without a value (a failed probe, for example) or too little history leaves the condition as it is.
 - The anomaly rule floors the standard deviation at 1% of the mean, so a perfectly flat history does not turn every
   tiny change into an anomaly; with an all-zero history, any non-zero value is anomalous.
+
+### Seasonal anomalies: `WhenSeasonallyHigh` and `WhenSeasonallyLow`
+
+Traffic, queue depth and latency often follow the clock: busy at 10:00 on weekdays, quiet at night and on Sundays. A
+fixed threshold fires every morning or misses a problem at night, and an anomaly against the last hour fires at every
+ramp-up. A seasonal rule compares each value with the **same time slot** of earlier days or weeks:
+
+```csharp
+c.ForSource("requests-per-second")
+ .WhenSeasonallyLow(4, Seasonality.Daily())                       // traffic collapses for the time of day
+
+c.ForSource("ingest-queue-depth")
+ .WhenSeasonallyHigh(4, Seasonality.Weekly(
+     bucket: TimeSpan.FromHours(1),
+     timeZone: TimeZoneInfo.FindSystemTimeZoneById("Europe/Rome")))   // Monday 10:00 vs earlier Mondays 10:00
+```
+
+- `Seasonality.Daily()` uses 15-minute slots, `Seasonality.Weekly()` 1-hour slots, in UTC unless you pass the time zone
+  the load follows (daylight saving time included).
+- A slot can trigger once it has learned `minimumPeriods` periods (3 by default): three days for a daily cycle, three
+  weeks for a weekly one. Until then the rule neither triggers nor clears.
+- The baseline weighs recent periods more (each new period counts 25% once there are a few), so a lasting change of
+  level, such as a new client, becomes the new normal within a week or so of periods. An incident that lasts hours
+  enters the baseline with the same weight: keep the threshold strict (4 or more) for noisy metrics.
+- The deviation is floored at 1% of the slot's mean, as for the anomaly rule.
+- The baseline is **kept in the store** ([documents](persistence-and-clusters.md#what-is-stored)) every 5 minutes and when
+  the application stops, and loaded before the engine processes signals, so a deployment does not reset weeks of
+  learning; a configuration change that keeps the cycle keeps the baseline too. With a shared store, a starting
+  instance loads the baseline saved by the others, then learns from its own signals and saves its own version every 5
+  minutes (the last to save wins): right for instances behind a load balancer, which see the same rhythm; for instances
+  with different rhythms, give them separate stores or key prefixes. One seasonal rule per condition: another trigger
+  rule on the same condition is refused.
+- Time zones are matched by id: use IANA ids (`Europe/Rome`) on every host, so a baseline saved on one is found on
+  the others. Slots are whole minutes, at most 2016 per period (5 minutes for a weekly cycle).
+- From configuration: `"SeasonallyHigh": { "ZScore": 4, "Seasonality": "Weekly", "Bucket": "1h", "TimeZone": "Europe/Rome" }`.
 
 ### Predictions: `WhenProjectedAbove` and `WhenProjectedBelow`
 

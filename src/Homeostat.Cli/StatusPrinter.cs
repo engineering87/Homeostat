@@ -7,6 +7,20 @@ namespace Homeostat.Cli;
 /// <summary>Formats the status endpoint's JSON for a terminal.</summary>
 internal static class StatusPrinter
 {
+    /// <summary>
+    /// Removes control characters other than line breaks: condition names and messages can come from external alerts,
+    /// and escape sequences must not reach the operator's terminal.
+    /// </summary>
+    internal static string Clean(string text)
+        => string.Create(text.Length, text, static (span, source) =>
+        {
+            for (var i = 0; i < source.Length; i++)
+            {
+                var c = source[i];
+                span[i] = c is '\n' or '\r' || !(char.IsControl(c) || c is '\u2028' or '\u2029') ? c : ' ';
+            }
+        });
+
     public static string Print(JsonElement status)
     {
         var text = new StringBuilder();
@@ -85,7 +99,7 @@ internal static class StatusPrinter
             }
         }
 
-        return text.ToString();
+        return Clean(text.ToString());
     }
 
     public static string PrintCoverage(JsonElement report)
@@ -126,6 +140,27 @@ internal static class StatusPrinter
             text.AppendLine().AppendLine("Warning: the run history does not reach back to the start of the period; older runs are not counted.");
         }
 
-        return text.ToString();
+        return Clean(text.ToString());
+    }
+
+    public static string PrintHistory(JsonElement events)
+    {
+        var text = new StringBuilder();
+        var list = events.EnumerateArray().ToList();
+        if (list.Count == 0)
+        {
+            return "No condition events." + Environment.NewLine;
+        }
+
+        var width = Math.Max(9, list.Max(e => e.GetProperty("condition").GetString()!.Length));
+        foreach (var e in list)
+        {
+            var at = e.GetProperty("at").GetDateTimeOffset().ToLocalTime();
+            var detail = e.TryGetProperty("message", out var m) && m.ValueKind == JsonValueKind.String ? m.GetString() : null;
+            text.AppendLine(CultureInfo.InvariantCulture,
+                $"  {at:yyyy-MM-dd HH:mm:ss}  {e.GetProperty("condition").GetString()!.PadRight(width)}  {e.GetProperty("kind").GetString(),-9}  {e.GetProperty("instance").GetString()}{(detail is null ? string.Empty : $"  {detail}")}");
+        }
+
+        return Clean(text.ToString());
     }
 }

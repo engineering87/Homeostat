@@ -30,7 +30,8 @@ public static class HomeostatRedisExtensions
 
         var options = builder.Services.AddOptions<RedisHomeostatOptions>()
             .Validate(o => !string.IsNullOrWhiteSpace(o.KeyPrefix), "KeyPrefix cannot be empty.")
-            .Validate(o => o.PlanStateRetention > TimeSpan.Zero, "PlanStateRetention must be positive.");
+            .Validate(o => o.PlanStateRetention > TimeSpan.Zero, "PlanStateRetention must be positive.")
+            .Validate(o => o.DocumentRetention > TimeSpan.Zero, "DocumentRetention must be positive.");
         if (configure is not null)
         {
             options.Configure(configure);

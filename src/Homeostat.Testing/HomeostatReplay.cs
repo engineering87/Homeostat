@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Text;
 using Homeostat.Conditions;
+using Homeostat.Configuration;
 using Homeostat.Coordination;
 using Homeostat.Detectors;
 using Homeostat.Engine;
@@ -8,6 +9,7 @@ using Homeostat.Healing;
 using Homeostat.Persistence;
 using Homeostat.Recording;
 using Homeostat.Signals;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
@@ -39,9 +41,9 @@ namespace Homeostat.Testing;
 public static class HomeostatReplay
 {
     /// <summary>
-    /// Replays the signals of recording files (written by <c>RecordSignals</c>): files in name order (the date is in the
-    /// name), each file's signals in time order. Files are read one at a time, so long recordings do not need to fit in
-    /// memory.
+    /// Replays the signals of recording files (written by <c>RecordSignals</c>) in time order, merging the files as they
+    /// are read: the files of several instances, or of several days, form one timeline. Files are streamed, so long
+    /// recordings do not need to fit in memory.
     /// </summary>
     /// <param name="paths">Recording files.</param>
     /// <param name="configure">Conditions and plans to evaluate, as in <c>AddHomeostat</c>.</param>
@@ -49,8 +51,114 @@ public static class HomeostatReplay
     public static Task<ReplayReport> RunFilesAsync(IEnumerable<string> paths, Action<HomeostatBuilder> configure, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(paths);
-        var files = paths.Order(StringComparer.Ordinal).ToList();
-        return ReplayAsync(files.SelectMany(f => RecordedSignal.Read(f).OrderBy(s => s.Timestamp)), configure, cancellationToken);
+        var files = paths.ToList();
+        return ReplayAsync(Merge(files.Select(f => Reorder(RecordedSignal.Read(f)))), configure, cancellationToken);
+    }
+
+    /// <summary>Signals the recorder wrote slightly out of order (detectors run concurrently), put back in time order.</summary>
+    private static IEnumerable<RecordedSignal> Reorder(IEnumerable<RecordedSignal> signals, int window = 1000)
+    {
+        var buffer = new PriorityQueue<RecordedSignal, DateTimeOffset>();
+        foreach (var signal in signals)
+        {
+            buffer.Enqueue(signal, signal.Timestamp);
+            if (buffer.Count > window)
+            {
+                yield return buffer.Dequeue();
+            }
+        }
+
+        while (buffer.Count > 0)
+        {
+            yield return buffer.Dequeue();
+        }
+    }
+
+    /// <summary>Merges streams in time order, reading each one as needed.</summary>
+    private static IEnumerable<RecordedSignal> Merge(IEnumerable<IEnumerable<RecordedSignal>> streams)
+    {
+        var heads = new PriorityQueue<IEnumerator<RecordedSignal>, DateTimeOffset>();
+        var all = new List<IEnumerator<RecordedSignal>>();
+        try
+        {
+            foreach (var stream in streams)
+            {
+                var enumerator = stream.GetEnumerator();
+                all.Add(enumerator);
+                if (enumerator.MoveNext())
+                {
+                    heads.Enqueue(enumerator, enumerator.Current.Timestamp);
+                }
+            }
+
+            while (heads.TryDequeue(out var head, out _))
+            {
+                yield return head.Current;
+                if (head.MoveNext())
+                {
+                    heads.Enqueue(head, head.Current.Timestamp);
+                }
+            }
+        }
+        finally
+        {
+            foreach (var enumerator in all)
+            {
+                enumerator.Dispose();
+            }
+        }
+    }
+
+    /// <summary>
+    /// Replays recording files against conditions and plans defined in configuration (the <c>Conditions</c> section, see
+    /// <c>AddConditionsFromConfiguration</c>), without the application's code: actions are only names in a replay, so
+    /// names that are not mapped are accepted. This is what <c>homeostat replay</c> runs.
+    /// </summary>
+    /// <param name="paths">Recording files.</param>
+    /// <param name="conditions">The conditions section, for example <c>configuration.GetSection("Homeostat:Conditions")</c>.</param>
+    /// <param name="options">
+    /// The application's <see cref="HomeostatOptions"/> (cooldown, budget, concurrency), which change how often plans
+    /// would run; dry-run is forced on whatever it sets.
+    /// </param>
+    /// <param name="cancellationToken">Stops the replay.</param>
+    public static Task<ReplayReport> RunFilesAsync(
+        IEnumerable<string> paths, IConfiguration conditions, Action<HomeostatOptions>? options = null, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(conditions);
+        return RunFilesAsync(paths, h => FromConfiguration(h, conditions, options), cancellationToken);
+    }
+
+    /// <summary>Replays signals against conditions and plans defined in configuration (see the other overload).</summary>
+    /// <param name="signals">Signals to replay.</param>
+    /// <param name="conditions">The conditions section.</param>
+    /// <param name="options">The application's options; dry-run is forced on.</param>
+    /// <param name="cancellationToken">Stops the replay.</param>
+    public static Task<ReplayReport> RunAsync(
+        IEnumerable<RecordedSignal> signals, IConfiguration conditions, Action<HomeostatOptions>? options = null, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(conditions);
+        return RunAsync(signals, h => FromConfiguration(h, conditions, options), cancellationToken);
+    }
+
+    private static void FromConfiguration(HomeostatBuilder builder, IConfiguration conditions, Action<HomeostatOptions>? options)
+    {
+        if (options is not null)
+        {
+            builder.Configure(options);
+        }
+
+        // The catalog of mapped actions, found by AddConditionsFromConfiguration when the conditions are loaded.
+        var catalog = builder.Services.Select(d => d.ImplementationInstance).OfType<ConfiguredActions>().FirstOrDefault();
+        if (catalog is null)
+        {
+            catalog = new ConfiguredActions();
+            builder.Services.AddSingleton(catalog);
+        }
+
+        builder.AddConditionsFromConfiguration(conditions);
+        catalog.Fallback = name => (
+            plan => plan.With(name, static (_, _) => Task.CompletedTask),
+            plan => plan.UndoWith(name, static (_, _) => Task.CompletedTask));
     }
 
     /// <summary>Replays signals, in time order.</summary>
@@ -107,6 +215,7 @@ public static class HomeostatReplay
         var channel = provider.GetRequiredService<SignalChannel>();
         var runner = provider.GetRequiredService<HealingRunner>();
         runner.TelemetryEnabled = false;
+        provider.GetRequiredService<SeasonalBaselineKeeper>().SkipLoading();   // learns from the replayed signals only
         var conditions = provider.GetRequiredService<ConditionSet>();
         var engine = (BackgroundService)provider.GetServices<IHostedService>().Single();
         using var processed = new SemaphoreSlim(0);

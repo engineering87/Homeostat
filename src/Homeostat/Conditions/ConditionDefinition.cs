@@ -20,8 +20,10 @@ public sealed class ConditionDefinition
         HealingPlan? plan,
         Action<Signal>? record = null,
         CompositeMode? composite = null,
-        IReadOnlyList<string>? dependsOn = null)
+        IReadOnlyList<string>? dependsOn = null,
+        IReadOnlyList<SeasonalBaseline>? baselines = null)
     {
+        Baselines = baselines ?? [];
         Record = record;
         Composite = composite;
         DependsOn = dependsOn ?? [];
@@ -67,4 +69,7 @@ public sealed class ConditionDefinition
 
     /// <summary>Feeds stateful rules (trend, anomaly, occurrences) with each relevant signal, before evaluation.</summary>
     internal Action<Signal>? Record { get; }
+
+    /// <summary>Baselines of seasonal rules, kept across restarts by the baseline keeper.</summary>
+    internal IReadOnlyList<SeasonalBaseline> Baselines { get; }
 }

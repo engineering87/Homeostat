@@ -60,7 +60,9 @@ public static class HomeostatConfigurationExtensions
         ArgumentNullException.ThrowIfNull(builder);
         ArgumentNullException.ThrowIfNull(section);
 
-        builder.Services.AddSingleton(sp => new ConfigurationConditionSource(section, Catalog(builder)));
+        // The catalog is registered now: after the host is built, the service collection is read-only.
+        var catalog = Catalog(builder);
+        builder.Services.AddSingleton(sp => new ConfigurationConditionSource(section, catalog));
         builder.Services.TryAddEnumerable(ServiceDescriptor.Singleton<IHostedService, ConditionReloader>());
         return builder;
     }

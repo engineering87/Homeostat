@@ -14,6 +14,7 @@ internal static class HomeostatCli
     internal const int Failed = 1;
     internal const int ActiveConditions = 3;
     internal const int LowCoverage = 4;
+    internal const int TooManyHeals = 5;
 
     public static async Task<int> InvokeAsync(string[] args, TextWriter output, TextWriter error, HttpMessageHandler? handler = null)
     {
@@ -100,6 +101,68 @@ internal static class HomeostatCli
             return result.GetValue(failBelow) is { } minimum && share < minimum ? LowCoverage : Ok;
         }));
         root.Subcommands.Add(coverage);
+
+        // history
+        var historyJson = new Option<bool>("--json") { Description = "Print the raw JSON." };
+        var historyCondition = new Option<string?>("--condition", "-c") { Description = "Only this condition." };
+        var history = new Command("history", "Show the latest activations and clears of the conditions.") { historyJson, historyCondition };
+        history.SetAction((result, ct) => Run(error, async () =>
+        {
+            using var client = Connect(result);
+            var path = result.GetValue(historyCondition) is { } condition ? $"history?condition={Uri.EscapeDataString(condition)}" : "history";
+            var body = await client.GetAsync(path, ct);
+            using var document = JsonDocument.Parse(body);
+            await output.WriteAsync(result.GetValue(historyJson) ? body + Environment.NewLine : StatusPrinter.PrintHistory(document.RootElement));
+            return Ok;
+        }));
+        root.Subcommands.Add(history);
+
+        // replay
+        var files = new Argument<string[]>("files")
+        {
+            Description = "Recording files written by RecordSignals, or directories of them (*.jsonl).",
+            Arity = ArgumentArity.OneOrMore,
+        };
+        var config = new Option<string>("--config")
+        {
+            Description = "JSON configuration file with the conditions to try, for example appsettings.json.",
+            HelpName = "file",
+            Required = true,
+        };
+        var section = new Option<string>("--section")
+        {
+            Description = "Section of the conditions in the configuration file.",
+            DefaultValueFactory = _ => "Homeostat:Conditions",
+        };
+        var optionsSection = new Option<string>("--options-section")
+        {
+            Description = "Section of HomeostatOptions (cooldown, budget) in the configuration file, used when present.",
+            DefaultValueFactory = _ => "Homeostat:Options",
+        };
+        var replayJson = new Option<bool>("--json") { Description = "Print the report as JSON." };
+        var maxHeals = new Option<int?>("--max-heals")
+        {
+            Description = $"Exit with code {TooManyHeals} when a plan would have run more than this many times (to test a configuration change in a pipeline).",
+            HelpName = "count",
+        };
+        maxHeals.Validators.Add(r =>
+        {
+            if (r.GetValueOrDefault<int?>() is < 0)
+            {
+                r.AddError("--max-heals cannot be negative.");
+            }
+        });
+        var replay = new Command("replay", "Replay recorded signals against conditions from a configuration file, offline: what would the plans have done?")
+        {
+            files, config, section, optionsSection, replayJson, maxHeals,
+        };
+        replay.SetAction((result, ct) => Run(error, async () =>
+        {
+            var report = await Replay.RunAsync(result.GetValue(files)!, result.GetValue(config)!, result.GetValue(section)!, result.GetValue(optionsSection)!, ct);
+            await output.WriteAsync(result.GetValue(replayJson) ? Replay.ToJson(report) + Environment.NewLine : StatusPrinter.Clean(report.ToText()));
+            return result.GetValue(maxHeals) is { } max && report.Conditions.Any(c => c.WouldHeal > max) ? TooManyHeals : Ok;
+        }));
+        root.Subcommands.Add(replay);
 
         // pause / resume
         var duration = new Option<string?>("--for") { Description = "Resume by itself after this time: 30m, 2h, 1d or hh:mm:ss.", HelpName = "duration" };

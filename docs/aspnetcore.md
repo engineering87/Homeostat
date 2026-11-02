@@ -78,11 +78,21 @@ answers; budget and runs come from the [store](persistence-and-clusters.md), so 
 every instance. The endpoint is read-only but reveals condition names,
 error messages and approval ids, which is why it needs a policy too.
 
-## Coverage
+## Coverage and history
 
-`MapHomeostatStatus` also maps `GET /homeostat/coverage` (`?last=04:00:00` or `?since=...`, default the last 24 hours):
-which conditions activated, which plans ran and which steps never ran. See
-[Learning and foresight](intelligence.md#coverage).
+`MapHomeostatStatus` also maps:
+
+- `GET /homeostat/coverage` (`?last=04:00:00` or `?since=...`, default the last 24 hours): which conditions activated,
+  which plans ran and which steps never ran. See [Learning and foresight](intelligence.md#coverage).
+- `GET /homeostat/history` (optionally `?condition=feed-down`): the latest activations and clears, newest first, with
+  the instance and the signal that caused them. With the file and Redis stores the history survives restarts and, with
+  a shared store, covers every instance; with the default in-memory store it covers this process. When the store
+  cannot be read, the endpoint answers with this instance's events.
+
+```json
+[ { "condition": "feed-down", "kind": "Activated", "at": "2026-11-02T09:14:05Z", "instance": "web-1",
+    "source": "weather-feed", "severity": "Unhealthy", "value": null, "message": "timeout" } ]
+```
 
 ## Control
 
@@ -119,8 +129,9 @@ app.MapHomeostatDashboard("operations");   // GET /homeostat/dashboard
 ```
 
 A page for operators: active conditions first, steps waiting for approval with **Approve** and **Reject** buttons,
-switches (turn them off, or on by name), the action budget and the recent runs with their steps. It refreshes every 5
-seconds (not while the tab is hidden) and follows the system light or dark theme.
+switches (turn them off, or on by name), the action budget, the recent runs with their steps, the condition history and
+the coverage of the last 24 hours (steps that always failed or never ran). It refreshes every 5 seconds (history and
+coverage every 30 seconds; nothing while the tab is hidden) and follows the system light or dark theme.
 
 - It reads `{prefix}/status` and calls the control endpoints: map all three with the same prefix and policy. Without
   `MapHomeostatControl` it is read-only.
@@ -151,6 +162,38 @@ app.MapHomeostatSlackInteractions(o =>
 | Decision | Recorded with the approver `slack:{user name}`; the buttons in the message are replaced with the decision |
 
 The endpoint authenticates Slack by its signature, so it is mapped without an authorization policy.
+
+## Microsoft Teams approvals
+
+Teams has no buttons that call an application without a registered bot, but it has **outgoing webhooks**: a team owner
+creates one (team settings, *Apps*, *Create an outgoing webhook*) with a name, for example `Homeostat`, and the URL of
+the endpoint below; Teams shows a security token. People then mention it in a channel of that team:
+
+```text
+@Homeostat pending            lists the steps waiting for approval
+@Homeostat approve 4f1c...    approves one
+@Homeostat reject 4f1c...     rejects one
+```
+
+```csharp
+app.MapHomeostatTeamsCommands(o =>
+{
+    o.SecurityToken = builder.Configuration["Teams:OutgoingWebhookToken"];
+    o.AllowedUserIds.Add("6f1c2a77-5b8e-4d55-9a8e-0c2f1e0b9d41");   // Microsoft Entra object IDs; or o.AllowAnyTeamMember = true
+});                                                              // POST /homeostat/teams/messages
+```
+
+| Check | Behavior |
+|---|---|
+| Signature (`Authorization: HMAC ...`, HMAC-SHA256 of the body with the security token) | Required, constant-time comparison; otherwise `401` |
+| Message age (`timestamp` of the message) and id | Both required; at most 5 minutes old (`MaxRequestAge`); each message id is acted on once per instance (a request replayed to another instance within 5 minutes could be acted on again, but approving or rejecting twice has no further effect) |
+| User | `approve` and `reject` need the sender's Entra object ID in `AllowedUserIds`, unless `AllowAnyTeamMember`; `pending` is open to the team |
+| Decision | Recorded with the approver `teams:{name} ({object id})`; the reply appears in the thread |
+
+With `AddTeamsNotifications(o => o.ApprovalCommand = "Homeostat")`, approval request cards say what to type. Outgoing
+webhooks work in standard (public) channels of the team where they are created, not in private channels or chats, so
+point the notification workflow at such a channel. The endpoint authenticates Teams by its signature, so it is mapped
+without an authorization policy, and it must be reachable from Teams over HTTPS.
 
 ## Alerts
 

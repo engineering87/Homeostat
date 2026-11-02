@@ -13,7 +13,7 @@ internal sealed class ConfigurationConditionSource
     private static readonly HashSet<string> ConditionKeys = new(StringComparer.OrdinalIgnoreCase)
     {
         "Source", "Severity", "ValueAbove", "ValueBelow", "RisingFasterThan", "FallingFasterThan", "AnomalouslyHigh",
-        "AnomalouslyLow", "ProjectedAbove", "ProjectedBelow", "ClearWhenHealthy", "SustainedFor", "ClearAfter", "SuppressedBy", "Occurrences", "AllActive",
+        "AnomalouslyLow", "ProjectedAbove", "ProjectedBelow", "SeasonallyHigh", "SeasonallyLow", "ClearWhenHealthy", "SustainedFor", "ClearAfter", "SuppressedBy", "Occurrences", "AllActive",
         "AnyActive", "Plan",
     };
 
@@ -21,8 +21,13 @@ internal sealed class ConfigurationConditionSource
     private static readonly string[] TriggerKeys =
     [
         "Severity", "ValueAbove", "ValueBelow", "RisingFasterThan", "FallingFasterThan", "AnomalouslyHigh", "AnomalouslyLow",
-        "ProjectedAbove", "ProjectedBelow",
+        "ProjectedAbove", "ProjectedBelow", "SeasonallyHigh", "SeasonallyLow",
     ];
+
+    private static readonly HashSet<string> SeasonalKeys = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "ZScore", "Seasonality", "Bucket", "TimeZone", "MinimumPeriods",
+    };
 
     private static readonly HashSet<string> ProjectionKeys = new(StringComparer.OrdinalIgnoreCase) { "Threshold", "Within", "Window", "MinimumSamples" };
 
@@ -173,6 +178,16 @@ internal sealed class ConfigurationConditionSource
                 builder.WhenProjectedBelow(projectedBelow.Threshold, projectedBelow.Within, projectedBelow.Window, projectedBelow.MinimumSamples ?? 5);
             }
 
+            if (Seasonal(section, "SeasonallyHigh") is { } seasonallyHigh)
+            {
+                builder.WhenSeasonallyHigh(seasonallyHigh.ZScore, seasonallyHigh.Seasonality, seasonallyHigh.MinimumPeriods ?? 3);
+            }
+
+            if (Seasonal(section, "SeasonallyLow") is { } seasonallyLow)
+            {
+                builder.WhenSeasonallyLow(seasonallyLow.ZScore, seasonallyLow.Seasonality, seasonallyLow.MinimumPeriods ?? 3);
+            }
+
             if (Bool(section, "ClearWhenHealthy") == true)
             {
                 builder.ClearWhen(s => s.Severity == SignalSeverity.Healthy);
@@ -242,6 +257,26 @@ internal sealed class ConfigurationConditionSource
         return (Double(section, "ZScore") ?? throw Missing(section, "ZScore"),
             Duration(section, "Window") ?? throw Missing(section, "Window"),
             Int(section, "MinimumHistory"));
+    }
+
+    private static (double ZScore, Seasonality Seasonality, int? MinimumPeriods)? Seasonal(IConfigurationSection condition, string key)
+    {
+        var section = condition.GetSection(key);
+        if (!section.Exists())
+        {
+            return null;
+        }
+
+        CheckKeys(section, SeasonalKeys);
+        var bucket = Duration(section, "Bucket");
+        var timeZone = section["TimeZone"] is { Length: > 0 } zone ? TimeZoneInfo.FindSystemTimeZoneById(zone) : null;
+        var seasonality = (section["Seasonality"] ?? throw Missing(section, "Seasonality")).ToUpperInvariant() switch
+        {
+            "DAILY" => Seasonality.Daily(bucket, timeZone),
+            "WEEKLY" => Seasonality.Weekly(bucket, timeZone),
+            _ => throw new InvalidOperationException($"{section.Path}:Seasonality must be Daily or Weekly."),
+        };
+        return (Double(section, "ZScore") ?? throw Missing(section, "ZScore"), seasonality, Int(section, "MinimumPeriods"));
     }
 
     private static (double Threshold, TimeSpan Within, TimeSpan Window, int? MinimumSamples)? Projection(IConfigurationSection condition, string key)

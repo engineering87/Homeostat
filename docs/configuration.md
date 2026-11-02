@@ -57,7 +57,7 @@ composites).
 | `ValueAbove`, `ValueBelow` | `WhenValueAbove`, `WhenValueBelow` | `0.9` |
 
 A condition has at most one trigger: `Severity`, `ValueAbove`, `ValueBelow`, `RisingFasterThan`, `FallingFasterThan`,
-`AnomalouslyHigh`, `AnomalouslyLow`, `ProjectedAbove` or `ProjectedBelow`.
+`AnomalouslyHigh`, `AnomalouslyLow`, `ProjectedAbove`, `ProjectedBelow`, `SeasonallyHigh` or `SeasonallyLow`.
 
 | Key | Same as | Example |
 |---|---|---|
@@ -69,6 +69,7 @@ A condition has at most one trigger: `Severity`, `ValueAbove`, `ValueBelow`, `Ri
 | `AnomalouslyHigh:ZScore`, `:Window`, `:MinimumHistory` | `WhenAnomalouslyHigh` | `3`, `"1h"`, `30` (optional) |
 | `AnomalouslyLow:ZScore`, `:Window`, `:MinimumHistory` | `WhenAnomalouslyLow` | as above |
 | `ProjectedAbove:Threshold`, `:Within`, `:Window`, `:MinimumSamples` | `WhenProjectedAbove` | `0.95`, `"2h"`, `"2h"`, `5` (optional) |
+| `SeasonallyHigh:ZScore`, `:Seasonality`, `:Bucket`, `:TimeZone`, `:MinimumPeriods` | `WhenSeasonallyHigh` (and `SeasonallyLow`) | `4`, `"Daily"` or `"Weekly"`, `"15m"` (optional), `"Europe/Rome"` (optional, an IANA or Windows id), `3` (optional) |
 | `ProjectedBelow:Threshold`, `:Within`, `:Window`, `:MinimumSamples` | `WhenProjectedBelow` | as above |
 | `Occurrences:Count`, `Occurrences:Within` | `Occurrences` | `3`, `"5m"` |
 | `AllActive`, `AnyActive` | `WhenAllActive`, `WhenAnyActive` | `[ "db-slow", "cache-down" ]` (no `Source`) |
@@ -99,7 +100,8 @@ Homeostat rebuilds the conditions defined there:
 - conditions whose **configuration did not change are not touched**, including the history of their
   `Occurrences`, trend and anomaly rules;
 - conditions whose **configuration changed keep their status** (an active condition stays active with its new
-  rules), but the history of those rules starts again;
+  rules), but the history of those rules starts again, except the baseline of a seasonal rule whose cycle (period,
+  slot and time zone) did not change, which is kept;
 - new conditions start inactive; removed conditions stop being tracked: their pending approvals are withdrawn and
   the switches they turned on are turned off (a run already in progress finishes);
 - an **invalid change is logged as an error and ignored**: Homeostat keeps the previous conditions.

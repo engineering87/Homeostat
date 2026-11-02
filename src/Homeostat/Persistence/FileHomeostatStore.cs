@@ -46,7 +46,11 @@ public sealed class FileHomeostatStore : InMemoryHomeostatStore
                 var plans = (document.Plans ?? [])
                     .Where(p => p.Value.Held || p.Value.LastRunEndedAt is null || p.Value.LastRunEndedAt >= cutoff)
                     .ToDictionary(p => p.Key, p => p.Value, StringComparer.Ordinal);
-                Restore(new StoreSnapshot(plans, document.Budget ?? [], document.Runs ?? []));
+                Restore(new StoreSnapshot(plans, document.Budget ?? [], document.Runs ?? [])
+                {
+                    Events = document.Conditions ?? [],
+                    Documents = document.Documents ?? [],
+                });
             }
         }
     }
@@ -72,7 +76,11 @@ public sealed class FileHomeostatStore : InMemoryHomeostatStore
         {
             JsonSerializer.Serialize(
                 stream,
-                new Document(new Dictionary<string, PlanState>(snapshot.Plans), snapshot.Budget.ToList(), snapshot.Runs.ToList()),
+                new Document(new Dictionary<string, PlanState>(snapshot.Plans), snapshot.Budget.ToList(), snapshot.Runs.ToList())
+                {
+                    Conditions = snapshot.Events.ToList(),
+                    Documents = new Dictionary<string, string>(snapshot.Documents, StringComparer.Ordinal),
+                },
                 Json);
             stream.Flush(flushToDisk: true);
         }
@@ -83,5 +91,10 @@ public sealed class FileHomeostatStore : InMemoryHomeostatStore
     private sealed record Document(
         Dictionary<string, PlanState>? Plans,
         List<DateTimeOffset>? Budget,
-        List<HealingRunRecord>? Runs);
+        List<HealingRunRecord>? Runs)
+    {
+        public List<ConditionEventRecord>? Conditions { get; init; }
+
+        public Dictionary<string, string>? Documents { get; init; }
+    }
 }

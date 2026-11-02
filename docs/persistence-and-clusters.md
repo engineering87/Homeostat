@@ -11,9 +11,11 @@ the state lives) and, for several instances, decide which plans run **once per c
 | **Plan state**: end of the last run, failures in a row, held after a rejection | Cooldowns, [backoff](healing-plans.md#cooldown-backoff) and holds survive restarts and apply across instances |
 | **Action budget** | A restart does not reset the budget; with a shared store, the budget is shared by every instance |
 | **Run history** | `GetRecentRunsAsync()` and the status endpoint show what happened, on every instance, before the restart |
+| **Condition history**: activations and clears, with the signal that caused them | `GetConditionHistoryAsync()`, `GET /homeostat/history`, the dashboard and the coverage reports see every instance, across restarts (`ConditionHistorySize`, 200 events by default). Events written while the store is down are retried every 30 seconds |
+| **Documents**: small JSON documents kept by features, such as the learned baselines of [seasonal rules](conditions.md#seasonal-anomalies-whenseasonallyhigh-and-whenseasonallylow) | A deployment does not throw away weeks of learning |
 
-Conditions themselves (pending, active, clearing) are **not** stored: they are rebuilt from fresh signals within
-a few detection intervals, which is what you want after a restart.
+The current state of the conditions (pending, active, clearing) is **not** stored: it is rebuilt from fresh signals
+within a few detection intervals, which is what you want after a restart. The history of what they did is.
 
 ## Choosing a store
 
@@ -106,14 +108,24 @@ several processes on the same machine share a store, or when your platform gives
 | `{prefix}budget` | sorted set | One member per action, scored by time; updated by an atomic script |
 | `{prefix}runs` | list | Run records as JSON, newest first, trimmed to `RunHistorySize` |
 | `{prefix}lease:plan:{condition}` | string | Lease token, with an expiry |
+| `{prefix}conditions` | list | Condition events as JSON, newest first, trimmed to `ConditionHistorySize` |
+| `{prefix}doc:{key}` | string | A document, such as `doc:baseline:{condition}:{cycle}`; expires after `DocumentRetention` (90 days) without updates |
 
 Set `ShareBudget = false` to count the budget per instance (`{prefix}budget:{instance}`). The budget uses the
 clock of each instance: keep the clocks synchronized (NTP), as any distributed system expects.
 
 ## Writing your own store
 
-`IHomeostatStore` has six methods: read and update plan state, consume and count the budget, append and read the
-history. Requirements:
+`IHomeostatStore` has six required methods: read and update plan state, consume and count the budget, append and read
+the run history. Five more have default implementations, so a store written for an earlier version keeps compiling:
+
+- `SupportsConditionHistory`, `AppendConditionEventAsync`, `GetConditionEventsAsync`: the condition history. By default
+  the store does not keep it (`false`), and Homeostat keeps it in process memory instead.
+- `GetDocumentAsync`, `SetDocumentAsync`: small documents by key (a seasonal baseline is at most about 150 KB of JSON).
+  By default nothing is kept, and seasonal baselines start over at every restart. The file store keeps documents until
+  they are replaced: after renaming a seasonal condition, the old baseline stays in the file, unused.
+
+Requirements:
 
 - **Thread-safe**, and for a shared store, **atomic** plan-state updates and budget consumption across instances
   (the Redis store uses server-side scripts). `PlanStateUpdate.ApplyTo` defines what an update does: fields left

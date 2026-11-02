@@ -46,9 +46,10 @@ ships as previews. It is indicative and changes with feedback: open an issue to 
 - [x] Grafana dashboard and state gauges; worker service sample
 - [x] Trend and anomaly rules from configuration
 - [x] `RestartableBackgroundService`: safe restarts of stuck or crashed workers, with `AddBackgroundServiceSignals`
-- [ ] Interactive approvals in Microsoft Teams (bot) and from incident tools
+- [x] Interactive approvals in Microsoft Teams, through an outgoing webhook (`MapHomeostatTeamsCommands`)
+- [ ] Approvals from incident tools
 - [ ] Documentation site; Aspire and Kubernetes samples
-- [ ] Persisted condition history
+- [x] Persisted condition history (`GetConditionHistoryAsync`, `GET /homeostat/history`, `homeostat history`, dashboard)
 
 ## Wave 4: cloud and orchestrators (separate packages, approval on by default)
 
@@ -64,8 +65,8 @@ ships as previews. It is indicative and changes with feedback: open an issue to 
 - [x] Predictive healing from trends (`WhenProjectedAbove`, `WhenProjectedBelow`, also from configuration)
 - [x] Signal recording (`RecordSignals`) and replay (`HomeostatReplay`): "what would the plans have done yesterday?"
 - [x] Coverage reports for game days (`GetCoverageAsync`, `GET /homeostat/coverage`, `homeostat coverage --fail-below`)
-- [ ] Seasonality-aware anomalies (daily and weekly baselines)
-- [ ] Replay from the command line and coverage in the dashboard
+- [x] Seasonality-aware anomalies (`WhenSeasonallyHigh`, `WhenSeasonallyLow`): daily and weekly baselines kept in the store
+- [x] Replay from the command line (`homeostat replay`) and coverage in the dashboard
 
 ## Toward 1.0
 

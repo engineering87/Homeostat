@@ -14,7 +14,9 @@ public static class HomeostatEndpointRouteBuilderExtensions
     /// <summary>
     /// Maps <c>GET {prefix}/status</c>: conditions, switches, pending approvals, recent runs and budget, as JSON; and
     /// <c>GET {prefix}/coverage</c> (<c>?last=04:00:00</c> or <c>?since=2026-11-02T08:00:00Z</c>, default the last 24
-    /// hours): which conditions activated, which plans ran and which steps never ran (see <see cref="CoverageReport"/>).
+    /// hours): which conditions activated, which plans ran and which steps never ran (see <see cref="CoverageReport"/>);
+    /// and <c>GET {prefix}/history</c>: the latest condition activations and clears, newest first (optionally
+    /// <c>?condition=name</c>).
     /// The endpoint reveals internal details (condition names, error messages, approval ids), so it requires an
     /// authorization policy unless <paramref name="allowAnonymous"/> is <c>true</c>.
     /// </summary>
@@ -33,6 +35,7 @@ public static class HomeostatEndpointRouteBuilderExtensions
         var group = CreateGroup(endpoints, policy, prefix, allowAnonymous);
         group.MapGet("/status", GetStatus).WithName("HomeostatStatus");
         group.MapGet("/coverage", GetCoverageAsync).WithName("HomeostatCoverage");
+        group.MapGet("/history", GetHistoryAsync).WithName("HomeostatConditionHistory");
         return group;
     }
 
@@ -198,6 +201,22 @@ public static class HomeostatEndpointRouteBuilderExtensions
             runInfos,
             storeError);
         return Results.Ok(status);
+    }
+
+    private static async Task<IResult> GetHistoryAsync(IHomeostatControl control, string? condition, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var events = await control.GetConditionHistoryAsync(cancellationToken);
+            return Results.Ok(events
+                .Where(e => condition is null || string.Equals(e.ConditionName, condition, StringComparison.Ordinal))
+                .Select(ConditionEventInfo.From)
+                .ToArray());
+        }
+        catch (Exception) when (!cancellationToken.IsCancellationRequested)
+        {
+            return Results.Problem("The condition history is unavailable.", statusCode: StatusCodes.Status503ServiceUnavailable);
+        }
     }
 
     private static async Task<IResult> GetCoverageAsync(

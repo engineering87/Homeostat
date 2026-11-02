@@ -6,8 +6,9 @@ exercised.
 | Feature | API | Package |
 |---|---|---|
 | Heal before a threshold is crossed | `WhenProjectedAbove`, `WhenProjectedBelow` | `Homeostat` |
+| Anomalies for the time of day or week | `WhenSeasonallyHigh`, `WhenSeasonallyLow` ([Conditions](conditions.md#seasonal-anomalies-whenseasonallyhigh-and-whenseasonallylow)) | `Homeostat` |
 | Run first the step that usually works | `Adaptive()` | `Homeostat` |
-| Record signals, replay them against new rules | `RecordSignals`, `HomeostatReplay` | `Homeostat`, `Homeostat.Testing` |
+| Record signals, replay them against new rules | `RecordSignals`, `HomeostatReplay`, `homeostat replay` | `Homeostat`, `Homeostat.Testing`, `Homeostat.Cli` |
 | See what was exercised (game days) | `GetCoverageAsync`, `GET /homeostat/coverage`, `homeostat coverage` | `Homeostat`, `Homeostat.AspNetCore`, `Homeostat.Cli` |
 
 ## Predictive conditions
@@ -112,12 +113,27 @@ replay), on simulated time that follows the signal timestamps, with an in-memory
 detectors, notifiers, the audit log, logging providers and every other hosted service that the configuration registers;
 its runs emit no traces or metrics. You can pass the same configuration code as the application.
 
-- `RunFilesAsync` reads the files one at a time, in name order (the date is in the name), each in time order: a week
-  of recordings does not need to fit in memory. Files of several instances on the same day are replayed one after the
-  other; for a single timeline, replay one instance at a time (`signals-web-1-*.jsonl`).
+- `RunFilesAsync` streams the files and merges them in time order, so the files of several days and several instances
+  form one timeline, and a week of recordings does not need to fit in memory. The instances' signals then feed the
+  same conditions, as with a shared store; to see one instance alone, pass only its files (`signals-web-1-*.jsonl`).
+- Conditions with their own options: the `IConfiguration` overloads take the application's `HomeostatOptions`
+  (`options: o => o.DefaultCooldown = ...`), since cooldowns and budget change how often a plan would run;
+  `homeostat replay` reads them from `Homeostat:Options` of the same file.
 - The timeline has `Activated`, `Cleared`, `WouldHeal` (the plan would have run) and `Blocked` (a run started but
   ended without acting: paused, over budget, suppressed). A condition still in its cooldown starts no run, so a
   cooldown shows as fewer `WouldHeal` events, not as `Blocked`.
+
+Conditions kept in configuration can be replayed without the application's code, from a test or from the command line
+(no running application needed): action names are accepted as they are, since a replay never executes them.
+
+```csharp
+var settings = new ConfigurationBuilder().AddJsonFile("appsettings.Production.json").Build();
+var report = await HomeostatReplay.RunFilesAsync(files, settings.GetSection("Homeostat:Conditions"));
+```
+
+```bash
+homeostat replay /var/log/weather-api --config appsettings.Production.json --max-heals 3
+```
 
 The report has the timeline (`Events`), a summary per condition and the dry runs (`Runs`), so it fits in an assertion
 too:
@@ -151,12 +167,12 @@ Never activated: disk-full
 
 | Field | Meaning |
 |---|---|
-| `Activations` | Times the condition became active on this instance (since it started) |
+| `Activations` | Times the condition became active, from the condition history: with the built-in stores, on every instance sharing the store and across restarts; otherwise on the instance that answers, since it started |
 | `Runs`, `Outcomes` | Runs of its plan, from the run history (all instances with a shared store) |
 | `StepsRun` | Plan steps whose action completed at least once |
 | `StepsFailed` | Plan steps that were tried but never completed: tried, but not shown to work |
 | `StepsNeverRun` | Plan steps that were never tried: escalation steps the earlier steps made unnecessary, or untested ones |
-| `Truncated` | The run history does not reach back to the start of the period, so older runs are missing |
+| `Truncated` | The run history or the condition history does not reach back to the start of the period, so older entries are missing |
 | `NeverActivated`, `PlansNeverRun` | What the experiments did not reach |
 | `StepCoverage` | Share of plan steps that completed at least once (failed steps are not covered) |
 
@@ -164,5 +180,5 @@ The same report is `GET /homeostat/coverage?last=04:00:00` (or `?since=2026-11-0
 hours), mapped with `MapHomeostatStatus`, and `IHomeostatControl.GetCoverageAsync(since)` in code. With
 `--fail-below`, the CLI exits with code 4 when the step coverage is lower, so a pipeline can fail a game day that
 missed too much. The run history keeps the latest `RunHistorySize` runs (50 by default): for a busy game day, raise it,
-or check `Truncated`, which the CLI reports as a warning. Activations are counted by the instance that answers, since
-it started.
+and `ConditionHistorySize` (200 events by default), or check `Truncated`, which the CLI and the dashboard report as a
+warning. The dashboard shows the coverage of the last 24 hours.

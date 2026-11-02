@@ -9,8 +9,9 @@ namespace Homeostat;
 /// <param name="Until">When the report was made.</param>
 /// <param name="Conditions">One entry per condition.</param>
 /// <param name="Truncated">
-/// Whether the run history does not reach back to <paramref name="Since"/>: it keeps the latest
-/// <see cref="HomeostatOptions.RunHistorySize"/> runs, and older runs of the period are not counted.
+/// Whether the run history or the condition history does not reach back to <paramref name="Since"/>: they keep the
+/// latest <see cref="HomeostatOptions.RunHistorySize"/> runs and <see cref="HomeostatOptions.ConditionHistorySize"/>
+/// events, and older entries of the period are not counted.
 /// </param>
 public sealed record CoverageReport(
     DateTimeOffset Since, DateTimeOffset Until, IReadOnlyList<ConditionCoverage> Conditions, bool Truncated = false)
@@ -38,7 +39,10 @@ public sealed record CoverageReport(
 /// <summary>Coverage of one condition.</summary>
 /// <param name="Name">Condition name.</param>
 /// <param name="HasPlan">Whether the condition has a healing plan.</param>
-/// <param name="Activations">Times it became active in the period, on this instance (since it started).</param>
+/// <param name="Activations">
+/// Times it became active in the period, from the condition history: with the file and Redis stores, on every instance
+/// sharing the store and across restarts; otherwise on this instance, since it started.
+/// </param>
 /// <param name="Runs">Runs of its plan in the period, from the run history (with a shared store, of every instance).</param>
 /// <param name="Outcomes">Runs by outcome.</param>
 /// <param name="StepsRun">Plan steps whose action completed at least once.</param>

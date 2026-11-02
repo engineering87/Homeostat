@@ -50,4 +50,39 @@ public interface IHomeostatStore
     /// <param name="maxRuns">Maximum number of runs.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     ValueTask<IReadOnlyList<HealingRunRecord>> GetRecentRunsAsync(int maxRuns, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Whether the store keeps the condition history (<see cref="AppendConditionEventAsync"/>). A store written before
+    /// the condition history existed does not, and Homeostat then keeps the history in process memory only.
+    /// </summary>
+    bool SupportsConditionHistory => false;
+
+    /// <summary>Adds a condition event to the history, keeping at most <paramref name="maxEvents"/> events.</summary>
+    /// <param name="conditionEvent">The event.</param>
+    /// <param name="maxEvents">History size.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    ValueTask AppendConditionEventAsync(ConditionEventRecord conditionEvent, int maxEvents, CancellationToken cancellationToken = default)
+        => ValueTask.CompletedTask;
+
+    /// <summary>Returns the most recent condition events, newest first.</summary>
+    /// <param name="maxEvents">Maximum number of events.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    ValueTask<IReadOnlyList<ConditionEventRecord>> GetConditionEventsAsync(int maxEvents, CancellationToken cancellationToken = default)
+        => ValueTask.FromResult<IReadOnlyList<ConditionEventRecord>>([]);
+
+    /// <summary>
+    /// Returns a small document that a feature keeps between restarts (for example the learned baseline of a seasonal
+    /// rule), or <c>null</c> when there is none. A store that does not support documents returns <c>null</c>.
+    /// </summary>
+    /// <param name="key">Document key.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    ValueTask<string?> GetDocumentAsync(string key, CancellationToken cancellationToken = default)
+        => ValueTask.FromResult<string?>(null);
+
+    /// <summary>Saves a small document (up to about 150 KB of JSON), replacing the previous one with the same key.</summary>
+    /// <param name="key">Document key.</param>
+    /// <param name="document">Document content.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    ValueTask SetDocumentAsync(string key, string document, CancellationToken cancellationToken = default)
+        => ValueTask.CompletedTask;
 }
