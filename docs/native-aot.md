@@ -1,6 +1,7 @@
 # Trimming and Native AOT
 
-Homeostat's libraries are marked `IsAotCompatible`: they build with the trimming and AOT analyzers on, without
+Homeostat's libraries (all but `Homeostat.EntityFrameworkCore` and the tools listed below) are marked
+`IsAotCompatible`: they build with the trimming and AOT analyzers on, without
 warnings, and serialize JSON with source generation instead of reflection. An application can be published with
 `PublishTrimmed` or `PublishAot` and keep self-healing, the endpoints and the dashboard.
 
@@ -47,5 +48,6 @@ warning, and the run checks, without reflection or runtime code generation:
 | `WebhookOptions.CreatePayload` | Return a `JsonNode` (`new JsonObject { ["text"] = e.Summary }`) or the event itself. Anonymous objects need reflection: they work in ordinary applications and fail with a clear error when reflection-based serialization is off. |
 | `AzureResourceManager(..., body)` | The body is a `JsonNode`. |
 | `RestartHostedService` | Works for services derived from `RestartableBackgroundService` and for plain hosted services. For a plain `BackgroundService` it reads `HostOptions.BackgroundServiceExceptionBehavior` with reflection; if trimming removed that metadata, it assumes the default (`StopHost`) and refuses the restart, which is the safe answer. |
+| `Homeostat.EntityFrameworkCore` | Not marked `IsAotCompatible`: it follows EF Core, whose Native AOT support is still experimental. It works in ordinary (JIT) applications. |
 | `Homeostat.Cli`, `Homeostat.Templates`, `Homeostat.Analyzers`, `Homeostat.Aspire.Hosting` | Tools and build-time packages: not meant for trimmed applications. |
-| Integrations with client libraries (Redis, Kafka, RabbitMQ, Service Bus, Artemis, MongoDB, FeatureManagement, OpenFeature, Polly) | Homeostat's own code is analyzed and annotated; whether the application can be published with Native AOT also depends on the client library. Check its documentation before turning on `PublishAot`. |
+| Integrations with client libraries (Redis, Kafka, RabbitMQ, Service Bus, Artemis, MongoDB, gRPC, FeatureManagement, OpenFeature, Polly) | Homeostat's own code is analyzed and annotated; whether the application can be published with Native AOT also depends on the client library. Check its documentation before turning on `PublishAot`. |

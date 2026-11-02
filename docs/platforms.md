@@ -41,6 +41,8 @@ with NuGet.
 | `Homeostat.AspNetCore` | ASP.NET Core shared framework | .NET 10 |
 | `Homeostat.Caching` | `Microsoft.Extensions.Caching.Memory` | 10.0.14 |
 | `Homeostat.Polly` | `Polly.Core` | 8.9.0 |
+| `Homeostat.Grpc` | `Grpc.Net.ClientFactory` | 2.85.0 |
+| `Homeostat.EntityFrameworkCore` | `Microsoft.EntityFrameworkCore.Relational` | 10.0.14 |
 | `Homeostat.Redis` | `StackExchange.Redis` | 3.4.29 |
 | `Homeostat.MongoDB` | `MongoDB.Driver` | 3.13.0 |
 | `Homeostat.ServiceBus` | `Azure.Messaging.ServiceBus` | 7.21.0 |
@@ -51,6 +53,11 @@ with NuGet.
 | `Homeostat.Aspire.Hosting` | `Aspire.Hosting` | 13.6.4 |
 | `Homeostat.Testing` | `Microsoft.Extensions.TimeProvider.Testing` | 10.11.0 |
 | `Homeostat.Cli` | `System.CommandLine` | 2.0.14 |
+
+`Homeostat.EntityFrameworkCore` references EF Core's relational layer but no database provider: it works with the
+relational provider the application already uses (SQL Server, PostgreSQL, MySQL, SQLite, Oracle). It adds its
+interceptor with EF Core's `ConfigureDbContext`, which appeared in EF Core 9; the package is built against EF Core 10,
+the minimum version above.
 
 Packages without a client library:
 
@@ -69,7 +76,8 @@ Packages without a client library:
 | `Homeostat.HealthChecks` | Yes | |
 | `Homeostat.Http` | Yes | Webhook, Slack, Teams, PagerDuty and Opsgenie notifiers covered by the smoke test |
 | `Homeostat.Caching`, `Homeostat.Kubernetes`, `Homeostat.Azure` | Yes | Compiled and analyzed in the smoke test |
-| `Homeostat.Data`, `Homeostat.Polly`, `Homeostat.Redis`, `Homeostat.MongoDB`, `Homeostat.ServiceBus`, `Homeostat.RabbitMQ`, `Homeostat.Kafka`, `Homeostat.Artemis`, `Homeostat.FeatureManagement`, `Homeostat.OpenFeature` | Yes | Homeostat's code is analyzed; whether the application publishes with Native AOT also depends on the client library |
+| `Homeostat.Data`, `Homeostat.Grpc`, `Homeostat.Polly`, `Homeostat.Redis`, `Homeostat.MongoDB`, `Homeostat.ServiceBus`, `Homeostat.RabbitMQ`, `Homeostat.Kafka`, `Homeostat.Artemis`, `Homeostat.FeatureManagement`, `Homeostat.OpenFeature` | Yes | Homeostat's code is analyzed; whether the application publishes with Native AOT also depends on the client library |
+| `Homeostat.EntityFrameworkCore` | No | EF Core's own Native AOT support is limited (compiled models, precompiled queries, still experimental) |
 | `Homeostat.Testing` | Yes | Meant for test projects |
 | `Homeostat.Aspire.Hosting` | No | Runs in the Aspire app host, which is not trimmed |
 | `Homeostat.Cli` | No | A .NET tool |

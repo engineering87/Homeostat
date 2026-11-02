@@ -1,0 +1,21 @@
+namespace Homeostat
+  public static class HomeostatGrpcExtensions
+    public static Microsoft.Extensions.DependencyInjection.IHttpClientBuilder AddHomeostatGrpcSignals(this Microsoft.Extensions.DependencyInjection.IHttpClientBuilder builder, System.Action<Homeostat.Grpc.GrpcSignalOptions>? configure = null)
+namespace Homeostat.Grpc
+  public sealed class GrpcSignalOptions
+    public GrpcSignalOptions()
+    public double DegradedFailureRatio { get; set; }
+    public System.TimeSpan? DegradedLatency { get; set; }
+    public System.Func<Grpc.Core.StatusCode, bool> IsFailure { get; set; }
+    public int MinimumCalls { get; set; }
+    public string? Source { get; set; }
+    public double UnhealthyFailureRatio { get; set; }
+    public System.TimeSpan? UnhealthyLatency { get; set; }
+    public static bool IsServiceFailure(Grpc.Core.StatusCode status)
+  public sealed class HomeostatGrpcInterceptor : Grpc.Core.Interceptors.Interceptor
+    public HomeostatGrpcInterceptor(Homeostat.Calls.CallRecorder recorder, System.Func<Grpc.Core.StatusCode, bool>? isFailure = null, System.TimeProvider? timeProvider = null)
+    public override Grpc.Core.AsyncClientStreamingCall<TRequest, TResponse> AsyncClientStreamingCall<TRequest, TResponse>(Grpc.Core.Interceptors.ClientInterceptorContext<TRequest, TResponse> context, Grpc.Core.Interceptors.Interceptor.AsyncClientStreamingCallContinuation<TRequest, TResponse> continuation) where TRequest : class where TResponse : class
+    public override Grpc.Core.AsyncDuplexStreamingCall<TRequest, TResponse> AsyncDuplexStreamingCall<TRequest, TResponse>(Grpc.Core.Interceptors.ClientInterceptorContext<TRequest, TResponse> context, Grpc.Core.Interceptors.Interceptor.AsyncDuplexStreamingCallContinuation<TRequest, TResponse> continuation) where TRequest : class where TResponse : class
+    public override Grpc.Core.AsyncServerStreamingCall<TResponse> AsyncServerStreamingCall<TRequest, TResponse>(TRequest request, Grpc.Core.Interceptors.ClientInterceptorContext<TRequest, TResponse> context, Grpc.Core.Interceptors.Interceptor.AsyncServerStreamingCallContinuation<TRequest, TResponse> continuation) where TRequest : class where TResponse : class
+    public override Grpc.Core.AsyncUnaryCall<TResponse> AsyncUnaryCall<TRequest, TResponse>(TRequest request, Grpc.Core.Interceptors.ClientInterceptorContext<TRequest, TResponse> context, Grpc.Core.Interceptors.Interceptor.AsyncUnaryCallContinuation<TRequest, TResponse> continuation) where TRequest : class where TResponse : class
+    public override TResponse BlockingUnaryCall<TRequest, TResponse>(TRequest request, Grpc.Core.Interceptors.ClientInterceptorContext<TRequest, TResponse> context, Grpc.Core.Interceptors.Interceptor.BlockingUnaryCallContinuation<TRequest, TResponse> continuation) where TRequest : class where TResponse : class

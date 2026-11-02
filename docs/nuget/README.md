@@ -60,7 +60,10 @@ execute renew-client.`) and does nothing. When the decisions look right, add `.C
 
 ## Batteries included
 
-- **Detectors**: thread pool starvation, memory pressure, exception rate, HTTP clients, Polly circuit breakers,
+- **Starter presets**: `AddWebApiDefaults()` and `AddWorkerDefaults()` register the usual detectors with an
+  observe-only condition for each; give a condition a plan when its activations look right.
+- **Detectors**: thread pool starvation, memory pressure, exception rate, HTTP and gRPC clients, Entity Framework Core
+  commands, call signals for any other client (`AddCallSignals`), Polly circuit breakers,
   any `System.Diagnostics.Metrics` instrument (OpenTelemetry metrics) or event counter, message broker backlogs,
   dead letters and lag.
 - **Conditions**: thresholds, values, trends, anomalies (also by time of day and week), predictions, intermittent
@@ -74,13 +77,15 @@ execute renew-client.`) and does nothing. When the decisions look right, add `.C
 
 ## Packages
 
-- `Homeostat`: core engine, runtime detectors, built-in actions, approvals, audit log.
+- `Homeostat`: core engine, runtime detectors, starter presets, call signals, built-in actions, approvals, audit log.
 - `Homeostat.AspNetCore`: status, history, coverage and control endpoints, dashboard with one-click approvals, Slack and Teams approvals; alerts from Alertmanager, Grafana and Azure Monitor as signals.
 - `Homeostat.HealthChecks`: health check results as signals; Homeostat's own health check.
-- `Homeostat.Http`: HTTP and gRPC client failures and latency as signals; webhook, PagerDuty, Opsgenie, Slack and Microsoft Teams notifiers.
+- `Homeostat.Http`: HTTP client failures and latency as signals (HTTP-level for gRPC clients); webhook, PagerDuty, Opsgenie, Slack and Microsoft Teams notifiers.
+- `Homeostat.Grpc`: gRPC client failures and latency as signals, judged on the gRPC status, streaming calls included.
 - `Homeostat.Polly`: Polly v8 circuit breaker state as signals; circuit isolation; chaos enabled by switches.
 - `Homeostat.Redis`: shared state and coordination across instances; Redis client health signals.
 - `Homeostat.Data`: database probes for any ADO.NET provider; SqlClient and Npgsql pool exhaustion; connection pool reset.
+- `Homeostat.EntityFrameworkCore`: command failures and latency of a `DbContext` as signals, for any relational provider; connectivity probe.
 - `Homeostat.ServiceBus`, `Homeostat.RabbitMQ`, `Homeostat.Kafka`, `Homeostat.Artemis`: backlog, dead letters, consumers, lag and broker connections as signals; consumers that plans pause and resume.
 - `Homeostat.MongoDB`: ping, primary availability, connection pool exhaustion and replication lag as signals.
 - `Homeostat.Aspire.Hosting`: Homeostat link and Pause/Resume healing commands in the Aspire dashboard.

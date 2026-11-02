@@ -14,7 +14,7 @@ export default {
       2,
       'always',
       [
-        'core', 'analyzers', 'artemis', 'aspire', 'aspnetcore', 'azure', 'caching', 'cli', 'data', 'featureflags', 'healthchecks',
+        'core', 'analyzers', 'artemis', 'aspire', 'aspnetcore', 'azure', 'caching', 'cli', 'data', 'efcore', 'featureflags', 'grpc', 'healthchecks',
         'http', 'kafka', 'kubernetes', 'mongodb', 'polly', 'rabbitmq', 'redis', 'servicebus', 'templates', 'testing', 'samples',
         'docs', 'deps', 'ci', 'release',
       ],

@@ -1,6 +1,6 @@
 # Homeostat.Http
 
-`IHttpClientFactory` integration for Homeostat. One line per client turns its failure ratio and p95 latency into a signal (`http:{client name}`); gRPC clients built with `Grpc.Net.ClientFactory` are covered too, with failed gRPC statuses counted as failures. It also provides the notifiers: a generic webhook, PagerDuty and Opsgenie incidents, and Slack and Microsoft Teams messages, with approval buttons in Slack.
+`IHttpClientFactory` integration for Homeostat. One line per client turns its failure ratio and p95 latency into a signal (`http:{client name}`); gRPC clients built with `Grpc.Net.ClientFactory` get HTTP-level signals too, with failed gRPC statuses in the response headers counted as failures (for signals judged on the full gRPC status, streaming calls included, use [Homeostat.Grpc](https://www.nuget.org/packages/Homeostat.Grpc)). It also provides the notifiers: a generic webhook, PagerDuty and Opsgenie incidents, and Slack and Microsoft Teams messages, with approval buttons in Slack.
 
 ## Install
 

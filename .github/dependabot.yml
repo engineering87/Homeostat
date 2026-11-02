@@ -11,7 +11,7 @@ updates:
     groups:
       # One pull request for the monthly .NET servicing release instead of one per package.
       microsoft-extensions:
-        patterns: [ "Microsoft.Extensions.*" ]
+        patterns: [ "Microsoft.Extensions.*", "Microsoft.EntityFrameworkCore.*" ]
       test-tooling:
         patterns: [ "xunit*", "Microsoft.NET.Test.Sdk" ]
       messaging-clients:
@@ -19,6 +19,9 @@ updates:
     ignore:
       # The libraries target net10.0: the Microsoft.Extensions 11.x packages come with a new target framework.
       - dependency-name: "Microsoft.Extensions.*"
+        update-types: [ "version-update:semver-major" ]
+      # Same for Entity Framework Core: a new major targets a new .NET.
+      - dependency-name: "Microsoft.EntityFrameworkCore.*"
         update-types: [ "version-update:semver-major" ]
       # Pinned to the Roslyn of the .NET 10.0.1xx SDK: a newer one stops the analyzers from loading (CS9057).
       - dependency-name: "Microsoft.CodeAnalysis.CSharp"

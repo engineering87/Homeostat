@@ -1,0 +1,28 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <IsAotCompatible>true</IsAotCompatible>
+    <PackageId>Homeostat.Grpc</PackageId>
+    <Description>gRPC clients for Homeostat: the failure ratio and latency of the calls of a client from the gRPC client factory as a signal, judged on the gRPC status of every call, streaming calls included (Grpc.Net.ClientFactory).</Description>
+    <PackageTags>$(PackageTags);grpc</PackageTags>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Homeostat\Homeostat.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Grpc.Net.ClientFactory" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Homeostat.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="..\..\docs\nuget\Homeostat.Grpc.md" Pack="true" PackagePath="\README.md" />
+    <None Include="..\..\assets\icon.png" Pack="true" PackagePath="\" />
+  </ItemGroup>
+
+</Project>

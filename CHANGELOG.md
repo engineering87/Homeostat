@@ -78,14 +78,33 @@ stable through 1.0.0.
 - Metric signals from any `System.Diagnostics.Metrics` instrument (`AddMetricSignal`), with
   `AddServerErrorRateSignal`, `AddServerLatencySignal` and `MetricSignalBuilder.Scale(factor)`.
 - Any event counter as a signal (`AddEventCounterSignal`), enabling only the counters it needs.
+- Starter presets `AddWebApiDefaults()` and `AddWorkerDefaults()`: the thread pool, memory and exception detectors
+  (plus the server error rate and latency signals for web APIs, and `AddBackgroundServiceSignals` for workers) with
+  the observe-only conditions `threadpool-starved`, `memory-pressure`, `exception-rate-high`, `server-errors-high` and
+  `server-latency-high`; the server conditions are suppressed while the thread pool is starved (latency also under
+  memory pressure). Each `DefaultCondition` can be turned off (`Enabled`), given another `SustainedFor`, configured
+  (`Configure`, for example `WhenValueAbove` for another threshold) or given a plan (`Heal`). One preset per
+  application.
+- Call signals for any client (`AddCallSignals(source)`): a keyed `CallRecorder` records calls (`Record`,
+  `Record(failed)` without a duration, `TrackAsync`, which ignores cancellations requested by the caller) and publishes their failure ratio as the signal
+  value, with the p95 duration in the tags; thresholds in `CallSignalOptions`. An `IServiceCollection` overload with an
+  `origin` serves integration packages.
 - `Homeostat.HealthChecks`: health check results as signals.
 
-#### Integrations: data, caching, Redis, MongoDB, HTTP and gRPC, Polly, feature flags
+#### Integrations: data, Entity Framework Core, caching, Redis, MongoDB, HTTP and gRPC, Polly, feature flags
 
 - `Homeostat.Data`: `AddDatabaseProbe` for any ADO.NET provider (failures tagged `transient` from
   `DbException.IsTransient`), the `ClearConnectionPools<TConnection>()` action and `AddSqlClientPoolSignal` for
   SqlClient pool exhaustion.
 - `AddNpgsqlPoolSignal` (Homeostat.Data): Npgsql 10+ pool usage as a share of the maximum, from the `Npgsql` meter.
+- `Homeostat.EntityFrameworkCore`: `AddDbContextSignals<TContext>()` publishes the failure ratio and p95 duration of
+  the commands of a `DbContext` (`efcore:{context type name}`) through an interceptor added with `ConfigureDbContext`,
+  leaving `AddDbContext`, `AddDbContextPool` and `AddDbContextFactory` unchanged (a second call updates the settings,
+  never adds a second interceptor); timeouts, transient errors and failed connections count, command errors and
+  cancellations do not (`DbContextSignalOptions.IsDatabaseFailure`). `AddDbContextProbe<TContext>()` checks
+  `Database.CanConnectAsync` (`efcore:{context type name}:ping`), also for contexts registered only with
+  `AddDbContextFactory`. Any relational
+  provider; EF Core 10.
 - `Homeostat.Caching`: `AddMemoryCacheSignals` (hit ratio) and the `PurgeHybridCacheTags`, `RemoveHybridCacheKeys`,
   `RemoveDistributedCacheKeys` and `CompactMemoryCache` actions.
 - `Homeostat.Redis`: shared store (atomic budget script, capped history) and coordinator (`UseRedis`); `AddRedisSignals` (ping round trip and connection events).
@@ -94,6 +113,12 @@ stable through 1.0.0.
 - `Homeostat.Http`: failure ratio and p95 latency of `IHttpClientFactory` clients as signals; gRPC failures
   (grpc-status Unknown, DeadlineExceeded, ResourceExhausted, Internal, Unavailable, DataLoss in response headers) are
   counted by `AddHomeostatSignals` through `HttpClientSignalOptions.IsGrpcFailure`.
+- `Homeostat.Grpc`: `AddHomeostatGrpcSignals()` on the builder of `AddGrpcClient` publishes the failure ratio of a
+  gRPC client's calls and the p95 duration of its unary calls (`grpc:{client name}`), judged on the gRPC status
+  (`GrpcSignalOptions.IsFailure`, by default `IsServiceFailure`; `Cancelled` is never recorded). Streaming calls are
+  recorded without a duration when their stream ends, with the status from the trailers, or as soon as they cannot
+  start. A second call on the same client updates the settings, never adds a second interceptor.
+  `HomeostatGrpcInterceptor` for channels built without the client factory.
 - `Homeostat.Polly`: Polly v8 circuit breaker state as signals, `CircuitControl` and the `IsolateCircuit` action
   (manual isolation driven by a switch), `ChaosEnabledBySwitch` for chaos strategies during game days.
 - `Homeostat.FeatureManagement` (`Homeostat.Switch` feature filter) and `Homeostat.OpenFeature`

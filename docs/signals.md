@@ -27,7 +27,9 @@ Severities are ordered (`Healthy < Degraded < Unhealthy`), so conditions can use
 "at least `Degraded`".
 
 > Most applications don't need to publish signals by hand: [detectors](detectors.md) watch the
-> thread pool, memory, exceptions, HTTP clients and circuit breakers for you.
+> thread pool, memory, exceptions, HTTP and gRPC clients, Entity Framework Core and circuit breakers for you, a
+> [starter preset](detectors.md#starter-presets) registers the usual ones in one line, and
+> [call signals](detectors.md#signals-from-any-client-call-signals) cover any other client.
 
 ## Health checks as signals
 
@@ -68,12 +70,15 @@ sources are easier to read in the dashboard and in alerts when they follow it to
 
 | Kind | Pattern | Examples |
 |---|---|---|
-| Integrations with a technology | `{technology}[:{name}][:{metric}]` | `redis`, `http:forecast`, `cache:memory`, `sqlclient:pool`, `npgsql:pool`, `http-server:errors`, `http-server:latency`, `rabbitmq:thumbnails:dead-letter`, `mongodb:archive:primary`, `alert:DiskAlmostFull` |
+| Integrations with a technology | `{technology}[:{name}][:{metric}]` | `redis`, `http:forecast`, `grpc:ForecastsClient`, `efcore:ReportsDbContext`, `efcore:ReportsDbContext:ping`, `cache:memory`, `sqlclient:pool`, `npgsql:pool`, `http-server:errors`, `http-server:latency`, `rabbitmq:thumbnails:dead-letter`, `mongodb:archive:primary`, `alert:DiskAlmostFull` |
 | The process's own runtime detectors | a bare name | `threadpool`, `memory`, `exceptions` |
 | Health checks | the health check name | `weather-feed` |
+| Call signals (`AddCallSignals`) | your choice; the pattern above is recommended | `geocoding:api` |
 | Your probes and signals | your choice; a bare name or the pattern above | `ingest-backlog`, `reports-db` |
 
-Sources are case-sensitive. Every built-in default can be changed (a `source` parameter or a `Source` option), and
+Where a default source contains a client or context name (`http:{client name}`, `grpc:{client name}`,
+`efcore:{context type name}`), the name is the one .NET uses: the name given to the client, or the type name for a
+typed client or a `DbContext`, without its namespace. Sources are case-sensitive. Every built-in default can be changed (a `source` parameter or a `Source` option), and
 the default names are part of the public contract: they change only in a major version (see
 [Versioning](versioning.md)).
 

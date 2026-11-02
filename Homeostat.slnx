@@ -9,7 +9,9 @@
     <Project Path="src/Homeostat.Caching/Homeostat.Caching.csproj" />
     <Project Path="src/Homeostat.Cli/Homeostat.Cli.csproj" />
     <Project Path="src/Homeostat.Data/Homeostat.Data.csproj" />
+    <Project Path="src/Homeostat.EntityFrameworkCore/Homeostat.EntityFrameworkCore.csproj" />
     <Project Path="src/Homeostat.FeatureManagement/Homeostat.FeatureManagement.csproj" />
+    <Project Path="src/Homeostat.Grpc/Homeostat.Grpc.csproj" />
     <Project Path="src/Homeostat.HealthChecks/Homeostat.HealthChecks.csproj" />
     <Project Path="src/Homeostat.Http/Homeostat.Http.csproj" />
     <Project Path="src/Homeostat.Kafka/Homeostat.Kafka.csproj" />

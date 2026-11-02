@@ -53,6 +53,7 @@ builder.Services.AddHomeostat(h => h
         o.AccessToken = _ => ValueTask.FromResult("token");
     })
     .UseAzure(o => o.AccessToken = _ => ValueTask.FromResult("token"))
+    .AddCallSignals("geocoding:api")
     .AddWebhookNotifications(o =>
     {
         o.Url = new Uri("https://receiver.invalid/homeostat");
@@ -132,6 +133,10 @@ try
 
     Check(status!["application"]?.GetValue<string>() == "aot-smoke", "status: wrong application");
     Check(status["recentRuns"]![0]!["condition"]?.GetValue<string>() == "feed-down", "status: wrong run");
+
+    step = "recording calls";
+    var calls = app.Services.GetRequiredKeyedService<Homeostat.Calls.CallRecorder>("geocoding:api");
+    Check(await calls.TrackAsync(_ => Task.FromResult(42), timeout.Token) == 42, "call signals: TrackAsync did not return the result");
 
     step = "reading coverage, history, dashboard and health";
     var coverage = JsonNode.Parse(await http.GetStringAsync("/homeostat/coverage", timeout.Token));

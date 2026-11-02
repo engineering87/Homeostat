@@ -39,6 +39,9 @@ feedback: open an issue to discuss priorities.
 - [x] MongoDB (`Homeostat.MongoDB`): ping, primary availability, connection pool exhaustion, replication lag
 - [x] Pool exhaustion signals for providers without metrics: any event counter as a signal, SqlClient pool preset
 - [x] .NET Aspire hosting integration (`Homeostat.Aspire.Hosting`): dashboard link, Pause and Resume healing commands
+- [x] Entity Framework Core (`Homeostat.EntityFrameworkCore`): command failures and latency of a `DbContext`, connectivity probe
+- [x] gRPC clients (`Homeostat.Grpc`): failures and latency judged on the gRPC status, streaming calls included
+- [x] Call signals for any client (`AddCallSignals`, `CallRecorder`): SDKs, TCP protocols, services without an integration
 
 ## Wave 3: operations and developer experience
 
@@ -79,6 +82,7 @@ feedback: open an issue to discuss priorities.
 - [x] SBOM and build provenance on every release, optional author signing, actions pinned by commit, OpenSSF Scorecard
 - [x] Source names, status JSON with enums as names, `Canceled` spelling: last breaking adjustments before 1.0
 - [x] Templates built in CI; Native AOT smoke test covering the Slack and Teams endpoints and the PagerDuty and Opsgenie notifiers
+- [x] Adoption: starter presets (`AddWebApiDefaults`, `AddWorkerDefaults`) with observe-only conditions for the usual problems
 - [ ] Package validation baseline set to the first stable version, once it is published
 - [ ] .NET Foundation application
 

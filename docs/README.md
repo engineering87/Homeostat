@@ -6,7 +6,7 @@ New to Homeostat? Read the pages in this order: each one builds on the previous.
 
 | Step | Page | You will learn |
 |---|---|---|
-| 1 | [Getting started](getting-started.md) | Install, write your first action, watch the dry-run, then let it act |
+| 1 | [Getting started](getting-started.md) | Install, write your first action, watch the dry-run, then let it act; start from a preset |
 | 2 | [Concepts](concepts.md) | The mental model and the vocabulary used everywhere else |
 
 ## Reference
@@ -16,7 +16,7 @@ New to Homeostat? Read the pages in this order: each one builds on the previous.
 | Page | Covers |
 |---|---|
 | [Signals](signals.md) | `Signal`, severities, source names, `ISignalPublisher`, health checks as signals |
-| [Detectors](detectors.md) | Ready-made signals: thread pool, memory, exceptions, HTTP and gRPC clients, Polly circuit breakers, any metric, custom detectors |
+| [Detectors](detectors.md) | Ready-made signals: [starter presets](detectors.md#starter-presets), thread pool, memory, exceptions, HTTP and gRPC clients, [call signals for any client](detectors.md#signals-from-any-client-call-signals), Polly circuit breakers, any metric, custom detectors |
 | [Conditions](conditions.md) | Filters, thresholds, `SustainedFor`, `ClearAfter`, `SuppressedBy`, values, trends, anomalies, occurrences, composites |
 | [Healing plans](healing-plans.md) | Escalation, human approval, compensation, backoff, once per cluster, verification, outcomes |
 | [Actions](actions.md) | Built-in actions, restartable background services, switches for degraded mode, inline lambdas, action classes |
@@ -27,7 +27,7 @@ New to Homeostat? Read the pages in this order: each one builds on the previous.
 
 | Page | Covers |
 |---|---|
-| [Integrations](integrations.md) | Probes, databases (ADO.NET, Entity Framework Core) and pool exhaustion, MongoDB, Redis, caches, alerts from monitoring, feature flags, Polly circuit isolation and chaos, .NET Aspire |
+| [Integrations](integrations.md) | Probes, databases (ADO.NET, [Entity Framework Core](integrations.md#entity-framework-core)) and pool exhaustion, MongoDB, Redis, [gRPC clients](integrations.md#grpc-clients), caches, alerts from monitoring, feature flags, Polly circuit isolation and chaos, .NET Aspire |
 | [Message brokers](messaging.md) | Azure Service Bus, RabbitMQ, Kafka and ActiveMQ Artemis: backlog, dead letters, lag; pausing consumers |
 | [Cloud and orchestrators](cloud.md) | Restart the application, Kubernetes and Azure actions, permissions |
 

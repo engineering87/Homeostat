@@ -116,16 +116,26 @@ When the decisions look right, let it act:
 builder.Services.AddHomeostat(h => h.Configure(o => o.DryRun = false));
 ```
 
+Not sure where to start? One line registers the usual detectors (thread pool, memory, exceptions, server errors and
+latency) with an observe-only condition for each, ready for a plan when you have seen them in action
+([starter presets](docs/detectors.md#starter-presets)):
+
+```csharp
+builder.Services.AddHomeostat(h => h.AddWebApiDefaults());   // AddWorkerDefaults() in a worker service
+```
+
 The [getting started guide](docs/getting-started.md) walks through this step by step, and
 [`samples/`](samples) has a web API and a worker service ready to run. Project templates are available with
 `dotnet new install Homeostat.Templates::1.0.0-rc.1`.
 
 ## What it covers
 
-- **Signals in**: health checks, any `System.Diagnostics.Metrics` instrument (the OpenTelemetry metrics API), event
-  counters, runtime detectors (thread pool starvation, memory pressure, exception rate, stopped workers), HTTP and
-  gRPC clients, Polly circuit breakers, database and Redis probes, connection pools, message broker backlogs, lag and
-  dead letters, alerts from Prometheus Alertmanager, Grafana and Azure Monitor, and any number your code can fetch.
+- **Signals in**: starter presets for web APIs and workers, health checks, any `System.Diagnostics.Metrics` instrument
+  (the OpenTelemetry metrics API), event counters, runtime detectors (thread pool starvation, memory pressure,
+  exception rate, stopped workers), HTTP and gRPC clients, Entity Framework Core commands, call signals for any other
+  client (an SDK, a TCP protocol), Polly circuit breakers, database and Redis probes, connection pools, message broker
+  backlogs, lag and dead letters, alerts from Prometheus Alertmanager, Grafana and Azure Monitor, and any number your
+  code can fetch.
 - **Decisions**: thresholds, sustained problems, hysteresis, trends, predictions ("full in two hours"), anomalies,
   daily and weekly seasonality, intermittent problems, combinations of conditions, causes that suppress their
   symptoms. Conditions can live in `appsettings.json` and change at runtime.
@@ -144,12 +154,14 @@ Reference only what you use. Every package targets .NET 10.
 
 | Package | Adds |
 |---|---|
-| `Homeostat` | Engine, conditions, healing plans, guardrails, runtime detectors, built-in actions, switches, approvals, audit log, file store, build-time analyzers |
+| `Homeostat` | Engine, conditions, healing plans, guardrails, runtime detectors, starter presets, call signals for any client, built-in actions, switches, approvals, audit log, file store, build-time analyzers |
 | `Homeostat.HealthChecks` | Health check results as signals; Homeostat's own health check |
 | `Homeostat.AspNetCore` | Status, control and history endpoints, dashboard, Slack and Teams approvals, alert ingestion |
-| `Homeostat.Http` | Failure ratio and latency of `IHttpClientFactory` and gRPC clients; webhook, Slack, Teams, PagerDuty and Opsgenie notifiers |
+| `Homeostat.Http` | Failure ratio and latency of `IHttpClientFactory` clients; webhook, Slack, Teams, PagerDuty and Opsgenie notifiers |
+| `Homeostat.Grpc` | Failure ratio and latency of gRPC clients, judged on the gRPC status, streaming calls included |
 | `Homeostat.Polly` | Polly v8 circuit breakers as signals, circuit isolation, chaos enabled by switches |
 | `Homeostat.Data` | Database probes for any ADO.NET provider, SqlClient and Npgsql pool signals, connection pool reset |
+| `Homeostat.EntityFrameworkCore` | Failure ratio and latency of the commands of a `DbContext`, connectivity probe |
 | `Homeostat.Redis` | Shared state and once-per-cluster plans; Redis health signals |
 | `Homeostat.Caching` | Memory cache hit ratio; HybridCache, distributed and memory cache purge actions |
 | `Homeostat.MongoDB` | Ping, primary availability, pool exhaustion and replication lag |
@@ -199,8 +211,8 @@ approved step of a plan instead of the first reaction.
   [Platforms](docs/platforms.md) for the minimum versions of the client libraries.
 - **Overhead**: publishing a signal costs well under a microsecond and processing it does not allocate; see the
   [measurements](docs/performance.md).
-- **Trimming and Native AOT**: the libraries (except `Homeostat.Aspire.Hosting`) are marked trimming and AOT
-  compatible; CI publishes and runs a Native AOT application that uses the core, ASP.NET Core, health check, HTTP,
+- **Trimming and Native AOT**: the libraries (except `Homeostat.Aspire.Hosting` and `Homeostat.EntityFrameworkCore`)
+  are marked trimming and AOT compatible; CI publishes and runs a Native AOT application that uses the core, ASP.NET Core, health check, HTTP,
   caching, Kubernetes and Azure packages ([details](docs/native-aot.md)).
 - **Stable API**: the public API of every library package is recorded in [`api/`](api) and checked by a test. From 1.0 the
   project follows Semantic Versioning ([versioning policy](docs/versioning.md)).

@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <PackageId>Homeostat.EntityFrameworkCore</PackageId>
+    <Description>Entity Framework Core for Homeostat: the failure ratio and latency of the commands of a DbContext as a signal, added without touching AddDbContext, and a DbContext connectivity probe. Works with any relational provider.</Description>
+    <PackageTags>$(PackageTags);efcore;entity-framework-core;database</PackageTags>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Homeostat\Homeostat.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Homeostat.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="..\..\docs\nuget\Homeostat.EntityFrameworkCore.md" Pack="true" PackagePath="\README.md" />
+    <None Include="..\..\assets\icon.png" Pack="true" PackagePath="\" />
+  </ItemGroup>
+
+</Project>

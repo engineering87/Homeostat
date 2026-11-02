@@ -1,13 +1,16 @@
 # Integrations
 
 Homeostat heals what it can see. This page shows how to bring the usual weak points of a .NET application into
-view (databases, Redis, message brokers, caches, external monitoring) and which ready-made actions act on them
+view (databases, gRPC services, Redis, message brokers, caches, external monitoring) and which ready-made actions act on them
 (pool resets, cache purges, circuit isolation, feature flags).
 
 | Need | Package | API |
 |---|---|---|
 | Any number or round trip, polled periodically | `Homeostat` | `AddProbe`, `AddLatencyProbe` |
 | Database connectivity, latency, transient errors; pool reset | `Homeostat.Data` | `AddDatabaseProbe`, `ClearConnectionPools<T>` |
+| Entity Framework Core: command failures and latency of a `DbContext`, connectivity | `Homeostat.EntityFrameworkCore` | [`AddDbContextSignals<T>`, `AddDbContextProbe<T>`](#entity-framework-core) |
+| gRPC clients: failures and latency judged on the gRPC status | `Homeostat.Grpc` | [`AddHomeostatGrpcSignals`](#grpc-clients), `HomeostatGrpcInterceptor` |
+| Any other client (SDK, TCP protocol): failures and latency of the calls you record | `Homeostat` | [`AddCallSignals`, `CallRecorder`](detectors.md#signals-from-any-client-call-signals) |
 | Redis client health | `Homeostat.Redis` | `AddRedisSignals` |
 | MongoDB: ping, primary availability, pool exhaustion, replication lag | `Homeostat.MongoDB` | `AddMongoSignals`, `AddHomeostatSignals` on the client settings |
 | Message brokers: backlog, dead letters, lag; pause and resume consumers | `Homeostat.ServiceBus`, `Homeostat.RabbitMQ`, `Homeostat.Kafka`, `Homeostat.Artemis` | [Message brokers](messaging.md) |
@@ -84,7 +87,9 @@ dotnet add package Homeostat.Data --prerelease
 ```
 
 `Homeostat.Data` works with any ADO.NET provider: SqlClient, Npgsql, MySqlConnector, Microsoft.Data.Sqlite,
-Oracle. It references no provider: you bring the one you already use.
+Oracle. It references no provider: you bring the one you already use. Applications that reach the database through
+Entity Framework Core get command-level signals from `Homeostat.EntityFrameworkCore`: see
+[Entity Framework Core](#entity-framework-core).
 
 ### Connectivity and latency
 
@@ -106,45 +111,6 @@ owned by something else, such as the one of an Entity Framework Core `DbContext`
 |---|---|---|
 | `CommandText` | `SELECT 1` | Query run after opening; `null` only opens the connection |
 | Other settings | as for [probes](#probes-any-number-as-a-signal) | `Interval`, `Timeout` (also the command timeout), thresholds in milliseconds, `FailureSeverity`, `Origin` (`database-probe`) |
-
-### Entity Framework Core
-
-No extra package is needed: probe the database of a `DbContext` with `AddDatabaseProbe`, using a new connection of
-the same provider and connection string as the context. The factory runs in the probe's own scope, so a scoped
-`DbContext` is fine:
-
-```csharp
-using System.Data.Common;
-using Microsoft.EntityFrameworkCore;
-
-h.AddDatabaseProbe("reports-db", sp =>
-{
-    var database = sp.GetRequiredService<ReportsDbContext>().Database;
-    var connection = DbProviderFactories.GetFactory(database.GetDbConnection())!.CreateConnection()!;   // same provider
-    connection.ConnectionString = database.GetConnectionString();                                        // same database
-    return connection;                                                                                   // new and closed: the probe opens and disposes it
-}, p => p.DegradedAbove = 200);
-```
-
-- `GetDbConnection()` is only used to find the provider: the probe never opens or disposes the context's own
-  connection, which EF Core manages.
-- Configure the context with a connection string (`UseSqlServer(connectionString)`, `UseNpgsql(connectionString)`),
-  so `GetConnectionString()` returns it with its credentials. With Npgsql and an `NpgsqlDataSource`, return
-  `sp.GetRequiredService<NpgsqlDataSource>().CreateConnection()` instead.
-- `ClearConnectionPools<SqlConnection>()` (or the connection type of your provider) works for EF Core contexts too:
-  they use the provider's pool.
-
-To ask EF Core itself whether it can connect (for example with a custom execution strategy), use a latency probe:
-
-```csharp
-h.AddLatencyProbe("reports-db", async (sp, ct) =>
-{
-    if (!await sp.GetRequiredService<ReportsDbContext>().Database.CanConnectAsync(ct))
-    {
-        throw new InvalidOperationException("The reports database is not reachable.");
-    }
-});
-```
 
 ### Transient errors
 
@@ -223,6 +189,72 @@ h.AddNpgsqlPoolSignal(maxPoolSize: 50, dataSourceName: "reports")   // npgsql:po
 
 Providers that publish other pool metrics can be watched with [metric signals](detectors.md#metrics), using
 `Scale(1.0 / poolSize)` to turn a count into a share.
+
+### Entity Framework Core
+
+```bash
+dotnet add package Homeostat.EntityFrameworkCore --prerelease
+```
+
+`Homeostat.EntityFrameworkCore` watches what a `DbContext` actually does: the failure ratio and the p95 duration of
+its commands, as the signal `efcore:{context type name}`. It works with any relational provider (SQL Server,
+PostgreSQL, MySQL, SQLite, Oracle).
+
+```csharp
+builder.Services.AddDbContext<ReportsDbContext>(o => o.UseNpgsql(connectionString));   // unchanged
+
+builder.Services.AddHomeostat(h => h
+    .AddDbContextSignals<ReportsDbContext>(o => o.UnhealthyLatency = TimeSpan.FromSeconds(3))
+    .AddDbContextProbe<ReportsDbContext>(configure: p => p.DegradedAbove = 200)   // efcore:ReportsDbContext:ping
+    .AddCondition("reports-db-failing", c => c
+        .ForSource("efcore:ReportsDbContext")
+        .SustainedFor(TimeSpan.FromMinutes(1))
+        .Heal(p => p.TurnOnSwitch("reports-read-only", turnOffWhenCleared: true))));
+```
+
+`AddDbContextSignals<TContext>()` adds an interceptor through EF Core's `ConfigureDbContext`, so the registration of
+the context (`AddDbContext`, `AddDbContextPool` or `AddDbContextFactory`) stays as it is. What counts as
+a failure:
+
+| Outcome | Recorded as |
+|---|---|
+| Command executed (query, scalar, non-query) | Success, with its duration |
+| Command failed with a `TimeoutException` or a `DbException` that the provider marks as transient (`IsTransient`), also as an inner exception | Failure |
+| Command failed because of the command itself (a constraint violation, a syntax error) | Success: the database answered |
+| Connection that cannot be opened (for example, an exhausted pool or an unreachable server) or closed | Always a failure |
+| Command or connection canceled | Not recorded |
+
+| `DbContextSignalOptions` | Default | Meaning |
+|---|---|---|
+| `Source` | `efcore:{context type name}` | Signal source |
+| `IsFailure` | `DbContextSignalOptions.IsDatabaseFailure` | Which exceptions of failed commands count as failures of the database |
+| `DegradedFailureRatio`, `UnhealthyFailureRatio` | 0.1, 0.5 | Failure ratio from which the signal is Degraded, Unhealthy |
+| `DegradedLatency`, `UnhealthyLatency` | none | p95 command duration from which the signal is Degraded, Unhealthy |
+| `MinimumCalls` | 10 | Commands an interval needs before its failure ratio is judged (as for [call signals](detectors.md#signals-from-any-client-call-signals)) |
+
+Calling `AddDbContextSignals<TContext>()` again for the same context updates its settings without adding a second
+interceptor.
+
+The signal's value is the failure ratio; tags `calls`, `failures`, `failure_ratio`, `p95_ms`; `origin` = `efcore`.
+To count more errors, combine the default with your own rule:
+`o.IsFailure = ex => DbContextSignalOptions.IsDatabaseFailure(ex) || ex is SqlException { Number: 1205 }` (deadlocks,
+with SqlClient).
+
+Command signals depend on traffic: when the application sends no commands, no signal is published, and a plan that
+waits for recovery may end `Inconclusive` in a quiet period. `AddDbContextProbe<TContext>()` covers that: at every
+probe interval it calls `Database.CanConnectAsync` on a new context, in its own scope, and publishes the round trip
+in milliseconds as `efcore:{context type name}:ping`, `Unhealthy` when the context cannot connect. It takes an optional
+`source` and the [probe settings](#probes-any-number-as-a-signal) (`Interval`, `Timeout`, thresholds in milliseconds);
+the context must be registered with `AddDbContext` or `AddDbContextPool`. Use the probe as the condition's source when
+the plan needs verification even without traffic, and the command signals when what matters is what users see.
+
+Notes:
+
+- The package targets EF Core 10 (`Microsoft.EntityFrameworkCore.Relational` 10.0.14 or later); `ConfigureDbContext`
+  appeared in EF Core 9.
+- `ClearConnectionPools<SqlConnection>()` (package `Homeostat.Data`, or the connection type of your provider) works
+  for EF Core contexts too: they use the provider's pool.
+- For code that uses ADO.NET directly, without a `DbContext`, use [`AddDatabaseProbe`](#connectivity-and-latency).
 
 ## MongoDB
 
@@ -319,6 +351,82 @@ round trip, `Interval`, `Timeout`, `FailureSeverity`, `Origin`, by default `redi
 `PublishConnectionEvents` (default `true`): set it to `false` to rely on the periodic ping alone. The default source
 is `redis`. The Redis store and coordinator (`UseRedis`) are described in
 [Persistence and clusters](persistence-and-clusters.md).
+
+## gRPC clients
+
+```bash
+dotnet add package Homeostat.Grpc --prerelease
+```
+
+`Homeostat.Grpc` turns the calls of a client from the gRPC client factory (`Grpc.Net.ClientFactory`) into a signal:
+the failure ratio and the p95 duration of its calls, judged on the **gRPC status** of each call.
+
+```csharp
+builder.Services.AddGrpcClient<Forecasts.ForecastsClient>(o => o.Address = new Uri("https://forecasts:5001"))
+    .AddHomeostatGrpcSignals(o => o.UnhealthyLatency = TimeSpan.FromSeconds(2));
+
+builder.Services.AddHomeostat(h => h
+    .AddCondition("forecasts-failing", c => c
+        .ForSource("grpc:ForecastsClient")
+        .SustainedFor(TimeSpan.FromMinutes(1))
+        .Heal(p => p.TurnOnSwitch("serve-cached-forecast", turnOffWhenCleared: true))));
+```
+
+The source is `grpc:{client name}`. The client factory names a client after its type unless you give it a name, so
+`AddGrpcClient<Forecasts.ForecastsClient>()` publishes `grpc:ForecastsClient`. `AddHomeostatGrpcSignals` needs
+`AddHomeostat`.
+
+| `GrpcSignalOptions` | Default | Meaning |
+|---|---|---|
+| `Source` | `grpc:{client name}` | Signal source |
+| `IsFailure` | `GrpcSignalOptions.IsServiceFailure` | Which status codes count as failures |
+| `DegradedFailureRatio`, `UnhealthyFailureRatio` | 0.1, 0.5 | Failure ratio from which the signal is Degraded, Unhealthy |
+| `DegradedLatency`, `UnhealthyLatency` | none | p95 duration of the unary calls from which the signal is Degraded, Unhealthy |
+| `MinimumCalls` | 10 | Calls an interval needs before its failure ratio is judged (as for [call signals](detectors.md#signals-from-any-client-call-signals)) |
+
+`IsServiceFailure` counts `Unknown`, `DeadlineExceeded`, `ResourceExhausted`, `Internal`, `Unavailable` and
+`DataLoss`: the statuses that point at the service or the network. Errors in the request (`NotFound`,
+`InvalidArgument`, `PermissionDenied`...) and calls canceled by the caller do not count. To change the rule:
+`o.IsFailure = s => GrpcSignalOptions.IsServiceFailure(s) || s == StatusCode.Aborted`.
+
+How calls are recorded:
+
+- A unary call is recorded with its duration when its response arrives. Only unary calls feed the p95 and the
+  latency thresholds.
+- Streaming calls count for the failure ratio but have no duration, since a stream lasts as long as the caller keeps
+  it open. A client streaming call is recorded when its response arrives; a server or duplex streaming call when its
+  response stream ends or fails, with the final status from the trailers, or as soon as it cannot start (the server is
+  unreachable), even if nobody reads the stream. A streaming call abandoned before its end is not recorded.
+- Calls canceled by the caller (`Cancelled`) are not recorded.
+- Calling `AddHomeostatGrpcSignals()` again on the same client updates its settings without adding a second
+  interceptor.
+- The signal's value is the failure ratio; tags `calls`, `failures`, `failure_ratio`, `p95_ms`; `origin` =
+  `grpc-client`.
+
+For a channel built without the client factory, add the interceptor yourself, with a recorder registered by
+[`AddCallSignals`](detectors.md#signals-from-any-client-call-signals):
+
+```csharp
+using Grpc.Core.Interceptors;   // Intercept
+using Homeostat.Calls;          // CallRecorder
+using Homeostat.Grpc;           // HomeostatGrpcInterceptor
+
+builder.Services.AddHomeostat(h => h.AddCallSignals("grpc:forecasts"));
+builder.Services.AddSingleton(sp =>
+{
+    var recorder = sp.GetRequiredKeyedService<CallRecorder>("grpc:forecasts");
+    var channel = GrpcChannel.ForAddress("https://forecasts:5001");
+    return new Forecasts.ForecastsClient(channel.Intercept(new HomeostatGrpcInterceptor(recorder)));
+});
+```
+
+The interceptor takes an optional `isFailure` rule (by default `IsServiceFailure`) and a `TimeProvider`.
+
+**Compared with `Homeostat.Http`.** gRPC clients of the client factory also go through `IHttpClientFactory`, so the
+HTTP-level `AddHomeostatSignals` of `Homeostat.Http` works on them, with `HttpClientSignalOptions.IsGrpcFailure`
+reading the `grpc-status` header (see [HTTP clients](detectors.md#grpc-clients)). That handler sees only the
+response headers: a streaming call that fails after sending messages is missed, and its latency is the time to the
+headers. Prefer `AddHomeostatGrpcSignals`, and do not use both on the same client.
 
 ## Message brokers
 

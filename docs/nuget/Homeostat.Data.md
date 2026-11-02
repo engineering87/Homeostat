@@ -1,6 +1,6 @@
 # Homeostat.Data
 
-Database integration for Homeostat, for any ADO.NET provider (SQL Server, PostgreSQL, MySQL, SQLite, Oracle) and Entity Framework Core: connectivity and latency probes with transient error tagging, connection pool exhaustion signals for SqlClient (event counters) and Npgsql 10 or later (metrics), and an action that clears the provider's connection pools after a failover. It references no database provider.
+Database integration for Homeostat, for any ADO.NET provider (SQL Server, PostgreSQL, MySQL, SQLite, Oracle): connectivity and latency probes with transient error tagging, connection pool exhaustion signals for SqlClient (event counters) and Npgsql 10 or later (metrics), and an action that clears the provider's connection pools after a failover. It references no database provider. For command-level signals of an Entity Framework Core `DbContext`, see [Homeostat.EntityFrameworkCore](https://www.nuget.org/packages/Homeostat.EntityFrameworkCore).
 
 ## Install
 

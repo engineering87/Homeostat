@@ -18,6 +18,9 @@ namespace Homeostat
     public Homeostat.HomeostatBuilder UseFileStore(string path, System.Action<Homeostat.Persistence.FileStoreOptions>? configure = null)
     public Homeostat.HomeostatBuilder UseStore(System.Func<System.IServiceProvider, Homeostat.Persistence.IHomeostatStore> factory)
     public Homeostat.HomeostatBuilder UseStore<TStore>() where TStore : class, Homeostat.Persistence.IHomeostatStore
+  public static class HomeostatCallSignalExtensions
+    public static Homeostat.HomeostatBuilder AddCallSignals(this Homeostat.HomeostatBuilder builder, string source, System.Action<Homeostat.Calls.CallSignalOptions>? configure = null)
+    public static Microsoft.Extensions.DependencyInjection.IServiceCollection AddCallSignals(this Microsoft.Extensions.DependencyInjection.IServiceCollection services, string source, string origin, System.Action<Homeostat.Calls.CallSignalOptions>? configure = null)
   public static class HomeostatConfigurationExtensions
     public static Homeostat.HomeostatBuilder AddConditionsFromConfiguration(this Homeostat.HomeostatBuilder builder, Microsoft.Extensions.Configuration.IConfiguration section)
     public static Homeostat.HomeostatBuilder MapAction<TAction>(this Homeostat.HomeostatBuilder builder, string name) where TAction : class, Homeostat.Healing.IHealingAction
@@ -52,6 +55,9 @@ namespace Homeostat
     public int RunHistorySize { get; set; }
     public int SignalBufferCapacity { get; set; }
     public System.TimeSpan VerificationPollInterval { get; set; }
+  public static class HomeostatPresetExtensions
+    public static Homeostat.HomeostatBuilder AddWebApiDefaults(this Homeostat.HomeostatBuilder builder, System.Action<Homeostat.Presets.HomeostatDefaults>? configure = null)
+    public static Homeostat.HomeostatBuilder AddWorkerDefaults(this Homeostat.HomeostatBuilder builder, System.Action<Homeostat.Presets.HomeostatDefaults>? configure = null)
   public static class HomeostatProbeExtensions
     public static Homeostat.HomeostatBuilder AddLatencyProbe(this Homeostat.HomeostatBuilder builder, string source, System.Func<System.IServiceProvider, System.Threading.CancellationToken, System.Threading.Tasks.Task> call, System.Action<Homeostat.Probes.ProbeOptions>? configure = null)
     public static Homeostat.HomeostatBuilder AddProbe(this Homeostat.HomeostatBuilder builder, string source, System.Func<System.IServiceProvider, System.Threading.CancellationToken, System.Threading.Tasks.Task<double>> measure, System.Action<Homeostat.Probes.ProbeOptions>? configure = null)
@@ -102,6 +108,22 @@ namespace Homeostat
     public SwitchChangedEventArgs(string name, bool isOn)
     public bool IsOn { get; }
     public string Name { get; }
+namespace Homeostat.Calls
+  public sealed class CallRecorder
+    public CallRecorder(string source, Homeostat.Calls.CallSignalOptions? options = null, System.TimeProvider? timeProvider = null)
+    public Homeostat.Calls.CallSignalOptions Options { get; }
+    public string Source { get; }
+    public void Record(bool failed)
+    public void Record(bool failed, System.TimeSpan duration)
+    public System.Threading.Tasks.Task TrackAsync(System.Func<System.Threading.CancellationToken, System.Threading.Tasks.Task> call, System.Threading.CancellationToken cancellationToken = default, System.Func<System.Exception, bool>? isFailure = null)
+    public System.Threading.Tasks.Task<T> TrackAsync<T>(System.Func<System.Threading.CancellationToken, System.Threading.Tasks.Task<T>> call, System.Threading.CancellationToken cancellationToken = default, System.Func<System.Exception, bool>? isFailure = null)
+  public sealed class CallSignalOptions
+    public CallSignalOptions()
+    public double DegradedFailureRatio { get; set; }
+    public System.TimeSpan? DegradedLatency { get; set; }
+    public int MinimumCalls { get; set; }
+    public double UnhealthyFailureRatio { get; set; }
+    public System.TimeSpan? UnhealthyLatency { get; set; }
 namespace Homeostat.Conditions
   public enum CompositeMode : int
     All = 0
@@ -594,6 +616,20 @@ namespace Homeostat.Persistence
     public override string ToString()
     public static bool op_Equality(Homeostat.Persistence.PlanStateUpdate? left, Homeostat.Persistence.PlanStateUpdate? right)
     public static bool op_Inequality(Homeostat.Persistence.PlanStateUpdate? left, Homeostat.Persistence.PlanStateUpdate? right)
+namespace Homeostat.Presets
+  public sealed class DefaultCondition
+    public bool Enabled { get; set; }
+    public string Name { get; }
+    public string Source { get; }
+    public System.TimeSpan SustainedFor { get; set; }
+    public Homeostat.Presets.DefaultCondition Configure(System.Action<Homeostat.Conditions.ConditionBuilder> configure)
+    public Homeostat.Presets.DefaultCondition Heal(System.Action<Homeostat.Healing.HealingPlanBuilder> configure)
+  public sealed class HomeostatDefaults
+    public Homeostat.Presets.DefaultCondition ExceptionRate { get; }
+    public Homeostat.Presets.DefaultCondition MemoryPressure { get; }
+    public Homeostat.Presets.DefaultCondition ServerErrors { get; }
+    public Homeostat.Presets.DefaultCondition ServerLatency { get; }
+    public Homeostat.Presets.DefaultCondition ThreadPoolStarvation { get; }
 namespace Homeostat.Probes
   public class ProbeOptions
     public ProbeOptions()

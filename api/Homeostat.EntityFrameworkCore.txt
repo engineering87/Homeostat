@@ -1,0 +1,15 @@
+namespace Homeostat
+  public static class HomeostatEntityFrameworkCoreExtensions
+    public static Homeostat.HomeostatBuilder AddDbContextProbe<TContext>(this Homeostat.HomeostatBuilder builder, string? source = null, System.Action<Homeostat.Probes.ProbeOptions>? configure = null) where TContext : Microsoft.EntityFrameworkCore.DbContext
+    public static Homeostat.HomeostatBuilder AddDbContextSignals<TContext>(this Homeostat.HomeostatBuilder builder, System.Action<Homeostat.EntityFrameworkCore.DbContextSignalOptions>? configure = null) where TContext : Microsoft.EntityFrameworkCore.DbContext
+namespace Homeostat.EntityFrameworkCore
+  public sealed class DbContextSignalOptions
+    public DbContextSignalOptions()
+    public double DegradedFailureRatio { get; set; }
+    public System.TimeSpan? DegradedLatency { get; set; }
+    public System.Func<System.Exception, bool> IsFailure { get; set; }
+    public int MinimumCalls { get; set; }
+    public string? Source { get; set; }
+    public double UnhealthyFailureRatio { get; set; }
+    public System.TimeSpan? UnhealthyLatency { get; set; }
+    public static bool IsDatabaseFailure(System.Exception exception)

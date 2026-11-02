@@ -155,6 +155,22 @@ users have roles. The endpoint reveals internal details, so Homeostat asks for a
 dashboard (`MapHomeostatDashboard`, a page with one-click approvals) are described in
 [ASP.NET Core endpoints](aspnetcore.md); the `homeostat` command-line tool in [Tools](tools.md).
 
+## Start from a preset (optional)
+
+The steps above build one condition for one dependency. For the problems almost every application can have, a
+preset registers the usual detectors and a condition for each in one line: thread pool starvation, memory pressure
+and exception rate, plus the server error rate and latency in a web API.
+
+```csharp
+builder.Services.AddHomeostat(h => h
+    .AddWebApiDefaults()                       // or AddWorkerDefaults() in a worker service
+    .AddCondition("weather-feed-down", c => c  /* as before */));
+```
+
+Preset conditions only observe: they show up in the logs and the status endpoint, and act only once you give them a
+plan, for example `AddWebApiDefaults(d => d.ServerErrors.Heal(p => p.TurnOnSwitch("serve-cached-forecast")))`. The
+list of conditions and how to change them is in [Detectors](detectors.md#starter-presets).
+
 ## Where to go next
 
 - [Concepts](concepts.md): the mental model behind what you just built.

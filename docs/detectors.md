@@ -9,6 +9,9 @@ fixed interval and publish one signal per sample, ready to be used by [condition
 | Memory pressure | `Homeostat` | `memory` | Memory in use vs. memory available |
 | Exception rate | `Homeostat` | `exceptions` | Exceptions thrown per second |
 | HTTP clients | `Homeostat.Http` | `http:{client name}` | Failure ratio and p95 latency of each client |
+| gRPC clients | `Homeostat.Grpc` | `grpc:{client name}` | Failure ratio and p95 latency of each client, judged on the gRPC status. See [Integrations](integrations.md#grpc-clients) |
+| Entity Framework Core | `Homeostat.EntityFrameworkCore` | `efcore:{context type name}` | Failure ratio and p95 latency of the commands of a `DbContext`. See [Integrations](integrations.md#entity-framework-core) |
+| Call signals | `Homeostat` | your choice | Failure ratio and p95 latency of calls you record, for any client. See [Call signals](#signals-from-any-client-call-signals) |
 | Circuit breakers | `Homeostat.Polly` | your choice | State of Polly v8 circuit breakers |
 | Metrics | `Homeostat` | `metric:{instrument}` or your choice | Any `System.Diagnostics.Metrics` instrument: ASP.NET Core, HttpClient, Kestrel, runtime, your own |
 | Health checks | `Homeostat.HealthChecks` | health check name | See [Signals](signals.md#health-checks-as-signals) |
@@ -27,6 +30,76 @@ All detectors except health checks (which follow the `AddHealthCheckSignals` per
 
 > Remember the rule from [Conditions](conditions.md#how-long-sustainedfor): keep `SustainedFor`
 > longer than the detection interval.
+
+---
+
+## Starter presets
+
+Most applications want the same first signals. A preset registers them, with a condition for each, in one line:
+
+```csharp
+builder.Services.AddHomeostat(h => h.AddWebApiDefaults());     // ASP.NET Core application
+builder.Services.AddHomeostat(h => h.AddWorkerDefaults());     // worker service
+```
+
+`AddWebApiDefaults` registers the thread pool, memory and exception detectors, the
+[server error rate and latency signals](#ready-made-server-errors-and-latency), and these conditions.
+`AddWorkerDefaults` registers the runtime detectors and their conditions, plus the state of every
+`RestartableBackgroundService` (`AddBackgroundServiceSignals`, sources `service:{type name}`) without a condition.
+
+| Condition | Property | Source | Active when | Sustained for | Web API | Worker | Suppressed by |
+|---|---|---|---|---|---|---|---|
+| `threadpool-starved` | `ThreadPoolStarvation` | `threadpool` | Work waits 1 s or more | 30 s | On | On | |
+| `memory-pressure` | `MemoryPressure` | `memory` | Memory load is 0.95 or more | 2 min | On | On | |
+| `exception-rate-high` | `ExceptionRate` | `exceptions` | 50 exceptions per second or more | 1 min | On | On | |
+| `server-errors-high` | `ServerErrors` | `http-server:errors` | 5% or more of the requests answer 5xx | 1 min | On | Off | `threadpool-starved` |
+| `server-latency-high` | `ServerLatency` | `http-server:latency` | p95 request duration is 2 s or more | 2 min | On | Off | `threadpool-starved`, `memory-pressure` |
+
+"Active when" is the `Unhealthy` threshold of the signal: like any condition, the preset conditions trigger on
+`Unhealthy` signals. A starved thread pool or memory pressure makes requests slow and failing, so the server
+conditions wait while those causes are active instead of acting on the symptom (see
+[`SuppressedBy`](conditions.md#causes-and-symptoms-suppressedby)); a cause that is turned off is not used for
+suppression. The server signals need ASP.NET Core, and publish nothing in intervals with fewer than 20 requests.
+
+**The conditions only observe.** They are tracked, logged and shown by the endpoints and the dashboard, and none
+acts until you give it a plan. Watch their activations first, then add plans one at a time. The
+`HomeostatDefaults` object passed to `configure` has one `DefaultCondition` per row of the table:
+
+```csharp
+builder.Services.AddHomeostat(h => h.AddWebApiDefaults(d =>
+{
+    d.MemoryPressure.Enabled = false;                          // no condition and no detector
+    d.ServerLatency.SustainedFor = TimeSpan.FromMinutes(5);    // the problem must last longer
+    d.ExceptionRate.Configure(c => c.ClearAfter(TimeSpan.FromMinutes(2)));   // any other condition setting
+    d.ServerErrors.Heal(p => p.TurnOnSwitch("serve-cached-forecast", turnOffWhenCleared: true));   // a plan
+}));
+```
+
+| `DefaultCondition` | Meaning |
+|---|---|
+| `Name`, `Source` | The condition's name and the source it watches (read-only) |
+| `Enabled` | Whether the preset registers the condition and the detector or signal behind it |
+| `SustainedFor` | How long the problem must last before the condition becomes active |
+| `Configure(c => ...)` | Further settings on the `ConditionBuilder`, applied after the preset's own: `ClearAfter`, `WhenSeverityAtLeast`, more `SuppressedBy` causes, a plan |
+| `Heal(p => ...)` | Gives the condition a healing plan; same as `Configure(c => c.Heal(...))` |
+
+Plans added this way follow the usual guardrails, dry-run included. Other conditions can refer to the preset ones by
+name, for example `.SuppressedBy("threadpool-starved")`.
+
+Do not also call the methods that the preset calls (`AddServerErrorRateSignal`, `AddServerLatencySignal`,
+`AddThreadPoolStarvationDetector` and the others): the server signals would be published twice. To make a condition
+trigger at a different level, change its rule; the preset's duration and suppression stay as they are:
+
+```csharp
+h.AddWebApiDefaults(d =>
+{
+    d.ServerErrors.Configure(c => c.WhenValueAbove(0.02));    // 2% of 5xx responses instead of 5%
+    d.ServerLatency.Configure(c => c.WhenValueAbove(1.0));    // p95 of 1 s instead of 2 s
+});
+```
+
+The value of `http-server:errors` is the share of 5xx responses (0 to 1), that of `http-server:latency` the p95 in
+seconds. Only one preset can be added to an application: a second `AddWebApiDefaults` or `AddWorkerDefaults` throws.
 
 ---
 
@@ -160,8 +233,13 @@ Tags: `requests`, `failures`, `failure_ratio`, `p95_ms`; `origin` = `http-client
 
 ### gRPC clients
 
-gRPC clients built with `Grpc.Net.Client` and `IHttpClientFactory` (`Grpc.Net.ClientFactory`) go through the same
-handler, so one line gives them signals too:
+For gRPC clients, prefer the `Homeostat.Grpc` package and its `AddHomeostatGrpcSignals()`: it judges every call on
+its gRPC status, including the status that a streaming call reports in the trailers, and measures the duration of
+unary calls. See [Integrations](integrations.md#grpc-clients). Do not use both on the same client.
+
+gRPC clients built with `Grpc.Net.Client` and `IHttpClientFactory` (`Grpc.Net.ClientFactory`) also go through the
+HTTP handler of `Homeostat.Http`, so `AddHomeostatSignals` gives them HTTP-level signals when adding a package is not
+an option:
 
 ```csharp
 builder.Services.AddGrpcClient<Forecaster.ForecasterClient>(o => o.Address = new Uri("https://forecast.example"))
@@ -182,6 +260,65 @@ Limitation: the handler sees the response headers, not the trailers. A call that
 puts its status in the headers (the usual case for these statuses) and is counted; a streaming call that fails after
 sending messages reports its status in the trailers, after the handler has returned, so it is not counted. Latency is
 the time to the response headers, which for a streaming call is not the duration of the stream.
+
+---
+
+## Signals from any client: call signals
+
+Homeostat has ready-made signals for HTTP, gRPC, Entity Framework Core and several client libraries. For any other
+client (a vendor SDK, a TCP protocol, an older service without HTTP), record the calls yourself and Homeostat turns
+them into the same kind of signal: the failure ratio and the p95 duration of the calls of each detection interval.
+
+```csharp
+builder.Services.AddSingleton<GeocodingSdk>();
+builder.Services.AddSingleton<Geocoder>();
+
+builder.Services.AddHomeostat(h => h
+    .AddCallSignals("geocoding:api", o => o.UnhealthyLatency = TimeSpan.FromSeconds(2))
+    .AddCondition("geocoding-failing", c => c
+        .ForSource("geocoding:api")
+        .SustainedFor(TimeSpan.FromMinutes(1))
+        .Heal(p => p.TurnOnSwitch("use-cached-coordinates", turnOffWhenCleared: true))));
+
+public sealed class Geocoder(GeocodingSdk sdk, [FromKeyedServices("geocoding:api")] CallRecorder calls)
+{
+    public Task<Coordinates> LookupAsync(string address, CancellationToken ct)
+        => calls.TrackAsync(token => sdk.GeocodeAsync(address, token), ct);
+}
+```
+
+`AddCallSignals(source)` registers a `CallRecorder` (namespace `Homeostat.Calls`) as a **keyed singleton**, with the
+source as its key: inject it with `[FromKeyedServices(source)]`, or resolve it with
+`sp.GetRequiredKeyedService<CallRecorder>(source)`. Give each dependency its own source. Two ways to record a call:
+
+| Method | Records |
+|---|---|
+| `TrackAsync(ct => call(ct), cancellationToken, isFailure)` | Runs the call and records its duration; an exception counts as a failure and is rethrown. A cancellation requested through `cancellationToken` is not recorded at all. `isFailure` (optional) decides which exceptions count, for example `ex => ex is not ArgumentException` |
+| `Record(failed, duration)` | One call whose outcome you measured yourself; `failed` should mean a failure of the dependency, not a wrong request |
+
+`TrackAsync` has an overload for calls without a result. Recording is thread-safe and cheap: `Record` takes a short
+lock and allocates nothing in most calls. To unit test code that records calls, create a recorder yourself:
+`new CallRecorder("geocoding:api")`.
+
+At each sample the signal follows the same rules as the [HTTP clients](#http-clients): no calls, no signal; fewer
+than `MinimumCalls` and no failures, `Healthy`; fewer than `MinimumCalls` with failures, no signal; otherwise by
+failure ratio, raised by p95 latency if latency thresholds are set.
+
+| `CallSignalOptions` | Default | Meaning |
+|---|---|---|
+| `DegradedFailureRatio` | 0.1 | Failure ratio at or above which the signal is `Degraded` |
+| `UnhealthyFailureRatio` | 0.5 | Failure ratio at or above which the signal is `Unhealthy` |
+| `DegradedLatency` | none | p95 duration at or above which the signal is at least `Degraded` |
+| `UnhealthyLatency` | none | p95 duration at or above which the signal is `Unhealthy` |
+| `MinimumCalls` | 10 | Calls needed in an interval to judge the failure ratio |
+
+The signal's `Value` is the failure ratio (0 to 1). Tags: `calls`, `failures`, `failure_ratio`, `p95_ms`; `origin` =
+`calls`. The p95 comes from up to 2048 durations per interval, sampled evenly across it.
+
+`Homeostat.Grpc` and `Homeostat.EntityFrameworkCore` are built on call signals. An integration package of your own
+can do the same with `services.AddCallSignals(source, origin, configure)` on the `IServiceCollection`, where `origin`
+names the integration in the `origin` tag; it needs `AddHomeostat` too. When several registrations use the same
+source, the last one wins.
 
 ---
 

@@ -33,6 +33,8 @@
     <ProjectReference Include="..\..\src\Homeostat.Cli\Homeostat.Cli.csproj" />
     <ProjectReference Include="..\..\src\Homeostat.Data\Homeostat.Data.csproj" />
     <ProjectReference Include="..\..\src\Homeostat.FeatureManagement\Homeostat.FeatureManagement.csproj" />
+    <ProjectReference Include="..\..\src\Homeostat.Grpc\Homeostat.Grpc.csproj" />
+    <ProjectReference Include="..\..\src\Homeostat.EntityFrameworkCore\Homeostat.EntityFrameworkCore.csproj" />
     <ProjectReference Include="..\..\src\Homeostat.OpenFeature\Homeostat.OpenFeature.csproj" />
     <ProjectReference Include="..\..\src\Homeostat.HealthChecks\Homeostat.HealthChecks.csproj" />
     <ProjectReference Include="..\..\src\Homeostat.Http\Homeostat.Http.csproj" />
