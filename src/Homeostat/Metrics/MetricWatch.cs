@@ -1,0 +1,253 @@
+using System.Globalization;
+using Homeostat.Signals;
+
+namespace Homeostat.Metrics;
+
+/// <summary>One watched instrument and the measurements of the current interval.</summary>
+internal sealed class MetricWatch
+{
+    private const int MaxSamples = 4096;
+
+    private readonly object _gate = new();
+    private readonly List<double> _samples = [];
+    private long _count;
+    private long _matches;
+    private double _sum;
+    private double _min = double.PositiveInfinity;
+    private double _max = double.NegativeInfinity;
+    private double _last;
+
+    // Level of an up-down counter since the start (changes summed), and latest value of each observable series.
+    private double _level;
+    private readonly Dictionary<string, double> _series = new(StringComparer.Ordinal);
+    private InstrumentKind _kind;
+
+    public MetricWatch(
+        string instrument,
+        string? meter,
+        string source,
+        MetricStatistic statistic,
+        Func<IReadOnlyDictionary<string, object?>, bool>[] filters,
+        Func<double, IReadOnlyDictionary<string, object?>, bool>? ratioMatch,
+        double? degradedAbove,
+        double? unhealthyAbove,
+        double? degradedBelow,
+        double? unhealthyBelow,
+        int minimumCount)
+    {
+        Instrument = instrument;
+        Meter = meter;
+        Source = source;
+        Statistic = statistic;
+        Filters = filters;
+        RatioMatch = ratioMatch;
+        DegradedAbove = degradedAbove;
+        UnhealthyAbove = unhealthyAbove;
+        DegradedBelow = degradedBelow;
+        UnhealthyBelow = unhealthyBelow;
+        MinimumCount = minimumCount;
+    }
+
+    public string Instrument { get; }
+
+    public string? Meter { get; }
+
+    public string Source { get; }
+
+    public MetricStatistic Statistic { get; }
+
+    public Func<IReadOnlyDictionary<string, object?>, bool>[] Filters { get; }
+
+    public Func<double, IReadOnlyDictionary<string, object?>, bool>? RatioMatch { get; }
+
+    public double? DegradedAbove { get; }
+
+    public double? UnhealthyAbove { get; }
+
+    public double? DegradedBelow { get; }
+
+    public double? UnhealthyBelow { get; }
+
+    public int MinimumCount { get; }
+
+    /// <summary>Whether recording needs the tags as a dictionary.</summary>
+    public bool NeedsTags => Filters.Length > 0 || RatioMatch is not null;
+
+    public bool Matches(string meterName, string instrumentName)
+        => string.Equals(instrumentName, Instrument, StringComparison.Ordinal)
+            && (Meter is null || string.Equals(meterName, Meter, StringComparison.Ordinal));
+
+    public void Record(double value, IReadOnlyDictionary<string, object?>? tags, InstrumentKind kind = InstrumentKind.Other, string? series = null)
+    {
+        if (tags is not null)
+        {
+            foreach (var filter in Filters)
+            {
+                if (!filter(tags))
+                {
+                    return;
+                }
+            }
+        }
+
+        lock (_gate)
+        {
+            _kind = kind;
+            switch (kind)
+            {
+                case InstrumentKind.UpDownCounter:
+                    _level += value;
+                    break;
+
+                case InstrumentKind.ObservableCounter:
+                {
+                    // Running total per series: count only the increment since the previous observation.
+                    var key = series ?? string.Empty;
+                    var previous = _series.TryGetValue(key, out var p) ? p : value;
+                    _series[key] = value;
+                    value = value >= previous ? value - previous : value;   // a smaller total means a reset
+                    break;
+                }
+
+                case InstrumentKind.ObservableUpDownCounter:
+                    _series[series ?? string.Empty] = value;
+                    break;
+            }
+        }
+
+        var matched = RatioMatch is not null && tags is not null && RatioMatch(value, tags);
+
+        lock (_gate)
+        {
+            _count++;
+            _sum += value;
+            _last = value;
+            if (value < _min)
+            {
+                _min = value;
+            }
+
+            if (value > _max)
+            {
+                _max = value;
+            }
+
+            if (matched)
+            {
+                _matches++;
+            }
+
+            if (_samples.Count < MaxSamples)
+            {
+                _samples.Add(value);
+            }
+            else
+            {
+                // Reservoir sampling keeps percentiles representative of the whole interval.
+                var slot = Random.Shared.NextInt64(_count);
+                if (slot < MaxSamples)
+                {
+                    _samples[(int)slot] = value;
+                }
+            }
+        }
+    }
+
+    /// <summary>Computes the statistic of the interval, resets it, and returns a signal (or <c>null</c> if too few measurements).</summary>
+    public Signal? Collect(DateTimeOffset now, TimeSpan elapsed)
+    {
+        long count;
+        long matches;
+        double sum;
+        double min;
+        double max;
+        double last;
+        double[] samples;
+
+        lock (_gate)
+        {
+            count = _count;
+            matches = _matches;
+            sum = _sum;
+            min = _min;
+            max = _max;
+            last = _last;
+            samples = _samples.ToArray();
+
+            _count = 0;
+            _matches = 0;
+            _sum = 0;
+            _min = double.PositiveInfinity;
+            _max = double.NegativeInfinity;
+            _samples.Clear();
+        }
+
+        if (count < MinimumCount)
+        {
+            return null;
+        }
+
+        var seconds = Math.Max(elapsed.TotalSeconds, 0.001);
+        var value = Statistic switch
+        {
+            MetricStatistic.Mean => sum / count,
+            MetricStatistic.Min => min,
+            MetricStatistic.Max => max,
+            MetricStatistic.Sum => sum,
+            MetricStatistic.Count => count,
+            MetricStatistic.Rate => sum / seconds,
+            MetricStatistic.CountRate => count / seconds,
+            MetricStatistic.P50 => Percentile(samples, 0.50),
+            MetricStatistic.P90 => Percentile(samples, 0.90),
+            MetricStatistic.P95 => Percentile(samples, 0.95),
+            MetricStatistic.P99 => Percentile(samples, 0.99),
+            MetricStatistic.Last => _kind switch
+            {
+                InstrumentKind.UpDownCounter => Volatile.Read(ref _level),
+                InstrumentKind.ObservableCounter or InstrumentKind.ObservableUpDownCounter => SeriesTotal(),
+                _ => last,
+            },
+            MetricStatistic.Ratio => (double)matches / count,
+            _ => sum / count,
+        };
+
+        var severity = SignalSeverity.Healthy;
+        if (UnhealthyAbove is { } ua && value >= ua || UnhealthyBelow is { } ub && value <= ub)
+        {
+            severity = SignalSeverity.Unhealthy;
+        }
+        else if (DegradedAbove is { } da && value >= da || DegradedBelow is { } db && value <= db)
+        {
+            severity = SignalSeverity.Degraded;
+        }
+
+        var text = value.ToString("G4", CultureInfo.InvariantCulture);
+        return new Signal(Source, severity, now)
+        {
+            Value = value,
+            Message = $"{Statistic} of {Instrument}: {text} ({count} measurements).",
+            Tags = new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["origin"] = "metric",
+                ["instrument"] = Instrument,
+                ["statistic"] = Statistic.ToString(),
+                ["count"] = count.ToString(CultureInfo.InvariantCulture),
+            },
+        };
+    }
+
+    private double SeriesTotal()
+    {
+        lock (_gate)
+        {
+            return _series.Values.Sum();
+        }
+    }
+
+    private static double Percentile(double[] samples, double quantile)
+    {
+        Array.Sort(samples);
+        var index = (int)Math.Ceiling(quantile * samples.Length) - 1;
+        return samples[Math.Clamp(index, 0, samples.Length - 1)];
+    }
+}

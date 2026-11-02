@@ -42,7 +42,20 @@ built-in sinks `Homeostat.Notifications.AuditLogSink` and `Homeostat.Http.Webhoo
 | Error | `Healing observer {Observer} threw an exception.` | An observer threw |
 | Debug | `Condition {Condition} is active, but Homeostat is paused.` | Kill switch on |
 | Debug | `Condition {Condition} is active, but suppressed by {Cause}.` | Retry skipped while the cause is active |
-| Debug | `Condition {Condition} is active, but its plan is held after a rejected approval.` | Retry skipped after a rejection |
+| Debug | `Condition {Condition}: not starting, {Reason}.` | Cooldown, backoff or hold |
+| Debug | `Condition {Condition}: the plan is running on another instance.` | `OncePerCluster()` lease taken |
+| Warning | `Condition {Condition}: {Action} did not heal; compensating with {Undo}.` | Compensation |
+| Error | `Condition {Condition}: compensating action {Undo} failed.` | Compensation failed |
+| Error | `Condition {Condition}: the store is unavailable; not starting the plan.` | Fail closed (Error at most once a minute per condition, Debug otherwise) |
+| Error | `Condition {Condition}: the store is unavailable; the action budget cannot be checked.` | Fail closed |
+| Error | `Condition {Condition}: could not save the plan state.` | Store write failed |
+| Warning | `Condition {Condition}: could not record the run in the history.` | Store write failed |
+| Information | `Homeostat conditions reloaded from configuration ({Count} conditions).` | [Configuration](configuration.md) change applied |
+| Error | `The Homeostat configuration is not valid; keeping the previous conditions.` | Configuration change rejected |
+| Warning | `The Homeostat lease {Lease} was lost; another instance may take over.` | Redis lease taken over during a run |
+| Warning | `The Homeostat lease {Lease} could not be renewed in time; another instance may take over.` | Redis unreachable for a whole lease duration |
+| Warning | `Condition {Condition}: the cluster lease was lost during the run, which was stopped.` | Run ended `Cancelled` |
+| Information | `Condition {Condition} was removed from configuration: switch {Switch} turned off.` | Configuration change |
 | Warning | `{Sink} could not deliver a {Kind} event for condition {Condition}.` | Audit log or webhook failed |
 | Warning | `{Sink} stopped before delivering all queued events.` | Shutdown timeout reached |
 | Warning | `{Sink} dropped {Count} event(s) raised after the application stopped.` | Late events |
@@ -99,10 +112,10 @@ Useful views:
 
 | Member | Returns |
 |---|---|
-| `IsPaused`, `IsDryRun` | Kill switch and dry-run state |
+| `IsPaused`, `PauseReason`, `IsDryRun` | Pause state (kill switch, timed pause, maintenance window) and dry-run |
 | `GetConditions()` | A `ConditionSnapshot` per condition: status, timestamps, last signal, `ClearingSince`, `SuppressedBy` |
-| `GetRecentRuns()` | The latest completed runs, newest first (`RunHistorySize`, default 50) |
-| `GetBudget()` | Actions used and remaining in the current budget window |
+| `GetRecentRunsAsync()` | The latest completed runs, newest first, from the store (`RunHistorySize`, default 50); with a shared store, of every instance |
+| `GetBudgetAsync()` | Actions used and remaining in the current budget window, from the store |
 
 `IHomeostatApprovals.GetPending()` lists the steps waiting for approval, and `IHomeostatSwitches.GetActive()`
 the switches that are on.

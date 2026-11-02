@@ -26,19 +26,32 @@ internal sealed class ConditionTracker
     private DateTimeOffset? _lastSignalAt;
     private Signal? _lastSignal;
 
-    public ConditionTracker(ConditionDefinition definition) => Definition = definition;
+    private volatile ConditionDefinition _definition;
 
-    public ConditionDefinition Definition { get; }
+    public ConditionTracker(ConditionDefinition definition) => _definition = definition;
+
+    public ConditionDefinition Definition => _definition;
+
+    /// <summary>Applies a new definition with the same name (configuration reload), keeping the current state.</summary>
+    public void Update(ConditionDefinition definition)
+    {
+        lock (_gate)
+        {
+            _definition = definition;
+        }
+    }
 
     public ConditionTransition Observe(Signal signal)
     {
-        if (!Definition.IsRelevant(signal))
+        var definition = Definition;
+        if (!definition.IsRelevant(signal))
         {
             return ConditionTransition.None;
         }
 
-        var triggered = Definition.IsTriggered(signal);
-        var cleared = !triggered && Definition.IsCleared(signal);
+        definition.Record?.Invoke(signal);
+        var triggered = definition.IsTriggered(signal);
+        var cleared = !triggered && definition.IsCleared(signal);
 
         lock (_gate)
         {
@@ -66,11 +79,11 @@ internal sealed class ConditionTracker
             if (cleared)
             {
                 var wasActive = _status == ConditionStatus.Active;
-                if (wasActive && Definition.ClearAfter > TimeSpan.Zero)
+                if (wasActive && definition.ClearAfter > TimeSpan.Zero)
                 {
                     // Hysteresis: recovery must hold for ClearAfter before the condition clears.
                     _clearingSince ??= signal.Timestamp;
-                    if (signal.Timestamp - _clearingSince.Value < Definition.ClearAfter)
+                    if (signal.Timestamp - _clearingSince.Value < definition.ClearAfter)
                     {
                         return ConditionTransition.None;
                     }

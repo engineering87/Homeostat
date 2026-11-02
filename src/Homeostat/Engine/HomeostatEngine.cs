@@ -84,54 +84,74 @@ internal sealed class HomeostatEngine : BackgroundService
 
     private void Process(Signal signal, CancellationToken stoppingToken)
     {
-        foreach (var tracker in _conditions.Trackers)
+        foreach (var tracker in _conditions.SignalTrackers)
         {
-            ConditionTransition transition;
-            try
-            {
-                transition = tracker.Observe(signal);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Condition {Condition} failed to evaluate a signal from {Source}.", tracker.Definition.Name, signal.Source);
-                continue;
-            }
+            Handle(tracker, signal, stoppingToken);
+        }
 
-            switch (transition)
+        // Composite conditions follow the conditions they combine, in dependency order.
+        foreach (var composite in _conditions.CompositeTrackers)
+        {
+            var definition = composite.Definition;
+            var holds = _conditions.CompositeHolds(definition);
+            var synthetic = new Signal(
+                ConditionBuilder.CompositeSource(definition.Name),
+                holds ? SignalSeverity.Unhealthy : SignalSeverity.Healthy,
+                signal.Timestamp)
             {
-                case ConditionTransition.Activated:
+                Message = holds ? $"{definition.Composite} of {string.Join(", ", definition.DependsOn)} active." : null,
+            };
+            Handle(composite, synthetic, stoppingToken);
+        }
+    }
+
+    private void Handle(ConditionTracker tracker, Signal signal, CancellationToken stoppingToken)
+    {
+        ConditionTransition transition;
+        try
+        {
+            transition = tracker.Observe(signal);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Condition {Condition} failed to evaluate a signal from {Source}.", tracker.Definition.Name, signal.Source);
+            return;
+        }
+
+        switch (transition)
+        {
+            case ConditionTransition.Activated:
+            {
+                _logger.LogWarning(
+                    "Condition {Condition} is active (source {Source}, severity {Severity}).",
+                    tracker.Definition.Name, signal.Source, signal.Severity);
+                var snapshot = _conditions.Snapshot(tracker);
+                _notifier.Notify(o => o.OnConditionActivated(snapshot));
+                if (snapshot.SuppressedBy is { } cause && tracker.Definition.Plan is not null)
                 {
-                    _logger.LogWarning(
-                        "Condition {Condition} is active (source {Source}, severity {Severity}).",
-                        tracker.Definition.Name, signal.Source, signal.Severity);
-                    var snapshot = _conditions.Snapshot(tracker);
-                    _notifier.Notify(o => o.OnConditionActivated(snapshot));
-                    if (snapshot.SuppressedBy is { } cause && tracker.Definition.Plan is not null)
-                    {
-                        _logger.LogInformation(
-                            "Condition {Condition} is suppressed by {Cause}: not healing while {Cause} is active.",
-                            tracker.Definition.Name, cause, cause);
-                    }
-
-                    _runner.TryStart(tracker, signal, stoppingToken);
-                    break;
+                    _logger.LogInformation(
+                        "Condition {Condition} is suppressed by {Cause}: not healing while {Cause} is active.",
+                        tracker.Definition.Name, cause, cause);
                 }
 
-                case ConditionTransition.StillActive:
-                    // Lets a plan run again after its cooldown if the problem persists.
-                    _runner.TryStart(tracker, signal, stoppingToken);
-                    break;
+                _runner.TryStart(tracker, signal, stoppingToken);
+                break;
+            }
 
-                case ConditionTransition.Cleared:
-                {
-                    _logger.LogInformation("Condition {Condition} cleared.", tracker.Definition.Name);
-                    _approvals.CancelFor(tracker.Definition.Name);
-                    _runner.ReleaseHold(tracker.Definition.Name);
-                    ResetSwitches(tracker.Definition);
-                    var snapshot = _conditions.Snapshot(tracker);
-                    _notifier.Notify(o => o.OnConditionCleared(snapshot));
-                    break;
-                }
+            case ConditionTransition.StillActive:
+                // Lets a plan run again after its cooldown if the problem persists.
+                _runner.TryStart(tracker, signal, stoppingToken);
+                break;
+
+            case ConditionTransition.Cleared:
+            {
+                _logger.LogInformation("Condition {Condition} cleared.", tracker.Definition.Name);
+                _approvals.CancelFor(tracker.Definition.Name);
+                _runner.OnConditionCleared(tracker.Definition);
+                ResetSwitches(tracker.Definition);
+                var snapshot = _conditions.Snapshot(tracker);
+                _notifier.Notify(o => o.OnConditionCleared(snapshot));
+                break;
             }
         }
     }

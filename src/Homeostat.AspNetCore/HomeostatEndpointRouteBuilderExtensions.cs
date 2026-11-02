@@ -36,7 +36,7 @@ public static class HomeostatEndpointRouteBuilderExtensions
     /// <summary>
     /// Maps the control endpoints:
     /// <list type="bullet">
-    /// <item><description><c>POST {prefix}/pause</c> and <c>POST {prefix}/resume</c>: kill switch.</description></item>
+    /// <item><description><c>POST {prefix}/pause</c> (optionally <c>?for=00:30:00</c>, resuming by itself) and <c>POST {prefix}/resume</c>: kill switch.</description></item>
     /// <item><description><c>POST {prefix}/approvals/{id}/approve</c> and <c>.../reject</c>: answer an approval request; the user name is recorded.</description></item>
     /// <item><description><c>POST {prefix}/switches/{name}/on</c> and <c>.../off</c>: flip a switch by hand.</description></item>
     /// </list>
@@ -60,9 +60,20 @@ public static class HomeostatEndpointRouteBuilderExtensions
     {
         var group = CreateGroup(endpoints, policy, prefix, allowAnonymous);
 
-        group.MapPost("/pause", (IHomeostatControl control) =>
+        group.MapPost("/pause", (IHomeostatControl control, TimeProvider time, string? @for) =>
         {
-            control.Pause();
+            if (@for is null)
+            {
+                control.Pause();
+                return Results.NoContent();
+            }
+
+            if (!TimeSpan.TryParse(@for, System.Globalization.CultureInfo.InvariantCulture, out var duration) || duration <= TimeSpan.Zero)
+            {
+                return Results.BadRequest("'for' must be a positive duration in the hh:mm:ss format.");
+            }
+
+            control.PauseUntil(time.GetUtcNow() + duration);
             return Results.NoContent();
         });
 
@@ -122,22 +133,40 @@ public static class HomeostatEndpointRouteBuilderExtensions
         return group;
     }
 
-    private static IResult GetStatus(
+    private static async Task<IResult> GetStatus(
         IHomeostatControl control,
         IHomeostatSwitches switches,
         IHomeostatApprovals approvals,
-        IOptions<HomeostatOptions> options)
+        IOptions<HomeostatOptions> options,
+        CancellationToken cancellationToken)
     {
-        var budget = control.GetBudget();
+        // The status stays available when the store is not: that is when operators need it most.
+        BudgetStatus? budgetStatus = null;
+        IReadOnlyList<RunInfo> runInfos = [];
+        string? storeError = null;
+        try
+        {
+            var budget = await control.GetBudgetAsync(cancellationToken);
+            budgetStatus = new BudgetStatus(budget.Used, budget.Limit, budget.Remaining, budget.Window.TotalSeconds);
+            runInfos = (await control.GetRecentRunsAsync(cancellationToken)).Select(RunInfo.From).ToArray();
+        }
+        catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
+        {
+            storeError = ex.Message;
+        }
+
         var status = new HomeostatStatus(
             options.Value.ApplicationName,
+            options.Value.InstanceId,
             control.IsPaused,
+            control.PauseReason,
             control.IsDryRun,
-            new BudgetStatus(budget.Used, budget.Limit, budget.Remaining, budget.Window.TotalSeconds),
+            budgetStatus,
             control.GetConditions().Select(ConditionStatusInfo.From).ToArray(),
             switches.GetActive(),
             approvals.GetPending(),
-            control.GetRecentRuns().Select(RunInfo.From).ToArray());
+            runInfos,
+            storeError);
         return Results.Ok(status);
     }
 

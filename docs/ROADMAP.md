@@ -1,59 +1,70 @@
 # Roadmap
 
-The roadmap is indicative and may change based on feedback.
+Homeostat aims to be the reference self-healing library for .NET. The roadmap is organized in waves; each wave
+ships as previews. It is indicative and changes with feedback: open an issue to discuss priorities.
 
-## 0.1 (preview) — current
+## Shipped in the first preview
 
-**Core loop**
-- [x] Signals and in-process signal buffer (`ISignalPublisher`)
-- [x] Conditions with source filter, thresholds, `SustainedFor` and clear rules
-- [x] Healing plans with escalation chain
-- [x] Three-outcome verification (`Healed`, `NotHealed`, `Inconclusive`) with pluggable verifiers
-- [x] Guardrails: dry-run by default, global action budget, cooldown, concurrency limit, timeouts, kill switch
+**Core loop and safety**
+- [x] Signals, conditions (`SustainedFor`, `ClearAfter`, `SuppressedBy`), healing plans with escalation and three-outcome verification
+- [x] Guardrails: dry-run by default, action budget, cooldown with backoff, concurrency limit, timeouts, kill switch, timed pause, maintenance windows
+- [x] Human approval for risky steps, compensating actions (`UndoWith`), automatic switch reset
 
-**Ready-made signals**
-- [x] Health checks as signals (`Homeostat.HealthChecks`)
-- [x] Detectors: thread pool starvation, memory pressure, exception rate, custom `ISignalDetector`
-- [x] HTTP client failure ratio and latency (`Homeostat.Http`)
-- [x] Polly v8 circuit breaker state (`Homeostat.Polly`)
+**Production foundations (wave 1)**
+- [x] Persistent state: `IHomeostatStore` with in-memory, file and Redis stores; fail-closed behavior
+- [x] Several instances: `IHomeostatCoordinator`, plans that run once per cluster with renewed leases, shared budget and history (`Homeostat.Redis`)
+- [x] Any `System.Diagnostics.Metrics` instrument as a signal, with presets for server errors and latency
+- [x] Advanced conditions: values, trends, anomalies, occurrences, composites
+- [x] Conditions and plans from configuration, applied at runtime
 
-**Ready-made actions**
-- [x] Inline lambda actions
-- [x] Restart a hosted service, reload configuration
-- [x] Named switches for degraded mode (`IHomeostatSwitches`)
+**Signals, actions, operations**
+- [x] Health checks, thread pool, memory, exceptions, HTTP clients, Polly circuit breakers
+- [x] Inline and class actions, restart a hosted service, reload configuration, switches
+- [x] Status and control endpoints, Homeostat health check, webhook notifier, audit log, traces and metrics
+- [x] `Homeostat.Testing`: in-memory host with simulated time, approvals, fault injection
 
-**Coordination**
-- [x] Hysteresis on recovery (`ClearAfter`) and on thresholds (trigger and clear rules)
-- [x] Suppression of downstream symptoms (`SuppressedBy`)
-- [x] Human approval for risky steps (`RequireApproval`, `IHomeostatApprovals`)
-- [x] Automatic reset of switches when a condition clears
+## Wave 2: integrations where .NET applications break
 
-**Operations and testing**
-- [x] Tracing and metrics via `System.Diagnostics`
-- [x] Observers for conditions, steps, runs and approvals (`IHealingObserver`)
-- [x] Run history and budget status (`IHomeostatControl`)
-- [x] Audit log (JSON Lines) and webhook notifier
-- [x] `Homeostat.AspNetCore`: status and control endpoints; Homeostat as a health check
-- [x] `Homeostat.Testing`: in-memory host with simulated time, run results, approvals, `HealingContextFactory`, HTTP fault injection
-- [x] Release pipeline with SourceLink, symbols and package validation
+- [ ] Databases (EF Core, SqlClient, Npgsql): pool exhaustion and transient error signals; pool reset actions
+- [ ] Redis client health signals and reconnect action
+- [ ] Messaging (Azure Service Bus, RabbitMQ, Kafka): consumer lag and dead-letter signals; consumer restart and pause actions
+- [ ] Caches (`HybridCache`, `IDistributedCache`): hit ratio signals; targeted purge actions
+- [ ] Feature flags (Microsoft.FeatureManagement, OpenFeature) as degradation actions
+- [ ] Polly: manual circuit control actions; chaos strategies to validate plans
+- [ ] Alert ingestion (Prometheus Alertmanager, Azure Monitor, Grafana) as signals
+- [ ] .NET Aspire integration
 
-## 0.x
+## Wave 3: operations and developer experience
 
-- [ ] Public API baseline enforced on every release
-- [ ] Rate-limited retries of a plan with backoff between runs
-- [ ] Persisting approvals and history across restarts (optional store)
+- [ ] Embedded dashboard: status, history, one-click approvals
+- [ ] Interactive approvals in Slack and Microsoft Teams; PagerDuty and Opsgenie incidents
+- [ ] `dotnet homeostat` CLI and `dotnet new` template
+- [ ] Roslyn analyzers (actions that ignore cancellation, conditions without a source)
+- [ ] Grafana dashboard; documentation site; samples gallery (worker service, Aspire, Kubernetes)
+- [ ] Trend and anomaly rules from configuration; persisted condition history
 
-## 1.0
+## Wave 4: cloud and orchestrators (separate packages, approval on by default)
 
-- [ ] Stable API
-- [ ] Complete documentation site
+- [ ] Kubernetes: restart pod, scale, cordon
+- [ ] Azure: App Service restart and scale, Front Door failover, Key Vault secret refresh
+- [ ] AWS: ECS tasks, Auto Scaling groups
+- [ ] Controlled self-restart through the host lifetime
 
-## Later
+## Wave 5: intelligence
 
-- [ ] Adaptive tuning of thresholds based on action history
-- [ ] Out-of-process signal transports via adapters
+- [ ] Adaptive plans: order steps by measured success
+- [ ] Predictive healing from trends
+- [ ] Signal recording and replay: "what would the plans have done yesterday?"
+- [ ] Plan coverage reports from chaos experiments
+
+## Toward 1.0
+
+- [ ] Stable public API, enforced by package validation baselines and API analyzers
+- [ ] Native AOT and trimming compatibility, published benchmarks of the overhead
+- [ ] Signed packages, SBOM, OpenSSF Scorecard
+- [ ] .NET Foundation application
 
 ## Out of scope
 
 - Per-call resilience (retries, timeouts, circuit breakers): use Polly.
-- Infrastructure orchestration (Kubernetes operators, autoscaling): Homeostat may expose hooks, not replace them.
+- Infrastructure orchestration as such (operators, autoscalers): Homeostat drives them through actions, it does not replace them.

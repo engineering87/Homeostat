@@ -20,6 +20,9 @@ public sealed class HealingPlanBuilder
     private TimeSpan? _verificationTimeout;
     private TimeSpan? _actionTimeout;
     private TimeSpan? _cooldown;
+    private PlanScope _scope = PlanScope.Instance;
+    private double _cooldownBackoff = 1;
+    private TimeSpan? _maxCooldown;
 
     internal HealingPlanBuilder(IServiceCollection services) => _services = services;
 
@@ -207,6 +210,62 @@ public sealed class HealingPlanBuilder
         return this;
     }
 
+    /// <summary>
+    /// Grows the cooldown after every run in a row that does not heal: cooldown × <paramref name="multiplier"/>^failures,
+    /// up to <paramref name="max"/>. A healed run or the condition clearing resets it.
+    /// </summary>
+    /// <param name="multiplier">Growth factor, at least 1.</param>
+    /// <param name="max">Upper bound of the cooldown.</param>
+    /// <example><code>.Cooldown(TimeSpan.FromMinutes(5)).CooldownBackoff(2, TimeSpan.FromHours(1))</code></example>
+    public HealingPlanBuilder CooldownBackoff(double multiplier, TimeSpan max)
+    {
+        if (!(multiplier >= 1) || double.IsInfinity(multiplier))
+        {
+            throw new ArgumentOutOfRangeException(nameof(multiplier), "The multiplier must be a finite number of at least 1.");
+        }
+
+        _cooldownBackoff = multiplier;
+        _maxCooldown = Positive(max, nameof(max));
+        return this;
+    }
+
+    /// <summary>
+    /// Runs the plan on one instance at a time across the cluster, with a shared cooldown, instead of on every
+    /// instance that sees the condition. Needs a distributed coordinator and store (for example <c>Homeostat.Redis</c>)
+    /// to have an effect beyond the process.
+    /// </summary>
+    public HealingPlanBuilder OncePerCluster()
+    {
+        _scope = PlanScope.Cluster;
+        return this;
+    }
+
+    // ---------------------------------------------------------------- compensation
+
+    /// <summary>
+    /// Compensating action for the step added just before this call: it runs when the step's action completed but
+    /// verification says <see cref="VerificationOutcome.NotHealed"/>, before escalating, so a change that did not help
+    /// is rolled back. It does not consume the action budget.
+    /// </summary>
+    /// <typeparam name="TAction">The compensating action.</typeparam>
+    /// <example><code>.Then&lt;SwitchToBackupProviderAction&gt;().UndoWith&lt;SwitchToPrimaryProviderAction&gt;()</code></example>
+    public HealingPlanBuilder UndoWith<TAction>()
+        where TAction : class, IHealingAction
+    {
+        _services.TryAddTransient<TAction>();
+        return SetUndo(typeof(TAction).Name, static sp => sp.GetRequiredService<TAction>());
+    }
+
+    /// <summary>Inline compensating action for the step added just before this call (see <see cref="UndoWith{TAction}"/>).</summary>
+    /// <param name="name">Name used in logs.</param>
+    /// <param name="action">The compensating action.</param>
+    public HealingPlanBuilder UndoWith(string name, Func<HealingContext, CancellationToken, Task> action)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(name);
+        ArgumentNullException.ThrowIfNull(action);
+        return SetUndo(name, _ => new DelegateHealingAction(action));
+    }
+
     internal HealingPlan Build(string conditionName)
     {
         if (_steps.Count == 0)
@@ -214,7 +273,21 @@ public sealed class HealingPlanBuilder
             throw new InvalidOperationException($"The healing plan for condition '{conditionName}' has no actions.");
         }
 
-        return new HealingPlan(conditionName, _steps.ToArray(), _verifierType, _verificationTimeout, _actionTimeout, _cooldown);
+        return new HealingPlan(
+            conditionName, _steps.ToArray(), _verifierType, _verificationTimeout, _actionTimeout, _cooldown,
+            _scope, _cooldownBackoff, _maxCooldown);
+    }
+
+    private HealingPlanBuilder SetUndo(string name, Func<IServiceProvider, IHealingAction> resolve)
+    {
+        if (_steps.Count == 0)
+        {
+            throw new InvalidOperationException("UndoWith applies to the previous step: add a step first.");
+        }
+
+        _steps[^1].UndoName = name;
+        _steps[^1].ResolveUndo = resolve;
+        return this;
     }
 
     private HealingPlanBuilder AddStep(string name, Func<IServiceProvider, IHealingAction> resolve)

@@ -26,8 +26,9 @@ coverage*.xml
 .DS_Store
 Thumbs.db
 
-# Sample audit logs
+# Sample audit logs and state
 logs/
+data/
 
 # Repository tooling (commitlint)
 node_modules/

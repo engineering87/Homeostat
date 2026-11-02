@@ -1,7 +1,6 @@
 using Homeostat.Conditions;
-using Homeostat.Engine;
 using Homeostat.Guardrails;
-using Homeostat.Healing;
+using Homeostat.Persistence;
 using Microsoft.Extensions.Options;
 
 namespace Homeostat;
@@ -9,37 +8,88 @@ namespace Homeostat;
 internal sealed class HomeostatControl : IHomeostatControl
 {
     private readonly ConditionSet _conditions;
-    private readonly RunHistory _history;
-    private readonly ActionBudget _budget;
+    private readonly IHomeostatStore _store;
+    private readonly MaintenanceWindows _maintenance;
     private readonly TimeProvider _timeProvider;
-    private volatile bool _paused;
+    private readonly HomeostatOptions _options;
+    private readonly object _gate = new();
+    private bool _paused;
+    private DateTimeOffset? _pausedUntil;
 
     public HomeostatControl(
         ConditionSet conditions,
-        RunHistory history,
-        ActionBudget budget,
+        IHomeostatStore store,
+        MaintenanceWindows maintenance,
         TimeProvider timeProvider,
         IOptions<HomeostatOptions> options)
     {
         _conditions = conditions;
-        _history = history;
-        _budget = budget;
+        _store = store;
+        _maintenance = maintenance;
         _timeProvider = timeProvider;
-        IsDryRun = options.Value.DryRun;
+        _options = options.Value;
     }
 
-    public bool IsPaused => _paused;
+    public bool IsPaused => PauseReason is not null;
 
-    public bool IsDryRun { get; }
+    public string? PauseReason
+    {
+        get
+        {
+            var now = _timeProvider.GetUtcNow();
+            lock (_gate)
+            {
+                if (_paused)
+                {
+                    return "paused";
+                }
 
-    public void Pause() => _paused = true;
+                if (_pausedUntil is { } until && now < until)
+                {
+                    return $"paused until {until:O}";
+                }
+            }
 
-    public void Resume() => _paused = false;
+            return _maintenance.ActiveWindow(now) is { } window ? $"maintenance window '{window}'" : null;
+        }
+    }
+
+    public bool IsDryRun => _options.DryRun;
+
+    public void Pause()
+    {
+        lock (_gate)
+        {
+            _paused = true;
+        }
+    }
+
+    public void PauseUntil(DateTimeOffset until)
+    {
+        lock (_gate)
+        {
+            _pausedUntil = until;
+        }
+    }
+
+    public void Resume()
+    {
+        lock (_gate)
+        {
+            _paused = false;
+            _pausedUntil = null;
+        }
+    }
 
     public IReadOnlyList<ConditionSnapshot> GetConditions()
         => _conditions.Trackers.Select(_conditions.Snapshot).ToArray();
 
-    public IReadOnlyList<HealingRunResult> GetRecentRuns() => _history.GetRecent();
+    public ValueTask<IReadOnlyList<HealingRunRecord>> GetRecentRunsAsync(CancellationToken cancellationToken = default)
+        => _store.GetRecentRunsAsync(_options.RunHistorySize, cancellationToken);
 
-    public ActionBudgetStatus GetBudget() => _budget.GetStatus(_timeProvider.GetUtcNow());
+    public async ValueTask<ActionBudgetStatus> GetBudgetAsync(CancellationToken cancellationToken = default)
+    {
+        var used = await _store.GetBudgetUsedAsync(_timeProvider.GetUtcNow(), _options.ActionBudgetWindow, cancellationToken).ConfigureAwait(false);
+        return new ActionBudgetStatus(used, _options.MaxActionsPerWindow, _options.ActionBudgetWindow);
+    }
 }

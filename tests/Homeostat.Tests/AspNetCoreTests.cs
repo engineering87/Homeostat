@@ -132,6 +132,53 @@ public class AspNetCoreTests
     }
 
     [Fact]
+    public async Task Pause_for_a_duration_resumes_by_itself()
+    {
+        var (app, client) = await StartAsync(h => h.AddCondition("feed-down", c => c.ForSource("feed")));
+        await using var _ = app;
+        using var __ = client;
+
+        Assert.Equal(HttpStatusCode.BadRequest, (await client.PostAsync("/homeostat/pause?for=soon", null)).StatusCode);
+        Assert.Equal(HttpStatusCode.NoContent, (await client.PostAsync("/homeostat/pause?for=00:30:00", null)).StatusCode);
+
+        var status = await GetStatusAsync(client);
+        Assert.True(status.GetProperty("paused").GetBoolean());
+        Assert.StartsWith("paused until", status.GetProperty("pauseReason").GetString());
+    }
+
+    [Fact]
+    public async Task Status_survives_an_unavailable_store()
+    {
+        var (app, client) = await StartAsync(h => h
+            .UseStore(_ => new BrokenStore())
+            .AddCondition("feed-down", c => c.ForSource("feed")));
+        await using var _ = app;
+        using var __ = client;
+
+        var status = await GetStatusAsync(client);
+        Assert.Equal("store down", status.GetProperty("storeError").GetString());
+        Assert.Equal(JsonValueKind.Null, status.GetProperty("budget").ValueKind);
+        Assert.Single(status.GetProperty("conditions").EnumerateArray().ToList());
+    }
+
+    private sealed class BrokenStore : Homeostat.Persistence.IHomeostatStore
+    {
+        private static InvalidOperationException Down => new("store down");
+
+        public ValueTask<Homeostat.Persistence.PlanState> GetPlanStateAsync(string key, CancellationToken cancellationToken = default) => throw Down;
+
+        public ValueTask<Homeostat.Persistence.PlanState> UpdatePlanStateAsync(string key, Homeostat.Persistence.PlanStateUpdate update, CancellationToken cancellationToken = default) => throw Down;
+
+        public ValueTask<bool> TryConsumeBudgetAsync(DateTimeOffset now, int limit, TimeSpan window, CancellationToken cancellationToken = default) => throw Down;
+
+        public ValueTask<int> GetBudgetUsedAsync(DateTimeOffset now, TimeSpan window, CancellationToken cancellationToken = default) => throw Down;
+
+        public ValueTask AppendRunAsync(Homeostat.Persistence.HealingRunRecord run, int maxRuns, CancellationToken cancellationToken = default) => throw Down;
+
+        public ValueTask<IReadOnlyList<Homeostat.Persistence.HealingRunRecord>> GetRecentRunsAsync(int maxRuns, CancellationToken cancellationToken = default) => throw Down;
+    }
+
+    [Fact]
     public async Task Endpoints_require_the_given_policy()
     {
         var (app, client) = await StartAsync(h => h.AddCondition("feed-down", c => c.ForSource("feed")), anonymousControl: false);

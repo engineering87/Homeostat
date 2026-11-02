@@ -187,6 +187,43 @@ verifier must honor it, as the example does. If a verifier throws, the error is 
 with verification `Inconclusive` and the exception in `Error`, and the run stops without escalating.
 Verifiers are easy to unit test with `HealingContextFactory` from [Homeostat.Testing](testing.md).
 
+## Cooldown backoff
+
+A plan that keeps failing should try less often, not at the same pace forever:
+
+```csharp
+.Heal(p => p
+    .With<RenewFeedClientAction>()
+    .Cooldown(TimeSpan.FromMinutes(5))
+    .CooldownBackoff(2, TimeSpan.FromHours(1)))   // after failed runs: 10 min, 20, 40, then every hour
+```
+
+After each run in a row that ends `NotHealed`, `Inconclusive` or `Failed`, the cooldown is multiplied by the
+factor, up to the maximum. A `Healed` run, or the condition clearing, resets it. The count is part of the
+[plan state](persistence-and-clusters.md), so it survives restarts with a persistent store.
+
+## Compensation: `UndoWith`
+
+Some actions change the system in a way you do not want to keep if they did not help: switching to a backup
+provider that is no better, raising a limit, disabling a feature. Give such a step a compensating action:
+
+```csharp
+.Heal(p => p
+    .With<SwitchToBackupProviderAction>().UndoWith<SwitchToPrimaryProviderAction>()
+    .Then<RenewFeedClientAction>())
+```
+
+When the step's action completes but verification says `NotHealed`, Homeostat runs the compensating action
+before moving to the next step. It does not consume the budget, has the same timeout as actions, and its
+success is reported in `HealingStepResult.UndoSucceeded`. It does not run when the action itself failed (the
+change may not have happened) or when verification is `Inconclusive` (Homeostat cannot tell, and stops).
+
+## Once per cluster
+
+With several instances, `.OncePerCluster()` makes a plan run on one instance at a time, with a cooldown shared
+by the cluster. It needs a distributed coordinator and store, such as `Homeostat.Redis`. See
+[Persistence and clusters](persistence-and-clusters.md#cluster-plans-oncepercluster).
+
 ## Run outcomes
 
 | Outcome | Meaning |
@@ -211,3 +248,6 @@ Verifiers are easy to unit test with `HealingContextFactory` from [Homeostat.Tes
 | `ActionTimeout(t)` | `DefaultActionTimeout` = 30 s | Maximum duration of each action |
 | `Cooldown(t)` | `DefaultCooldown` = 5 min | Minimum time between the end of a run and the next run of this plan |
 | `RequireApproval(t?)` | `DefaultApprovalTimeout` = 15 min | The previous step waits for a person's approval |
+| `UndoWith<T>()`, `UndoWith(name, action)` | none | Compensates the previous step when it does not heal |
+| `CooldownBackoff(multiplier, max)` | no backoff | Grows the cooldown after runs that do not heal |
+| `OncePerCluster()` | every instance | One instance at a time, shared cooldown |

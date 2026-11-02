@@ -5,6 +5,7 @@
     <Project Path="src/Homeostat.HealthChecks/Homeostat.HealthChecks.csproj" />
     <Project Path="src/Homeostat.Http/Homeostat.Http.csproj" />
     <Project Path="src/Homeostat.Polly/Homeostat.Polly.csproj" />
+    <Project Path="src/Homeostat.Redis/Homeostat.Redis.csproj" />
     <Project Path="src/Homeostat.Testing/Homeostat.Testing.csproj" />
   </Folder>
   <Folder Name="/samples/">

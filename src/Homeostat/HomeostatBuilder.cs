@@ -1,5 +1,8 @@
 using Homeostat.Conditions;
+using Homeostat.Coordination;
 using Homeostat.Detectors;
+using Homeostat.Guardrails;
+using Homeostat.Persistence;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 
@@ -30,6 +33,86 @@ public sealed class HomeostatBuilder
         var builder = new ConditionBuilder(name, Services);
         configure(builder);
         Services.AddSingleton(builder.Build());
+        return this;
+    }
+
+    // ---------------------------------------------------------------- state and coordination
+
+    /// <summary>Uses a custom <see cref="IHomeostatStore"/> (registered as a singleton) instead of the in-memory one.</summary>
+    /// <typeparam name="TStore">The store type.</typeparam>
+    public HomeostatBuilder UseStore<TStore>()
+        where TStore : class, IHomeostatStore
+    {
+        Services.Replace(ServiceDescriptor.Singleton<IHomeostatStore, TStore>());
+        return this;
+    }
+
+    /// <summary>Uses a store created by a factory.</summary>
+    /// <param name="factory">Creates the store.</param>
+    public HomeostatBuilder UseStore(Func<IServiceProvider, IHomeostatStore> factory)
+    {
+        ArgumentNullException.ThrowIfNull(factory);
+        Services.Replace(ServiceDescriptor.Singleton(factory));
+        return this;
+    }
+
+    /// <summary>
+    /// Keeps cooldowns, backoff, holds, budget and history in a JSON file, so a single instance remembers them across
+    /// restarts. For several instances, use a shared store such as <c>Homeostat.Redis</c>.
+    /// </summary>
+    /// <param name="path">File path, for example <c>"data/homeostat.json"</c>.</param>
+    public HomeostatBuilder UseFileStore(string path)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(path);
+        return UseStore(_ => new FileHomeostatStore(path));
+    }
+
+    /// <summary>Uses a custom <see cref="IHomeostatCoordinator"/> (registered as a singleton).</summary>
+    /// <typeparam name="TCoordinator">The coordinator type.</typeparam>
+    public HomeostatBuilder UseCoordinator<TCoordinator>()
+        where TCoordinator : class, IHomeostatCoordinator
+    {
+        Services.Replace(ServiceDescriptor.Singleton<IHomeostatCoordinator, TCoordinator>());
+        return this;
+    }
+
+    /// <summary>Uses a coordinator created by a factory.</summary>
+    /// <param name="factory">Creates the coordinator.</param>
+    public HomeostatBuilder UseCoordinator(Func<IServiceProvider, IHomeostatCoordinator> factory)
+    {
+        ArgumentNullException.ThrowIfNull(factory);
+        Services.Replace(ServiceDescriptor.Singleton(factory));
+        return this;
+    }
+
+    // ---------------------------------------------------------------- guardrails
+
+    /// <summary>
+    /// Adds a recurring maintenance window, during which Homeostat behaves as paused.
+    /// </summary>
+    /// <param name="name">Name shown in logs and status.</param>
+    /// <param name="configure">Sets the schedule.</param>
+    /// <example>
+    /// <code>
+    /// .AddMaintenanceWindow("nightly-deploy", w => w
+    ///     .Daily(new TimeOnly(2, 0), TimeSpan.FromHours(1))
+    ///     .On(DayOfWeek.Tuesday, DayOfWeek.Thursday)
+    ///     .InTimeZone(TimeZoneInfo.FindSystemTimeZoneById("Europe/Rome")))
+    /// </code>
+    /// </example>
+    public HomeostatBuilder AddMaintenanceWindow(string name, Action<MaintenanceWindow> configure)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(name);
+        ArgumentNullException.ThrowIfNull(configure);
+
+        var window = new MaintenanceWindow(name);
+        configure(window);
+        if (window.Duration <= TimeSpan.Zero)
+        {
+            throw new InvalidOperationException($"Maintenance window '{name}' needs a schedule, for example Daily(start, duration).");
+        }
+
+        Services.AddSingleton(window);
         return this;
     }
 

@@ -58,6 +58,7 @@ internal sealed class ExceptionRateDetector : ISignalDetector, IDisposable
 
         signals.TryPublish(new Signal(_options.Source, severity, _timeProvider.GetUtcNow())
         {
+            Value = rate,
             Message = $"{rate:F1} exceptions per second.",
             Tags = new Dictionary<string, string>(StringComparer.Ordinal)
             {

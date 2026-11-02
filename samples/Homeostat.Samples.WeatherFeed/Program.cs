@@ -21,9 +21,20 @@ builder.Services
             o.DefaultVerificationTimeout = TimeSpan.FromSeconds(10);
             o.DetectionInterval = TimeSpan.FromSeconds(5);
         })
+        // Cooldowns, budget and history survive restarts.
+        .UseFileStore("data/homeostat.json")
         // Built-in detectors: no code needed to watch the runtime.
         .AddThreadPoolStarvationDetector()
         .AddMemoryPressureDetector()
+        // Share of 5xx answers, from ASP.NET Core's own metrics.
+        .AddServerErrorRateSignal()
+        .AddCondition("api-errors", c => c
+            .ForSource("http-server-errors")
+            .SustainedFor(TimeSpan.FromMinutes(1)))
+        // A slow memory leak shows up as a trend long before the memory is full.
+        .AddCondition("memory-leak-suspected", c => c
+            .ForSource("memory")
+            .WhenRisingFasterThan(0.005, TimeSpan.FromMinutes(15)))
         // Observe only: no Heal(...), so it is tracked and logged but never acts.
         .AddCondition("threadpool-starved", c => c
             .ForSource("threadpool")
@@ -39,7 +50,9 @@ builder.Services
             .Heal(p => p
                 .With<RenewFeedClientAction>()
                 // Failing over changes the data users see: a person approves it.
-                .Then<SwitchToBackupProviderAction>().RequireApproval(TimeSpan.FromMinutes(5))))
+                .Then<SwitchToBackupProviderAction>().RequireApproval(TimeSpan.FromMinutes(5))
+                // Retry less and less often while the feed stays broken.
+                .CooldownBackoff(2, TimeSpan.FromMinutes(5))))
         .AddHealthCheckSignals(period: TimeSpan.FromSeconds(2))
         // Every decision, one JSON object per line.
         .AddAuditLog("logs/homeostat-{date}.jsonl"));

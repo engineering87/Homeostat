@@ -50,7 +50,12 @@ interventions.
 
 After a run ends, whatever the outcome, the same plan cannot start again until the cooldown has
 elapsed. If the condition is still active after the cooldown, the next triggering signal starts a new
-run from step 1.
+run from step 1. With [`CooldownBackoff`](healing-plans.md#cooldown-backoff), the cooldown grows after every run
+in a row that does not heal.
+
+Cooldowns, backoff and the budget live in the [store](persistence-and-clusters.md): with the default in-memory
+store they reset on restart; with a file or Redis store they do not. When the store is unavailable Homeostat
+fails closed and does not start runs.
 
 ## Concurrency
 
@@ -79,7 +84,9 @@ With `Homeostat.AspNetCore` the endpoints are ready ([details](aspnetcore.md)):
 app.MapHomeostatControl("operations");   // POST /homeostat/pause and /resume, ... (authorization policy)
 ```
 
-Or call `IHomeostatControl.Pause()` and `Resume()` from your own code.
+Or call `IHomeostatControl.Pause()` and `Resume()` from your own code. `PauseUntil(time)` pauses until a given
+time and then resumes by itself, which is handy for a deployment script that might not reach its last step.
+`PauseReason` says why Homeostat is paused. With the endpoints: `POST /homeostat/pause?for=00:30:00`.
 
 While paused:
 
@@ -88,6 +95,21 @@ While paused:
 - a run in progress stops before its next step.
 
 > The control endpoints require an authorization policy: they control what your application does to itself.
+
+## Maintenance windows
+
+Recurring periods during which Homeostat behaves as paused, without anybody having to remember to pause it:
+
+```csharp
+.AddMaintenanceWindow("nightly-deploy", w => w
+    .Daily(new TimeOnly(2, 0), TimeSpan.FromHours(1))
+    .On(DayOfWeek.Tuesday, DayOfWeek.Thursday)
+    .InTimeZone(TimeZoneInfo.FindSystemTimeZoneById("Europe/Rome")))
+```
+
+Windows may cross midnight and follow daylight saving time in their time zone (UTC by default). During a window,
+`IsPaused` is `true` and `PauseReason` names the window; the status endpoint and the Homeostat health check show
+it too.
 
 ## Approval
 
@@ -128,8 +150,10 @@ These logs are good candidates for alerts (see [Observability](observability.md)
 | `SignalBufferCapacity` | `1024` | In-memory signal buffer; oldest dropped when full |
 | `DetectionInterval` | 10 seconds | How often [detectors](detectors.md) take a sample |
 | `DefaultApprovalTimeout` | 15 minutes | Time to wait for a person to approve a step |
-| `RunHistorySize` | `50` | Completed runs kept for `GetRecentRuns()` and the status endpoint |
+| `RunHistorySize` | `50` | Completed runs kept by the store, for `GetRecentRunsAsync()` and the status endpoint |
 | `ApplicationName` | entry assembly name | Included in notifications and audit records |
+| `InstanceId` | machine name | Identifies the instance in runs, leases, traces and instance plan keys |
+| `ClusterLeaseDuration` | 1 minute | Lease of `OncePerCluster()` plans, renewed while a run lasts |
 
 Options are validated when Homeostat starts: negative or zero values where a positive one is required,
 and timeouts or intervals above the .NET timer limit (about 49 days), fail fast with a descriptive message.

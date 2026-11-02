@@ -124,6 +124,17 @@ builder.Services.AddHomeostat(h => h
     .AddWebhookNotifications(o => o.Url = chatWebhook) // the team sees what happens
     .AddAuditLog("logs/homeostat-{date}.jsonl"));      // and there is a record
 
+builder.Services.AddHomeostat(h => h
+    .UseRedis("redis:6379")                            // cooldowns, budget, history shared by every instance
+    .AddServerErrorRateSignal()                        // 5xx ratio from ASP.NET Core metrics
+    .AddCondition("api-errors", c => c
+        .ForSource("http-server-errors")
+        .SustainedFor(TimeSpan.FromMinutes(1))
+        .Heal(p => p
+            .With<RecycleDependencyClientsAction>()
+            .CooldownBackoff(2, TimeSpan.FromHours(1))   // try less often if it keeps failing
+            .OncePerCluster())));                        // one instance acts for all
+
 app.MapHomeostatStatus("operations");                  // GET /homeostat/status
 app.MapHomeostatControl("operations");                 // pause, resume, approve (policy required)
 ```
@@ -132,13 +143,13 @@ app.MapHomeostatControl("operations");                 // pause, resume, approve
 
 | 📡 Signals from | 🩺 Decisions | 🛠️ Actions | 🧰 Operations |
 |---|---|---|---|
-| Health checks | Thresholds and custom rules | Inline lambdas | Dry-run, budget, cooldown, kill switch |
-| Thread pool starvation | Sustained problems only | Action classes with DI | Status and control endpoints |
-| Memory pressure | Hysteresis on recovery | Restart a hosted service | Webhook notifications, audit log |
-| Exception rate | Causes vs symptoms | Reload configuration | Homeostat as a health check |
-| HTTP clients (failures, p95 latency) | Escalation with verification | Switches for degraded mode | Logs, traces, OpenTelemetry metrics |
-| Polly circuit breakers | Human approval for risky steps | Automatic switch reset | Test host with simulated time |
-| Your own code or detectors | | | Fault injection |
+| Health checks | Thresholds and custom rules | Inline lambdas | Dry-run, budget, cooldown with backoff |
+| Any metric (OpenTelemetry / `System.Diagnostics.Metrics`) | Sustained problems only | Action classes with DI | Kill switch, maintenance windows |
+| Server error rate and latency | Values, trends, anomalies | Restart a hosted service | File and Redis stores |
+| Thread pool, memory, exceptions | Intermittent problems | Reload configuration | Once-per-cluster plans |
+| HTTP clients (failures, p95 latency) | Combinations of conditions | Switches with automatic reset | Status and control endpoints |
+| Polly circuit breakers | Hysteresis, causes vs symptoms | Compensating actions | Webhooks, audit log, health check |
+| Your own code or detectors | Escalation with verification, human approval | | Conditions from `appsettings.json`, test host |
 
 ## Why Homeostat
 
@@ -204,6 +215,7 @@ dotnet add package Homeostat
 | `Homeostat.HealthChecks` | Health check results as signals; Homeostat's own health check |
 | `Homeostat.Http` | Failure ratio and latency of `IHttpClientFactory` clients as signals; webhook notifier |
 | `Homeostat.Polly` | Polly v8 circuit breaker state as signals |
+| `Homeostat.Redis` | State shared by every instance, plans that run once per cluster |
 | `Homeostat.Testing` | Test host with simulated time, fault injection, helpers for unit tests |
 
 Targets **.NET 10** (LTS, supported until November 2028).
@@ -220,6 +232,8 @@ Targets **.NET 10** (LTS, supported until November 2028).
 | Kill switch | `IHomeostatControl.Pause()` or `POST /homeostat/pause` | Interventions during maintenance |
 | Approval | per step, opt-in | Risky steps running without a person agreeing |
 | Suppression | per condition, opt-in | Healing the symptoms of a failure instead of its cause |
+| Maintenance windows | opt-in | Interventions during planned work |
+| Fail closed | always | Acting when the cooldown or budget cannot be checked |
 
 Details in [Guardrails](docs/guardrails.md).
 
@@ -251,6 +265,8 @@ where retries are no longer enough.
 | 🛡️ [Guardrails](docs/guardrails.md) | Every safety mechanism and its defaults |
 | 📈 [Observability](docs/observability.md) | Logs, traces, metrics, runtime control and observers |
 | 🔔 [Notifications and audit](docs/notifications.md) | Webhook notifier and JSON Lines audit log |
+| 🗄️ [Persistence and clusters](docs/persistence-and-clusters.md) | Stores, several instances, once-per-cluster plans |
+| 🧾 [Configuration](docs/configuration.md) | Conditions and plans in `appsettings.json`, applied at runtime |
 | 🌐 [ASP.NET Core endpoints](docs/aspnetcore.md) | Status and control endpoints, Homeostat as a health check |
 | 🧪 [Testing](docs/testing.md) | Scenario tests with simulated time and fault injection |
 | 🍳 [Recipes](docs/recipes.md) | Ready-to-adapt solutions for common scenarios |

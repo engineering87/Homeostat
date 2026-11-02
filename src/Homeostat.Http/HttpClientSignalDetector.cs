@@ -76,6 +76,7 @@ internal sealed class HttpClientSignalDetector : ISignalDetector
 
         return new Signal(source, severity, now)
         {
+            Value = ratio,
             Message = $"{sample.Failures}/{sample.Total} requests failed, p95 {p95Text} ms.",
             Tags = new Dictionary<string, string>(StringComparer.Ordinal)
             {

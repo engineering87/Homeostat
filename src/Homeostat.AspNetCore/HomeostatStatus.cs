@@ -1,26 +1,33 @@
 using Homeostat.Conditions;
 using Homeostat.Healing;
+using Homeostat.Persistence;
 
 namespace Homeostat.AspNetCore;
 
 /// <summary>Body of the status endpoint.</summary>
 /// <param name="Application">Application name.</param>
-/// <param name="Paused">Whether the kill switch is on.</param>
+/// <param name="Instance">Instance that answered (<see cref="HomeostatOptions.InstanceId"/>).</param>
+/// <param name="Paused">Whether Homeostat is paused (kill switch, timed pause or maintenance window).</param>
+/// <param name="PauseReason">Why it is paused, or <c>null</c>.</param>
 /// <param name="DryRun">Whether actions are only logged.</param>
-/// <param name="Budget">Action budget use.</param>
+/// <param name="Budget">Action budget use; <c>null</c> when the store is unavailable.</param>
 /// <param name="Conditions">Every registered condition.</param>
 /// <param name="Switches">Switches currently on.</param>
 /// <param name="PendingApprovals">Steps waiting for approval.</param>
-/// <param name="RecentRuns">Most recent runs, newest first.</param>
+/// <param name="RecentRuns">Most recent runs, newest first (empty when the store is unavailable).</param>
+/// <param name="StoreError">Why the store could not be read, or <c>null</c>; budget and runs are then missing.</param>
 public sealed record HomeostatStatus(
     string Application,
+    string Instance,
     bool Paused,
+    string? PauseReason,
     bool DryRun,
-    BudgetStatus Budget,
+    BudgetStatus? Budget,
     IReadOnlyList<ConditionStatusInfo> Conditions,
     IReadOnlyCollection<string> Switches,
     IReadOnlyList<PendingApproval> PendingApprovals,
-    IReadOnlyList<RunInfo> RecentRuns);
+    IReadOnlyList<RunInfo> RecentRuns,
+    string? StoreError = null);
 
 /// <summary>Action budget use.</summary>
 /// <param name="Used">Actions in the current window.</param>
@@ -61,11 +68,13 @@ public sealed record ConditionStatusInfo(
 /// <param name="StartedAt">Start time.</param>
 /// <param name="CompletedAt">End time.</param>
 /// <param name="Steps">Executed steps.</param>
-public sealed record RunInfo(string Condition, string Outcome, DateTimeOffset StartedAt, DateTimeOffset CompletedAt, IReadOnlyList<StepInfo> Steps)
+/// <param name="Instance">Instance that ran it.</param>
+public sealed record RunInfo(string Condition, string Outcome, DateTimeOffset StartedAt, DateTimeOffset CompletedAt, IReadOnlyList<StepInfo> Steps, string Instance)
 {
-    internal static RunInfo From(HealingRunResult r) => new(
+    internal static RunInfo From(HealingRunRecord r) => new(
         r.ConditionName, r.Outcome.ToString(), r.StartedAt, r.CompletedAt,
-        r.Steps.Select(s => new StepInfo(s.Name, s.Succeeded, s.Verification?.ToString(), s.Error?.Message)).ToArray());
+        r.Steps.Select(s => new StepInfo(s.Name, s.Succeeded, s.Verification?.ToString(), s.Error, s.UndoSucceeded)).ToArray(),
+        r.Instance);
 }
 
 /// <summary>An executed step.</summary>
@@ -73,4 +82,5 @@ public sealed record RunInfo(string Condition, string Outcome, DateTimeOffset St
 /// <param name="Succeeded">Whether the action completed.</param>
 /// <param name="Verification">Verification outcome.</param>
 /// <param name="Error">Error message, if the action or verifier failed.</param>
-public sealed record StepInfo(string Name, bool Succeeded, string? Verification, string? Error);
+/// <param name="UndoSucceeded">Whether the compensating action succeeded; <c>null</c> if it did not run.</param>
+public sealed record StepInfo(string Name, bool Succeeded, string? Verification, string? Error, bool? UndoSucceeded);

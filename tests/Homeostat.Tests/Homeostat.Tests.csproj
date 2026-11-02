@@ -6,6 +6,8 @@
     <IsTestProject>true</IsTestProject>
     <!-- xUnit v3 test projects are executables. -->
     <OutputType>Exe</OutputType>
+    <!-- Newer StackExchange.Redis versions mark the implicit string conversions as experimental. -->
+    <NoWarn>$(NoWarn);StringToRedisValue</NoWarn>
     <GenerateDocumentationFile>false</GenerateDocumentationFile>
   </PropertyGroup>
 
@@ -21,6 +23,7 @@
     <ProjectReference Include="..\..\src\Homeostat.HealthChecks\Homeostat.HealthChecks.csproj" />
     <ProjectReference Include="..\..\src\Homeostat.Http\Homeostat.Http.csproj" />
     <ProjectReference Include="..\..\src\Homeostat.Polly\Homeostat.Polly.csproj" />
+    <ProjectReference Include="..\..\src\Homeostat.Redis\Homeostat.Redis.csproj" />
     <ProjectReference Include="..\..\src\Homeostat.Testing\Homeostat.Testing.csproj" />
   </ItemGroup>
 

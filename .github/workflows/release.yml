@@ -20,6 +20,19 @@ jobs:
     runs-on: ubuntu-latest
     environment: nuget
 
+    services:
+      redis:
+        image: redis:7-alpine
+        ports: [ "6379:6379" ]
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+
+    env:
+      HOMEOSTAT_TEST_REDIS: localhost:6379
+
     steps:
       - uses: actions/checkout@v7
 

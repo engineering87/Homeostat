@@ -32,7 +32,10 @@ builder.Services
 
 ## Batteries included
 
-- **Detectors**: thread pool starvation, memory pressure, exception rate, HTTP clients, Polly circuit breakers.
+- **Detectors**: thread pool starvation, memory pressure, exception rate, HTTP clients, Polly circuit breakers,
+  and any `System.Diagnostics.Metrics` instrument (OpenTelemetry metrics).
+- **Conditions**: thresholds, values, trends, anomalies, intermittent problems, combinations, hysteresis.
+- **Production**: file and Redis stores, plans that run once per cluster, conditions from `appsettings.json`.
 - **Actions**: inline lambdas, restart a hosted service, reload configuration, switches for degraded mode.
 - **Operations**: status and control endpoints, Homeostat as a health check, webhook notifications,
   JSON Lines audit log, OpenTelemetry-ready traces and metrics.
@@ -45,6 +48,7 @@ builder.Services
 - `Homeostat.HealthChecks`: health check results as signals; Homeostat's own health check.
 - `Homeostat.Http`: HTTP client failures and latency as signals; webhook notifier.
 - `Homeostat.Polly`: Polly v8 circuit breaker state as signals.
+- `Homeostat.Redis`: shared state and coordination across instances.
 - `Homeostat.Testing`: test host with simulated time.
 
 ## Learn more

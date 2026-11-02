@@ -380,14 +380,17 @@ public class CoordinationTests
                 .ForSource("feed")
                 .Heal(p => p.With<EngineTests.RecordingAction>().VerifyWith<EngineTests.AlwaysHealedVerifier>())));
 
-        Assert.Empty(host.Control.GetRecentRuns());
+        Assert.Empty(await host.Control.GetRecentRunsAsync());
         Assert.False(host.Control.IsDryRun);
 
         host.Publish("feed", SignalSeverity.Unhealthy);
         var run = await host.WaitForRunAsync("feed-down");
 
-        Assert.Equal(run, Assert.Single(host.Control.GetRecentRuns()));
-        var budget = host.Control.GetBudget();
+        var record = Assert.Single(await host.Control.GetRecentRunsAsync());
+        Assert.Equal(run.ConditionName, record.ConditionName);
+        Assert.Equal(run.Outcome, record.Outcome);
+        Assert.Equal(run.Steps.Single().Name, record.Steps.Single().Name);
+        var budget = await host.Control.GetBudgetAsync();
         Assert.Equal(1, budget.Used);
         Assert.Equal(3, budget.Limit);
         Assert.Equal(2, budget.Remaining);

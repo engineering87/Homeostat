@@ -20,10 +20,19 @@ internal sealed class HomeostatHealthCheck : IHealthCheck
         _attentionStatus = attentionStatus;
     }
 
-    public Task<HealthCheckResult> CheckHealthAsync(HealthCheckContext context, CancellationToken cancellationToken = default)
+    public async Task<HealthCheckResult> CheckHealthAsync(HealthCheckContext context, CancellationToken cancellationToken = default)
     {
         var active = _control.GetConditions().Where(c => c.Status == ConditionStatus.Active).Select(c => c.Name).ToArray();
-        var budget = _control.GetBudget();
+        Guardrails.ActionBudgetStatus budget;
+        try
+        {
+            budget = await _control.GetBudgetAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
+        {
+            return new HealthCheckResult(_attentionStatus, "The Homeostat store is unavailable.", ex);
+        }
+
         var pending = _approvals.GetPending().Count;
 
         var data = new Dictionary<string, object>
@@ -36,9 +45,9 @@ internal sealed class HomeostatHealthCheck : IHealthCheck
         };
 
         var reasons = new List<string>();
-        if (_control.IsPaused)
+        if (_control.PauseReason is { } pause)
         {
-            reasons.Add("paused");
+            reasons.Add(pause);
         }
 
         if (budget.IsExhausted)
@@ -59,6 +68,6 @@ internal sealed class HomeostatHealthCheck : IHealthCheck
         var result = reasons.Count == 0
             ? HealthCheckResult.Healthy("No active condition.", data)
             : new HealthCheckResult(_attentionStatus, string.Join("; ", reasons), data: data);
-        return Task.FromResult(result);
+        return result;
     }
 }

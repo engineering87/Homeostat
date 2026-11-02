@@ -14,6 +14,21 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Added
 
+- Persistent state: `IHomeostatStore` with in-memory, file (`UseFileStore`) and Redis stores; atomic plan-state
+  updates (cooldown, backoff, holds), budget and run history survive restarts; fail-closed when the store is
+  unavailable, with the status endpoint still answering.
+- Several instances: `IHomeostatCoordinator` and `IHomeostatLease`, `OncePerCluster()` plans with renewed leases
+  that stop the run when the lease may be lost, `InstanceId` (machine name by default).
+- `Homeostat.Redis`: shared store (atomic budget script, capped history) and coordinator (`UseRedis`).
+- Metric signals from any `System.Diagnostics.Metrics` instrument (`AddMetricSignal`), with
+  `AddServerErrorRateSignal` and `AddServerLatencySignal`; `Signal.Value` filled by every detector.
+- Conditions on values, trends and anomalies (`WhenValueAbove`, `WhenRisingFasterThan`, `WhenAnomalouslyHigh`...),
+  intermittent problems (`Occurrences`) and combinations (`WhenAllActive`, `WhenAnyActive`).
+- Conditions and plans from configuration (`AddConditionsFromConfiguration`, `MapAction`) with strict validation,
+  reloaded at runtime without touching unchanged conditions.
+- Cooldown backoff, compensating actions (`UndoWith`), maintenance windows, `PauseUntil` and `PauseReason`
+  (`POST /homeostat/pause?for=...`).
+
 - Signals, conditions, healing plans with escalation and three-outcome verification.
 - Guardrails: dry-run by default, action budget, cooldown, concurrency limit, timeouts, kill switch.
 - `Homeostat.HealthChecks`: health check results as signals.
@@ -31,7 +46,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   concurrency slot is released while waiting, a rejection holds the plan until the condition clears.
 - `ConditionCleared` outcome: a run stops before a step that is no longer needed.
 - Automatic switch reset when a condition clears (`TurnOnSwitch(name, turnOffWhenCleared: true)`).
-- Run history and budget status in `IHomeostatControl`; approval events for observers.
+- Run history and budget status in `IHomeostatControl` (`GetRecentRunsAsync`, `GetBudgetAsync`); approval events
+  for observers.
 - Audit log in JSON Lines (`AddAuditLog`), webhook notifier (`AddWebhookNotifications`) and a base class for
   custom sinks (`HomeostatEventSink`, `AddEventSink`); events raised during shutdown are delivered.
 - `Homeostat.AspNetCore`: status and control endpoints (`MapHomeostatStatus`, `MapHomeostatControl`), which

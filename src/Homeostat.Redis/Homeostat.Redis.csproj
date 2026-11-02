@@ -1,0 +1,29 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <PackageId>Homeostat.Redis</PackageId>
+    <Description>Redis store and coordinator for Homeostat: cooldowns, budget and history shared by every instance, and plans that run once per cluster.</Description>
+    <PackageTags>$(PackageTags);redis;distributed-lock</PackageTags>
+    <!-- Newer StackExchange.Redis versions mark the implicit string conversions as experimental. -->
+    <NoWarn>$(NoWarn);StringToRedisValue</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Homeostat\Homeostat.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="StackExchange.Redis" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Homeostat.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="..\..\docs\nuget\README.md" Pack="true" PackagePath="\" />
+    <None Include="..\..\assets\icon.png" Pack="true" PackagePath="\" />
+  </ItemGroup>
+
+</Project>

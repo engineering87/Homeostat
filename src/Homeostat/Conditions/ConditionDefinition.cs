@@ -17,8 +17,14 @@ public sealed class ConditionDefinition
         TimeSpan sustainFor,
         TimeSpan clearAfter,
         IReadOnlyList<string> suppressedBy,
-        HealingPlan? plan)
+        HealingPlan? plan,
+        Action<Signal>? record = null,
+        CompositeMode? composite = null,
+        IReadOnlyList<string>? dependsOn = null)
     {
+        Record = record;
+        Composite = composite;
+        DependsOn = dependsOn ?? [];
         Name = name;
         IsRelevant = isRelevant;
         IsTriggered = isTriggered;
@@ -33,13 +39,13 @@ public sealed class ConditionDefinition
     public string Name { get; }
 
     /// <summary>Signals for which this returns <c>false</c> are ignored by the condition.</summary>
-    public Func<Signal, bool> IsRelevant { get; }
+    internal Func<Signal, bool> IsRelevant { get; }
 
     /// <summary>Returns <c>true</c> for relevant signals that show the problem.</summary>
-    public Func<Signal, bool> IsTriggered { get; }
+    internal Func<Signal, bool> IsTriggered { get; }
 
     /// <summary>Returns <c>true</c> for relevant signals that show recovery.</summary>
-    public Func<Signal, bool> IsCleared { get; }
+    internal Func<Signal, bool> IsCleared { get; }
 
     /// <summary>How long triggering signals must persist before the condition becomes active.</summary>
     public TimeSpan SustainFor { get; }
@@ -52,4 +58,13 @@ public sealed class ConditionDefinition
 
     /// <summary>The healing plan; <c>null</c> for a condition that is only observed.</summary>
     public HealingPlan? Plan { get; }
+
+    /// <summary>For a composite condition, how it combines <see cref="DependsOn"/>; <c>null</c> otherwise.</summary>
+    public CompositeMode? Composite { get; }
+
+    /// <summary>Conditions a composite condition is computed from.</summary>
+    public IReadOnlyList<string> DependsOn { get; }
+
+    /// <summary>Feeds stateful rules (trend, anomaly, occurrences) with each relevant signal, before evaluation.</summary>
+    internal Action<Signal>? Record { get; }
 }

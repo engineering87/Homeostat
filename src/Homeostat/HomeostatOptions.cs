@@ -38,8 +38,21 @@ public sealed class HomeostatOptions
     /// <summary>Default time to wait for a person to approve a step marked with <c>RequireApproval</c>.</summary>
     public TimeSpan DefaultApprovalTimeout { get; set; } = TimeSpan.FromMinutes(15);
 
-    /// <summary>How many completed runs <see cref="IHomeostatControl.GetRecentRuns"/> keeps in memory.</summary>
+    /// <summary>How many completed runs the store keeps (see <see cref="IHomeostatControl.GetRecentRunsAsync"/>).</summary>
     public int RunHistorySize { get; set; } = 50;
+
+    /// <summary>
+    /// Identifies this instance in run records, leases and the keys of instance-scoped plan state. Defaults to the
+    /// machine name, which is stable across restarts and, in containers, is the pod or container name. Set it
+    /// explicitly when several processes on the same machine share a store.
+    /// </summary>
+    public string InstanceId { get; set; } = Environment.MachineName;
+
+    /// <summary>
+    /// Duration of the lease taken by plans marked with <c>OncePerCluster()</c>. The lease is renewed while the run
+    /// lasts; if the instance dies, another can take over once it expires.
+    /// </summary>
+    public TimeSpan ClusterLeaseDuration { get; set; } = TimeSpan.FromMinutes(1);
 
     /// <summary>Name of the application, included in notifications and audit records.</summary>
     public string ApplicationName { get; set; } =

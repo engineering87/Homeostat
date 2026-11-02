@@ -66,6 +66,7 @@ internal sealed class ThreadPoolStarvationDetector : ISignalDetector
 
         signals.TryPublish(new Signal(_options.Source, severity, _timeProvider.GetUtcNow())
         {
+            Value = latency.TotalMilliseconds,
             Message = $"Thread pool queue latency {latency.TotalMilliseconds:F0} ms.",
             Tags = new Dictionary<string, string>(StringComparer.Ordinal)
             {

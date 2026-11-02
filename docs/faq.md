@@ -58,14 +58,14 @@ actions one plan at a time. The project is in preview, so evaluate it carefully 
 
 ### What happens with several instances of my application?
 
-Each instance runs its own Homeostat with its own signals, conditions and budget. Actions should
-therefore fix things **local to the instance** (its clients, caches, settings). Coordinating actions
-across instances is out of scope for now.
+Each instance runs its own Homeostat with its own signals and conditions. By default each one also heals on
+its own, which is right for problems local to the instance (its clients, caches, settings). For shared problems,
+use a shared store and mark the plan `OncePerCluster()`: one instance acts, the cooldown is shared, and budget and
+history cover the whole cluster. See [Persistence and clusters](persistence-and-clusters.md).
 
-Approval requests, switches, run history and the kill switch are per instance too: the status endpoint and
-the approval endpoints act on the instance that receives the request. Behind a load balancer, call each
-instance directly (for example through its pod address), or use the webhook notifier, whose events carry
-the application name.
+Approval requests, switches and the kill switch are still per instance: the approval endpoints act on the
+instance that receives the request. Behind a load balancer, call each instance directly (for example through its
+pod address), or use the webhook notifier, whose events carry the application name.
 
 ### How do I see what Homeostat is doing right now?
 

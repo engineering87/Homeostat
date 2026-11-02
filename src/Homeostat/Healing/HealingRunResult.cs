@@ -44,13 +44,18 @@ public enum HealingRunOutcome
 /// <param name="Succeeded">Whether the action completed without throwing or timing out.</param>
 /// <param name="Verification">Verification outcome; <c>null</c> when the action did not succeed.</param>
 /// <param name="Error">The exception thrown by the action, or a <see cref="TimeoutException"/>.</param>
+/// <param name="UndoSucceeded">
+/// Whether the compensating action (<see cref="HealingPlanBuilder.UndoWith{TAction}"/>) completed; <c>null</c> when
+/// it did not run.
+/// </param>
 public sealed record HealingStepResult(
     string ConditionName,
     int Step,
     string Name,
     bool Succeeded,
     VerificationOutcome? Verification,
-    Exception? Error);
+    Exception? Error,
+    bool? UndoSucceeded = null);
 
 /// <summary>Result of a complete healing run.</summary>
 /// <param name="ConditionName">Condition being healed.</param>

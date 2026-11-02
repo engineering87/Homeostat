@@ -29,7 +29,9 @@ endpoint conventions apply (rate limiting, OpenAPI tags, CORS).
 ```json
 {
   "application": "weather-api",
+  "instance": "weather-api-7d9f8:1",
   "paused": false,
+  "pauseReason": null,
   "dryRun": false,
   "budget": { "used": 2, "limit": 10, "remaining": 8, "windowSeconds": 3600 },
   "conditions": [
@@ -63,13 +65,17 @@ endpoint conventions apply (rate limiting, OpenAPI tags, CORS).
       "outcome": "Healed",
       "startedAt": "2030-01-01T09:12:00+00:00",
       "completedAt": "2030-01-01T09:12:09+00:00",
-      "steps": [ { "name": "RenewFeedClientAction", "succeeded": true, "verification": "Healed", "error": null } ]
+      "steps": [ { "name": "RenewFeedClientAction", "succeeded": true, "verification": "Healed", "error": null, "undoSucceeded": null } ],
+      "instance": "weather-api-7d9f8:1"
     }
   ]
 }
 ```
 
-Times are those of the application's `TimeProvider`. The endpoint is read-only but reveals condition names,
+If the store cannot be read, the endpoint still answers: `budget` is `null`, `recentRuns` is empty and
+`storeError` says why. Times are those of the application's `TimeProvider`. Conditions and switches are those of the instance that
+answers; budget and runs come from the [store](persistence-and-clusters.md), so with a shared store they cover
+every instance. The endpoint is read-only but reveals condition names,
 error messages and approval ids, which is why it needs a policy too.
 
 ## Control
@@ -77,6 +83,7 @@ error messages and approval ids, which is why it needs a policy too.
 | Endpoint | Effect | Response |
 |---|---|---|
 | `POST /homeostat/pause` | Kill switch on: no new step starts | `204` |
+| `POST /homeostat/pause?for=00:30:00` | Paused for a duration, then resumes by itself (for deployment scripts) | `204`, or `400` for an invalid duration |
 | `POST /homeostat/resume` | Kill switch off | `204` |
 | `POST /homeostat/approvals/{id}/approve` | Approves a pending step | `204`, or `404` if the request does not exist (any more) |
 | `POST /homeostat/approvals/{id}/reject` | Rejects it: the run stops | `204` or `404` |

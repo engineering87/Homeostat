@@ -10,6 +10,7 @@ fixed interval and publish one signal per sample, ready to be used by [condition
 | Exception rate | `Homeostat` | `exceptions` | Exceptions thrown per second |
 | HTTP clients | `Homeostat.Http` | `http:{client name}` | Failure ratio and p95 latency of each client |
 | Circuit breakers | `Homeostat.Polly` | your choice | State of Polly v8 circuit breakers |
+| Metrics | `Homeostat` | `metric:{instrument}` or your choice | Any `System.Diagnostics.Metrics` instrument: ASP.NET Core, HttpClient, Kestrel, runtime, your own |
 | Health checks | `Homeostat.HealthChecks` | health check name | See [Signals](signals.md#health-checks-as-signals) |
 
 All detectors except health checks (which follow the `AddHealthCheckSignals` period) run every
@@ -202,6 +203,68 @@ Notes:
   exactly where a healing plan helps.
 
 ---
+
+## Metrics
+
+.NET libraries publish their metrics through `System.Diagnostics.Metrics`, the API underneath OpenTelemetry
+metrics: ASP.NET Core (`http.server.request.duration`), HttpClient (`http.client.request.duration`), Kestrel,
+the runtime, Entity Framework Core, and your own meters. Homeostat can listen to any instrument and turn it into
+a signal, **without OpenTelemetry**:
+
+```csharp
+.AddMetricSignal("http.client.request.duration", m => m
+    .Source("forecast-latency")
+    .Where("server.address", "forecast.example")     // only this dependency
+    .Statistic(MetricStatistic.P95)
+    .DegradedAbove(1)                                 // seconds, the unit of the instrument
+    .UnhealthyAbove(3)
+    .MinimumCount(20))                                // ignore quiet intervals
+```
+
+At every detection interval, the measurements of the interval are reduced to one statistic, compared with the
+thresholds and published as a signal whose `Value` is the statistic.
+
+| Statistic | Meaning |
+|---|---|
+| `Mean`, `Min`, `Max`, `Sum`, `Count` | Over the measurements of the interval |
+| `P50`, `P90`, `P95`, `P99` | Percentiles (from up to 4096 sampled measurements) |
+| `Rate` | Sum per second: increments of a counter per second |
+| `CountRate` | Measurements per second: for example requests per second from a duration histogram |
+| `Last` | Latest value: for gauges and observable instruments |
+| `Ratio` | Share of measurements matching `RatioOf(...)`: for example failed requests |
+
+| Method | Purpose |
+|---|---|
+| `FromMeter(name)` | Only the instrument of this meter (by default any meter with an instrument of that name) |
+| `Where(tag, value)`, `Where(predicate)` | Only measurements with these tags |
+| `RatioOf((value, tags) => ...)` | Uses `Ratio`, counting the matching measurements |
+| `DegradedAbove`, `UnhealthyAbove`, `DegradedBelow`, `UnhealthyBelow` | Thresholds (at least one is required) |
+| `MinimumCount(n)` | No signal for intervals with fewer measurements (default 1) |
+| `Source(name)` | Signal source (default `metric:{instrument}`) |
+
+### Ready-made: server errors and latency
+
+```csharp
+.AddServerErrorRateSignal()      // source "http-server-errors": share of 5xx; Degraded ≥ 1%, Unhealthy ≥ 5%
+.AddServerLatencySignal()        // source "http-server-latency": p95 in seconds; Degraded ≥ 0.5, Unhealthy ≥ 2
+```
+
+Both read ASP.NET Core's `http.server.request.duration` and publish nothing in intervals with fewer than 20
+requests; every threshold is a parameter.
+
+Things to know:
+
+- Units are those of the instrument: the OpenTelemetry conventions use **seconds** for durations.
+- The first interval after startup is only a baseline and publishes nothing, so rates over a few milliseconds do
+  not raise false alarms.
+- Observable instruments are read at every detection interval. Observable counters report running totals, which
+  Homeostat turns into increments (so `Rate` and `Sum` mean "since the previous interval").
+- For up-down counters (such as active requests) and observable up-down counters, `Last` is the current
+  **level**; for gauges it is the latest value. For instruments with several series (tag combinations), filter
+  with `Where` to the series you mean.
+- Filters and ratio rules run inside the code that records the metric; Homeostat catches their exceptions, so a
+  faulty filter only skips measurements. Keep them cheap: they run for every measurement.
+- The listener starts with the application; measurements recorded before it are not seen.
 
 ## Writing your own detector
 

@@ -48,6 +48,7 @@ internal sealed class MemoryPressureDetector : ISignalDetector
 
         signals.TryPublish(new Signal(_options.Source, severity, _timeProvider.GetUtcNow())
         {
+            Value = load,
             Message = $"Memory load {load:P0}.",
             Tags = new Dictionary<string, string>(StringComparer.Ordinal)
             {

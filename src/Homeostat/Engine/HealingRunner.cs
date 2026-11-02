@@ -1,8 +1,9 @@
 using System.Collections.Concurrent;
 using Homeostat.Conditions;
+using Homeostat.Coordination;
 using Homeostat.Diagnostics;
-using Homeostat.Guardrails;
 using Homeostat.Healing;
+using Homeostat.Persistence;
 using Homeostat.Signals;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -19,42 +20,50 @@ internal sealed class HealingRunner
 {
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly HomeostatOptions _options;
-    private readonly ActionBudget _budget;
+    private readonly IHomeostatStore _store;
+    private readonly IHomeostatCoordinator _coordinator;
     private readonly IHomeostatControl _control;
     private readonly ObserverNotifier _notifier;
     private readonly ConditionSet _conditions;
     private readonly HomeostatApprovals _approvals;
-    private readonly RunHistory _history;
     private readonly SwitchOwnership _ownership;
     private readonly TimeProvider _timeProvider;
     private readonly ILogger<HealingRunner> _logger;
     private readonly SemaphoreSlim _concurrency;
-    private readonly ConcurrentDictionary<string, byte> _running = new(StringComparer.Ordinal);
-    private readonly ConcurrentDictionary<string, DateTimeOffset> _lastRunEnded = new(StringComparer.Ordinal);
+    // One entry per running plan; the value identifies the run, so a run only ever removes its own entry.
+    private readonly ConcurrentDictionary<string, object> _running = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<Task, byte> _inFlight = new();
-    private readonly ConcurrentDictionary<string, byte> _held = new(StringComparer.Ordinal);
+
+    // Last known plan state, so triggering signals during a cooldown or a hold do not hit the store each time.
+    private readonly ConcurrentDictionary<string, PlanState> _knownState = new(StringComparer.Ordinal);
+
+    // Plans whose condition cleared, while the reset is being written to the store.
+    private readonly ConcurrentDictionary<string, byte> _pendingResets = new(StringComparer.Ordinal);
+
+    // Last time a store failure was logged as an error, per condition, to avoid one error per triggering signal.
+    private readonly ConcurrentDictionary<string, DateTimeOffset> _storeErrors = new(StringComparer.Ordinal);
 
     public HealingRunner(
         IServiceScopeFactory scopeFactory,
         IOptions<HomeostatOptions> options,
-        ActionBudget budget,
+        IHomeostatStore store,
+        IHomeostatCoordinator coordinator,
         IHomeostatControl control,
         ObserverNotifier notifier,
         ConditionSet conditions,
         HomeostatApprovals approvals,
-        RunHistory history,
         SwitchOwnership ownership,
         TimeProvider timeProvider,
         ILogger<HealingRunner> logger)
     {
         _scopeFactory = scopeFactory;
         _options = options.Value;
-        _budget = budget;
+        _store = store;
+        _coordinator = coordinator;
         _control = control;
         _notifier = notifier;
         _conditions = conditions;
         _approvals = approvals;
-        _history = history;
         _ownership = ownership;
         _timeProvider = timeProvider;
         _logger = logger;
@@ -63,12 +72,13 @@ internal sealed class HealingRunner
 
     /// <summary>
     /// Starts a healing run in the background unless guardrails prevent it.
-    /// Returns <c>true</c> if a run was started.
+    /// Returns <c>true</c> if a run may start (the cooldown and the cluster lease are checked in the background).
     /// </summary>
     public bool TryStart(ConditionTracker tracker, Signal trigger, CancellationToken stoppingToken)
     {
-        var name = tracker.Definition.Name;
-        var plan = tracker.Definition.Plan;
+        var definition = tracker.Definition;
+        var name = definition.Name;
+        var plan = definition.Plan;
 
         if (plan is null)
         {
@@ -83,64 +93,227 @@ internal sealed class HealingRunner
             return false;
         }
 
-        if (_conditions.FindActiveSuppressor(tracker.Definition) is { } cause)
+        if (_conditions.FindActiveSuppressor(definition) is { } cause)
         {
             _logger.LogDebug("Condition {Condition} is active, but suppressed by {Cause}.", name, cause);
             return false;
         }
 
-        if (_held.ContainsKey(name))
+        var key = StateKey(plan);
+        if (_knownState.TryGetValue(key, out var known) && Blocked(plan, known, _timeProvider.GetUtcNow()) is { } reason)
         {
-            _logger.LogDebug("Condition {Condition} is active, but its plan is held after a rejected approval.", name);
+            _logger.LogDebug("Condition {Condition}: not starting, {Reason}.", name, reason);
             return false;
         }
 
-        // Claim the slot before checking the cooldown: a run that ends in between writes its end time
-        // before releasing the slot, so the check below always sees it.
-        if (!_running.TryAdd(name, 0))
+        var run = new object();
+        if (!_running.TryAdd(name, run))
         {
             _logger.LogDebug("A healing run for condition {Condition} is already in progress.", name);
             return false;
         }
 
-        var cooldown = plan.Cooldown ?? _options.DefaultCooldown;
-        if (_lastRunEnded.TryGetValue(name, out var ended) && _timeProvider.GetUtcNow() - ended < cooldown)
-        {
-            _running.TryRemove(name, out _);
-            _logger.LogDebug("Condition {Condition} is in cooldown until {Until}.", name, ended + cooldown);
-            return false;
-        }
-
-        var task = Task.Run(() => RunAsync(tracker, plan, trigger, stoppingToken), CancellationToken.None);
+        var task = Task.Run(() => StartAsync(tracker, plan, trigger, run, stoppingToken), CancellationToken.None);
         _inFlight.TryAdd(task, 0);
         _ = task.ContinueWith(t => _inFlight.TryRemove(t, out _), CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
         return true;
     }
 
-    /// <summary>Called when the condition clears: a plan held after a rejection may run again next time.</summary>
-    public void ReleaseHold(string conditionName) => _held.TryRemove(conditionName, out _);
+    /// <summary>
+    /// Called when the condition clears: a plan held after a rejection may run again, and the cooldown backoff restarts.
+    /// </summary>
+    public void OnConditionCleared(ConditionDefinition definition)
+    {
+        if (definition.Plan is not { } plan)
+        {
+            return;
+        }
+
+        // For a cluster plan, only the instance that ran the plan last resets it: one recovered instance must not lift
+        // a rejection or a backoff that concerns the whole cluster.
+        var key = StateKey(plan);
+        var update = new PlanStateUpdate
+        {
+            Failures = FailureCountChange.Reset,
+            Held = false,
+            OnlyIfLastRunBy = plan.Scope == PlanScope.Cluster ? _options.InstanceId : null,
+        };
+
+        // Apply the reset locally at once, so a triggering signal that follows the clear is not blocked by stale state.
+        _pendingResets[key] = 0;
+        _knownState.AddOrUpdate(key, PlanState.Empty, (_, state) => update.ApplyTo(state));
+
+        var task = Task.Run(async () =>
+        {
+            try
+            {
+                _knownState[key] = await _store.UpdatePlanStateAsync(key, update, CancellationToken.None).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Condition {Condition}: could not reset the plan state in the store.", definition.Name);
+            }
+            finally
+            {
+                _pendingResets.TryRemove(key, out _);
+            }
+        });
+        _inFlight.TryAdd(task, 0);
+        _ = task.ContinueWith(t => _inFlight.TryRemove(t, out _), CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
+    }
 
     /// <summary>Completes when all in-flight runs have finished.</summary>
     public Task WhenIdleAsync() => Task.WhenAll(_inFlight.Keys);
 
-    private async Task RunAsync(ConditionTracker tracker, HealingPlan plan, Signal trigger, CancellationToken cancellationToken)
+    /// <summary>Key of a plan in the store: shared for cluster plans, per instance otherwise.</summary>
+    internal string StateKey(HealingPlan plan)
+        => plan.Scope == PlanScope.Cluster ? plan.ConditionName : $"{_options.InstanceId}/{plan.ConditionName}";
+
+    /// <summary>Effective cooldown, with backoff.</summary>
+    internal TimeSpan EffectiveCooldown(HealingPlan plan, PlanState state)
+    {
+        var cooldown = plan.Cooldown ?? _options.DefaultCooldown;
+        if (plan.CooldownBackoff <= 1 || state.ConsecutiveFailures <= 0)
+        {
+            return cooldown;
+        }
+
+        var max = plan.MaxCooldown ?? cooldown;
+        var ticks = cooldown.Ticks * Math.Pow(plan.CooldownBackoff, Math.Min(state.ConsecutiveFailures, 64));
+        return ticks >= max.Ticks ? max : TimeSpan.FromTicks((long)ticks);
+    }
+
+    private void LogStoreFailure(string condition, Exception exception, string message)
+    {
+        var now = _timeProvider.GetUtcNow();
+        if (_storeErrors.TryGetValue(condition, out var last) && now - last < TimeSpan.FromMinutes(1))
+        {
+            _logger.LogDebug(exception, message, condition);
+            return;
+        }
+
+        _storeErrors[condition] = now;
+        _logger.LogError(exception, message, condition);
+    }
+
+    private string? Blocked(HealingPlan plan, PlanState state, DateTimeOffset now)
+    {
+        if (state.Held)
+        {
+            return "its plan is held after a rejected approval";
+        }
+
+        if (state.LastRunEndedAt is { } ended)
+        {
+            var cooldown = EffectiveCooldown(plan, state);
+            if (now - ended < cooldown)
+            {
+                return $"cooldown until {ended + cooldown:O}";
+            }
+        }
+
+        return null;
+    }
+
+    private async Task StartAsync(ConditionTracker tracker, HealingPlan plan, Signal trigger, object run, CancellationToken cancellationToken)
+    {
+        var name = plan.ConditionName;
+        IHomeostatLease? lease = null;
+        CancellationTokenSource? runCts = null;
+        try
+        {
+            if (plan.Scope == PlanScope.Cluster)
+            {
+                lease = await _coordinator.TryAcquireAsync($"plan:{name}", _options.ClusterLeaseDuration, cancellationToken).ConfigureAwait(false);
+                if (lease is null)
+                {
+                    _logger.LogDebug("Condition {Condition}: the plan is running on another instance.", name);
+                    return;
+                }
+            }
+
+            var key = StateKey(plan);
+            PlanState state;
+            try
+            {
+                state = await _store.GetPlanStateAsync(key, cancellationToken).ConfigureAwait(false);
+            }
+            catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
+            {
+                // Fail closed: without the cooldown, a run could repeat too soon.
+                LogStoreFailure(name, ex, "Condition {Condition}: the store is unavailable; not starting the plan.");
+                return;
+            }
+
+            if (_pendingResets.ContainsKey(key) && _knownState.TryGetValue(key, out var pending))
+            {
+                // The reset of a clear is still being written: trust the local view for the fields it changes.
+                state = state with { Held = pending.Held, ConsecutiveFailures = pending.ConsecutiveFailures };
+            }
+
+            _knownState[key] = state;
+            if (Blocked(plan, state, _timeProvider.GetUtcNow()) is { } reason)
+            {
+                _logger.LogDebug("Condition {Condition}: not starting, {Reason}.", name, reason);
+                return;
+            }
+
+            // A cluster run stops before its next step if the lease may have been lost.
+            runCts = lease is null ? null : CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, lease.Lost);
+            await RunAsync(tracker, plan, trigger, key, run, runCts?.Token ?? cancellationToken).ConfigureAwait(false);
+
+            if (lease is not null && lease.Lost.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
+            {
+                _logger.LogWarning("Condition {Condition}: the cluster lease was lost during the run, which was stopped.", name);
+            }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            // Stopping.
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Condition {Condition}: could not start the plan.", name);
+        }
+        finally
+        {
+            runCts?.Dispose();
+            if (lease is not null)
+            {
+                try
+                {
+                    await lease.DisposeAsync().ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Condition {Condition}: could not release the cluster lease; it will expire.", name);
+                }
+            }
+
+            _running.TryRemove(new KeyValuePair<string, object>(name, run));
+        }
+    }
+
+    private async Task RunAsync(ConditionTracker tracker, HealingPlan plan, Signal trigger, string key, object run, CancellationToken cancellationToken)
     {
         var name = plan.ConditionName;
         var startedAt = _timeProvider.GetUtcNow();
         var startTimestamp = _timeProvider.GetTimestamp();
         var steps = new List<HealingStepResult>();
         var outcome = HealingRunOutcome.Failed;
+        var held = false;
 
         using var activity = HomeostatDiagnostics.ActivitySource.StartActivity("homeostat.heal");
         activity?.SetTag("homeostat.condition", name);
         activity?.SetTag("homeostat.signal.source", trigger.Source);
+        activity?.SetTag("homeostat.instance", _options.InstanceId);
         HomeostatDiagnostics.Runs.Add(1, new KeyValuePair<string, object?>("condition", name));
 
         var slot = new ConcurrencySlot(_concurrency);
         try
         {
             await slot.AcquireAsync(cancellationToken).ConfigureAwait(false);
-            outcome = await ExecutePlanAsync(tracker, plan, trigger, steps, slot, cancellationToken).ConfigureAwait(false);
+            (outcome, held) = await ExecutePlanAsync(tracker, plan, trigger, steps, slot, cancellationToken).ConfigureAwait(false);
         }
         catch (Exception) when (cancellationToken.IsCancellationRequested)
         {
@@ -165,18 +338,53 @@ internal sealed class HealingRunner
             activity?.SetTag("homeostat.outcome", outcomeName);
 
             slot.Release();
-
-            var completedAt = _timeProvider.GetUtcNow();
-            _lastRunEnded[name] = completedAt;
-            _running.TryRemove(name, out _);
-
-            var result = new HealingRunResult(name, outcome, steps.ToArray(), startedAt, completedAt);
-            _history.Add(result);
-            _notifier.Notify(o => o.OnRunCompleted(result));
         }
+
+        var completedAt = _timeProvider.GetUtcNow();
+        var result = new HealingRunResult(name, outcome, steps.ToArray(), startedAt, completedAt);
+
+        // Persist before notifying, so a test or an operator who sees the run also sees its cooldown. Use a fresh
+        // token: the outcome of a run cancelled by the shutdown is still worth recording.
+        using (var persistCts = new CancellationTokenSource(TimeSpan.FromSeconds(10)))
+        {
+            var failed = outcome is HealingRunOutcome.NotHealed or HealingRunOutcome.Inconclusive or HealingRunOutcome.Failed;
+            var update = new PlanStateUpdate
+            {
+                LastRunEndedAt = completedAt,
+                LastRunBy = _options.InstanceId,
+                Failures = outcome == HealingRunOutcome.Healed ? FailureCountChange.Reset
+                    : failed ? FailureCountChange.Increment
+                    : FailureCountChange.Keep,
+                Held = held ? true : null,
+            };
+
+            try
+            {
+                _knownState[key] = await _store.UpdatePlanStateAsync(key, update, persistCts.Token).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                // Keep the cooldown locally at least, so the plan does not repeat at once.
+                _knownState[key] = update.ApplyTo(_knownState.TryGetValue(key, out var known) ? known : PlanState.Empty);
+                _logger.LogError(ex, "Condition {Condition}: could not save the plan state.", name);
+            }
+
+            try
+            {
+                await _store.AppendRunAsync(HealingRunRecord.From(result, _options.InstanceId), _options.RunHistorySize, persistCts.Token).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Condition {Condition}: could not record the run in the history.", name);
+            }
+        }
+
+        // Free the slot before observers hear about the run, so a new triggering signal can start the next one.
+        _running.TryRemove(new KeyValuePair<string, object>(name, run));
+        _notifier.Notify(o => o.OnRunCompleted(result));
     }
 
-    private async Task<HealingRunOutcome> ExecutePlanAsync(
+    private async Task<(HealingRunOutcome Outcome, bool Held)> ExecutePlanAsync(
         ConditionTracker tracker,
         HealingPlan plan,
         Signal trigger,
@@ -206,7 +414,7 @@ internal sealed class HealingRunner
                 RecordAction(name, plan.Steps[i].Name, dryRun: true);
             }
 
-            return HealingRunOutcome.DryRun;
+            return (HealingRunOutcome.DryRun, false);
         }
 
         for (var i = 0; i < plan.Steps.Count; i++)
@@ -215,7 +423,7 @@ internal sealed class HealingRunner
 
             if (CheckStop(tracker, i) is { } stop)
             {
-                return stop;
+                return (stop, false);
             }
 
             if (step.RequiresApproval)
@@ -228,28 +436,41 @@ internal sealed class HealingRunner
                 // The world may have changed while waiting (cleared, paused, suppressed).
                 if (CheckStop(tracker, i) is { } stopAfterApproval)
                 {
-                    return stopAfterApproval;
+                    return (stopAfterApproval, false);
                 }
 
                 if (approval != ApprovalStatus.Approved)
                 {
-                    if (approval == ApprovalStatus.Rejected)
+                    var rejected = approval == ApprovalStatus.Rejected;
+                    if (rejected)
                     {
-                        _held.TryAdd(name, 0);
                         _logger.LogWarning(
                             "Condition {Condition}: plan held after the rejection; it will run again only after the condition clears.", name);
                     }
 
-                    return HealingRunOutcome.NotApproved;
+                    return (HealingRunOutcome.NotApproved, rejected);
                 }
             }
 
-            if (!_budget.TryConsume(_timeProvider.GetUtcNow()))
+            bool allowed;
+            try
+            {
+                allowed = await _store.TryConsumeBudgetAsync(
+                    _timeProvider.GetUtcNow(), _options.MaxActionsPerWindow, _options.ActionBudgetWindow, cancellationToken).ConfigureAwait(false);
+            }
+            catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
+            {
+                // Fail closed: an action whose budget cannot be checked does not run.
+                LogStoreFailure(name, ex, "Condition {Condition}: the store is unavailable; the action budget cannot be checked.");
+                return (HealingRunOutcome.Failed, false);
+            }
+
+            if (!allowed)
             {
                 _logger.LogError(
                     "Condition {Condition}: action budget exhausted ({Max} actions per {Window}). Manual intervention required.",
                     name, _options.MaxActionsPerWindow, _options.ActionBudgetWindow);
-                return HealingRunOutcome.BudgetExhausted;
+                return (HealingRunOutcome.BudgetExhausted, false);
             }
 
             await using var scope = _scopeFactory.CreateAsyncScope();
@@ -296,19 +517,25 @@ internal sealed class HealingRunner
                 verificationError = ex;
             }
 
-            Report(results, new HealingStepResult(name, i, step.Name, Succeeded: true, verification, verificationError));
+            bool? undone = null;
+            if (verification == VerificationOutcome.NotHealed && step.ResolveUndo is { } resolveUndo)
+            {
+                undone = await TryUndoAsync(context, step, resolveUndo, plan, scope.ServiceProvider, cancellationToken).ConfigureAwait(false);
+            }
+
+            Report(results, new HealingStepResult(name, i, step.Name, Succeeded: true, verification, verificationError, undone));
 
             switch (verification)
             {
                 case VerificationOutcome.Healed:
                     _logger.LogInformation("Condition {Condition}: healed by {Action}.", name, step.Name);
-                    return HealingRunOutcome.Healed;
+                    return (HealingRunOutcome.Healed, false);
 
                 case VerificationOutcome.Inconclusive:
                     _logger.LogWarning(
                         "Condition {Condition}: verification after {Action} was inconclusive; not escalating further.",
                         name, step.Name);
-                    return HealingRunOutcome.Inconclusive;
+                    return (HealingRunOutcome.Inconclusive, false);
 
                 default:
                     _logger.LogWarning("Condition {Condition}: {Action} did not heal the condition.", name, step.Name);
@@ -319,7 +546,32 @@ internal sealed class HealingRunner
         _logger.LogError(
             "Condition {Condition}: all {Count} healing steps were tried without success. Manual intervention required.",
             name, plan.Steps.Count);
-        return HealingRunOutcome.NotHealed;
+        return (HealingRunOutcome.NotHealed, false);
+    }
+
+    private async Task<bool> TryUndoAsync(
+        HealingContext context,
+        HealingStep step,
+        Func<IServiceProvider, IHealingAction> resolveUndo,
+        HealingPlan plan,
+        IServiceProvider services,
+        CancellationToken cancellationToken)
+    {
+        var timeout = plan.ActionTimeout ?? _options.DefaultActionTimeout;
+        using var timeoutCts = new CancellationTokenSource(timeout, _timeProvider);
+        using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeoutCts.Token);
+
+        _logger.LogWarning("Condition {Condition}: {Action} did not heal; compensating with {Undo}.", context.ConditionName, step.Name, step.UndoName);
+        try
+        {
+            await resolveUndo(services).ExecuteAsync(context, linkedCts.Token).ConfigureAwait(false);
+            return true;
+        }
+        catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
+        {
+            _logger.LogError(ex, "Condition {Condition}: compensating action {Undo} failed.", context.ConditionName, step.UndoName);
+            return false;
+        }
     }
 
     private HealingRunOutcome? CheckStop(ConditionTracker tracker, int index)

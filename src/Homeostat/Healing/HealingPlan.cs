@@ -11,8 +11,14 @@ public sealed class HealingPlan
         Type? verifierType,
         TimeSpan? verificationTimeout,
         TimeSpan? actionTimeout,
-        TimeSpan? cooldown)
+        TimeSpan? cooldown,
+        PlanScope scope,
+        double cooldownBackoff,
+        TimeSpan? maxCooldown)
     {
+        Scope = scope;
+        CooldownBackoff = cooldownBackoff;
+        MaxCooldown = maxCooldown;
         ConditionName = conditionName;
         Steps = steps;
         VerifierType = verifierType;
@@ -38,4 +44,13 @@ public sealed class HealingPlan
 
     /// <summary><c>null</c> means <see cref="HomeostatOptions.DefaultCooldown"/>.</summary>
     public TimeSpan? Cooldown { get; }
+
+    /// <summary>Where the plan runs: on every instance that sees the condition, or once across the cluster.</summary>
+    public PlanScope Scope { get; }
+
+    /// <summary>Factor applied to the cooldown after each run in a row that did not heal; 1 means no backoff.</summary>
+    public double CooldownBackoff { get; }
+
+    /// <summary>Upper bound of the cooldown when <see cref="CooldownBackoff"/> is above 1.</summary>
+    public TimeSpan? MaxCooldown { get; }
 }

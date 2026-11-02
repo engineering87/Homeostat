@@ -9,6 +9,12 @@ namespace Homeostat.Signals;
 /// <param name="Timestamp">When the observation was made.</param>
 public sealed record Signal(string Source, SignalSeverity Severity, DateTimeOffset Timestamp)
 {
+    /// <summary>
+    /// Optional measured value behind the severity (a latency, a ratio, a rate), used by value, trend and anomaly
+    /// conditions such as <c>WhenValueAbove</c> or <c>WhenRisingFasterThan</c>.
+    /// </summary>
+    public double? Value { get; init; }
+
     /// <summary>Optional human-readable detail.</summary>
     public string? Message { get; init; }
 

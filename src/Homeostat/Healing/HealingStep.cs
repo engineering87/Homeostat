@@ -21,5 +21,10 @@ public sealed class HealingStep
     /// <summary>Switch turned off automatically when the condition clears, if the step turned it on.</summary>
     internal string? SwitchToResetOnClear { get; init; }
 
+    /// <summary>Name of the compensating action, if any (see <see cref="HealingPlanBuilder.UndoWith{TAction}"/>).</summary>
+    public string? UndoName { get; internal set; }
+
     internal Func<IServiceProvider, IHealingAction> Resolve { get; }
+
+    internal Func<IServiceProvider, IHealingAction>? ResolveUndo { get; set; }
 }

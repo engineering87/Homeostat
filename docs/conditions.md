@@ -21,6 +21,9 @@ name and, usually, a healing plan.
 | How long must it last? | `SustainedFor(...)` | Immediately |
 | How long must recovery last? | `ClearAfter(...)` | Immediately |
 | Is it only a symptom of another problem? | `SuppressedBy(...)` | No |
+| Does it depend on a value, a trend or an anomaly? | `WhenValueAbove(...)`, `WhenRisingFasterThan(...)`, `WhenAnomalouslyHigh(...)` | No |
+| Must it happen several times? | `Occurrences(...)` | No |
+| Is it a combination of other conditions? | `WhenAllActive(...)`, `WhenAnyActive(...)` | No |
 
 ### Which signals: `ForSource` and `Where`
 
@@ -138,6 +141,66 @@ meantime. When `network-down` clears, the next triggering signal of `forecast-fa
 the cooldown, if a run happened before). A condition can list several causes. Unknown names, a condition that
 suppresses itself and cycles (`a` suppressed by `b`, `b` by `a`) fail at startup.
 
+### Values, trends and anomalies
+
+Many signals carry a measured `Value` besides their severity: the detectors fill it (thread pool latency in ms,
+memory load from 0 to 1, exceptions per second, HTTP failure ratio) and so do [metric signals](detectors.md#metrics).
+Conditions can use it directly:
+
+```csharp
+c.ForSource("memory").WhenValueAbove(0.9)                                      // a fixed threshold
+c.ForSource("memory").WhenRisingFasterThan(0.01, TimeSpan.FromMinutes(30))    // +1% per minute: a slow leak
+c.ForSource("http:forecast").WhenAnomalouslyHigh(3, TimeSpan.FromHours(1))    // 3σ above the last hour
+```
+
+| Rule | Triggers when | Good for |
+|---|---|---|
+| `WhenValueAbove(x)`, `WhenValueBelow(x)` | The value crosses a threshold | Limits you know |
+| `WhenRisingFasterThan(perMinute, window)`, `WhenFallingFasterThan(...)` | The least-squares slope over the window exceeds the rate (at least 5 values, spanning at least half the window) | Leaks, growing backlogs, draining pools: act **before** the limit |
+| `WhenAnomalouslyHigh(z, window)`, `WhenAnomalouslyLow(...)` | The value is `z` standard deviations from the mean of the window (at least 30 earlier values by default) | Metrics without a natural threshold, such as latency that depends on the time of day |
+
+Things to know:
+
+- Signals without a value never trigger these rules (and, with the default clear rule, count as recovery).
+- An anomaly that lasts becomes the new baseline, so the condition eventually clears even if the value stays
+  high. Combine it with a fixed threshold when a high level must keep the condition active.
+- The history lives in memory and starts empty after a restart, or when the condition's own configuration changes
+  (for conditions defined in [configuration](configuration.md); trend and anomaly rules are only available in code).
+- The anomaly rule floors the standard deviation at 1% of the mean, so a perfectly flat history does not turn every
+  tiny change into an anomaly; with an all-zero history, any non-zero value is anomalous.
+
+### Intermittent problems: `Occurrences`
+
+A dependency that fails one call in three never produces a sustained run of failures. `Occurrences` counts the
+matches of the trigger rule within a window, not necessarily in a row:
+
+```csharp
+c.ForSource("identity-provider")                           // any trigger rule works
+ .WhenSeverityAtLeast(SignalSeverity.Degraded)
+ .Occurrences(5, TimeSpan.FromMinutes(10))                  // 5 bad checks in 10 minutes
+```
+
+The condition activates on the match that reaches the count and, unless you set `ClearWhen`, clears when the
+matches within the window drop below the count: a few good signals in between do not end it.
+
+### Combinations: `WhenAllActive` and `WhenAnyActive`
+
+A composite condition is active while all (or any) of the listed conditions are active. It has no source of its
+own and can have its own plan, which is useful when a combination needs a different fix than its parts:
+
+```csharp
+.AddCondition("db-slow", c => c.ForSource("db"))
+.AddCondition("cache-down", c => c.ForSource("cache"))
+.AddCondition("platform-degraded", c => c
+    .WhenAllActive("db-slow", "cache-down")
+    .SustainedFor(TimeSpan.FromMinutes(1))
+    .Heal(p => p.TurnOnSwitch("read-only-mode", turnOffWhenCleared: true)))
+```
+
+Composites are evaluated after every signal, after the conditions they depend on; they support `SustainedFor`,
+`ClearAfter`, `SuppressedBy` and plans like any condition, and may depend on other composites. Unknown names,
+self-references and cycles fail at startup.
+
 ## Lifecycle
 
 ```mermaid
@@ -193,7 +256,8 @@ conditions hand over to each other. Remember that only one run executes at a tim
 
 - Condition names must be unique; duplicates fail at startup.
 - `SustainedFor` and `ClearAfter` cannot be negative.
-- `SuppressedBy` must name registered conditions, without self-references or cycles.
+- `SuppressedBy`, `WhenAllActive` and `WhenAnyActive` must name registered conditions, without self-references
+  or cycles.
 - A plan must contain at least one action.
 - `ActionTimeout` and `VerificationTimeout` must be positive (at most about 49 days, the .NET timer
   limit) and `Cooldown` cannot be negative; invalid
