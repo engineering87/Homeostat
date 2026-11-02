@@ -13,8 +13,14 @@ permissions: read-all
 
 jobs:
   analysis:
+    # Scorecard publishes results, and the code scanning upload needs GitHub Advanced Security, only for public
+    # repositories: while the repository is private the job is skipped.
+    if: ${{ !github.event.repository.private }}
     runs-on: ubuntu-latest
+    # Job permissions replace the workflow's: list the read permissions too, or checkout cannot fetch.
     permissions:
+      contents: read
+      actions: read
       security-events: write
       id-token: write
 
