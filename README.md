@@ -97,6 +97,9 @@ builder.Services.AddHttpClient("forecast")
 builder.Services.AddHomeostat(h => h
     .AddThreadPoolStarvationDetector()                 // runtime detectors
     .AddMemoryPressureDetector()
+    .AddDatabaseProbe("catalog-db", _ => new SqlConnection(catalogDb))      // database round trip
+    .AddProbe("ingest-backlog", async (sp, ct) => await sp.GetRequiredService<IngestQueue>().CountAsync(ct),
+        p => p.UnhealthyAbove = 10_000)                // any number you can fetch
     .AddCondition("forecast-api-failing", c => c
         .ForSource("http:forecast")
         .SustainedFor(TimeSpan.FromSeconds(30))
@@ -149,7 +152,9 @@ app.MapHomeostatControl("operations");                 // pause, resume, approve
 | Thread pool, memory, exceptions | Intermittent problems | Reload configuration | Once-per-cluster plans |
 | HTTP clients (failures, p95 latency) | Combinations of conditions | Switches with automatic reset | Status and control endpoints |
 | Polly circuit breakers | Hysteresis, causes vs symptoms | Compensating actions | Webhooks, audit log, health check |
-| Your own code or detectors | Escalation with verification, human approval | | Conditions from `appsettings.json`, test host |
+| Databases, Redis, memory caches | Escalation with verification, human approval | Connection pool reset, cache purge | Conditions from `appsettings.json`, test host |
+| Alertmanager, Grafana, Azure Monitor alerts | | Circuit isolation, feature flags | Chaos for game days |
+| Probes: queues, lag, any number you can fetch | | | |
 
 ## Why Homeostat
 
@@ -211,11 +216,15 @@ dotnet add package Homeostat
 | Package | Purpose |
 |---|---|
 | `Homeostat` | Core engine, runtime detectors, built-in actions, switches, guardrails, approvals, audit log |
-| `Homeostat.AspNetCore` | Status and control endpoints |
+| `Homeostat.AspNetCore` | Status and control endpoints; alerts from Alertmanager, Grafana and Azure Monitor as signals |
+| `Homeostat.Caching` | Memory cache hit ratio as signals; HybridCache, distributed and memory cache purge actions |
+| `Homeostat.Data` | Database probes for any ADO.NET provider; connection pool reset |
+| `Homeostat.FeatureManagement` | Feature filter driven by Homeostat switches |
 | `Homeostat.HealthChecks` | Health check results as signals; Homeostat's own health check |
 | `Homeostat.Http` | Failure ratio and latency of `IHttpClientFactory` clients as signals; webhook notifier |
-| `Homeostat.Polly` | Polly v8 circuit breaker state as signals |
-| `Homeostat.Redis` | State shared by every instance, plans that run once per cluster |
+| `Homeostat.OpenFeature` | OpenFeature provider exposing Homeostat switches as flags |
+| `Homeostat.Polly` | Polly v8 circuit breaker state as signals; circuit isolation; chaos enabled by switches |
+| `Homeostat.Redis` | State shared by every instance, plans that run once per cluster; Redis client health signals |
 | `Homeostat.Testing` | Test host with simulated time, fault injection, helpers for unit tests |
 
 Targets **.NET 10** (LTS, supported until November 2028).

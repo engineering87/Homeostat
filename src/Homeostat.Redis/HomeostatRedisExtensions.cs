@@ -3,6 +3,7 @@ using Homeostat.Persistence;
 using Homeostat.Redis;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Hosting;
 using StackExchange.Redis;
 
 namespace Homeostat;
@@ -49,7 +50,59 @@ public static class HomeostatRedisExtensions
         ArgumentNullException.ThrowIfNull(builder);
         ArgumentException.ThrowIfNullOrWhiteSpace(connectionString);
 
-        builder.Services.TryAddSingleton<IConnectionMultiplexer>(_ => ConnectionMultiplexer.Connect(connectionString));
+        // AbortOnConnectFail = false: the application starts even when Redis does not; the store fails closed and
+        // the client keeps reconnecting in the background.
+        builder.Services.TryAddSingleton<IConnectionMultiplexer>(_ =>
+        {
+            var configuration = ConfigurationOptions.Parse(connectionString);
+            configuration.AbortOnConnectFail = false;
+            return ConnectionMultiplexer.Connect(configuration);
+        });
         return builder.UseRedis(configure);
+    }
+
+    /// <summary>
+    /// Publishes the health of the Redis client as signals from <paramref name="source"/>: a periodic <c>PING</c>
+    /// whose round trip in milliseconds is the signal value (thresholds in <see cref="RedisSignalOptions"/>), and,
+    /// when <see cref="RedisSignalOptions.PublishConnectionEvents"/> is on, an immediate signal when the client loses
+    /// or restores a connection. A client that is not connected, or a ping that fails or times out, publishes
+    /// <see cref="Probes.ProbeOptions.FailureSeverity"/>. Uses the <see cref="IConnectionMultiplexer"/> registered in
+    /// the container, which can be the same one as <c>UseRedis</c> or the one your application uses for caching.
+    /// </summary>
+    /// <param name="builder">The Homeostat builder.</param>
+    /// <param name="source">Source of the published signals. Defaults to <c>"redis"</c>.</param>
+    /// <param name="configure">Changes interval, timeout, thresholds and connection events.</param>
+    /// <example>
+    /// <code>
+    /// h.AddRedisSignals("session-cache", o => o.DegradedAbove = 50)
+    ///  .AddCondition("session-cache-down", c => c.ForSource("session-cache").SustainedFor(TimeSpan.FromSeconds(30))
+    ///      .Heal(p => p.TurnOnSwitch("sessions-in-memory", turnOffWhenCleared: true)));
+    /// </code>
+    /// </example>
+    public static HomeostatBuilder AddRedisSignals(this HomeostatBuilder builder, string source = "redis", Action<RedisSignalOptions>? configure = null)
+    {
+        ArgumentNullException.ThrowIfNull(builder);
+        ArgumentException.ThrowIfNullOrWhiteSpace(source);
+
+        var options = new RedisSignalOptions();
+        configure?.Invoke(options);
+
+        options.Origin ??= "redis-ping";
+        var events = options.PublishConnectionEvents ? new RedisConnectionEventsPublisher(source, options.FailureSeverity) : null;
+
+        builder.AddLatencyProbe(source, async (sp, _) =>
+        {
+            var connection = sp.GetRequiredService<IConnectionMultiplexer>();
+            events?.EnsureSubscribed(connection, sp);
+            if (!connection.IsConnected)
+            {
+                throw new InvalidOperationException("The Redis client is not connected.");
+            }
+
+            await connection.GetDatabase().PingAsync().ConfigureAwait(false);
+        }, options.CopyTo);
+
+        builder.Services.TryAddEnumerable(ServiceDescriptor.Singleton<IHostedService, RedisSignalsValidator>());
+        return builder;
     }
 }

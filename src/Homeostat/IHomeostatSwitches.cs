@@ -25,4 +25,24 @@ public interface IHomeostatSwitches
 
     /// <summary>Names of the switches currently on.</summary>
     IReadOnlyCollection<string> GetActive();
+
+    /// <summary>
+    /// Raised after a switch is turned on or off (not when the call leaves it unchanged). Handlers run synchronously
+    /// on the thread that changed the switch, so keep them quick; an exception thrown by a handler is logged and does
+    /// not reach the caller. Events for the same switch can arrive out of order under concurrent changes: read
+    /// <see cref="IsOn"/> in the handler when the current state matters.
+    /// </summary>
+    event EventHandler<SwitchChangedEventArgs>? Changed;
+}
+
+/// <summary>Data for <see cref="IHomeostatSwitches.Changed"/>.</summary>
+/// <param name="name">Name of the switch.</param>
+/// <param name="isOn">Whether the change turned the switch on.</param>
+public sealed class SwitchChangedEventArgs(string name, bool isOn) : EventArgs
+{
+    /// <summary>Name of the switch.</summary>
+    public string Name { get; } = name;
+
+    /// <summary>Whether the change turned the switch on.</summary>
+    public bool IsOn { get; } = isOn;
 }

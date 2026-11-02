@@ -33,7 +33,7 @@ Commits and pull request titles follow [Conventional Commits](https://www.conven
 | Part | Allowed values |
 |---|---|
 | Type | `feat`, `fix`, `docs`, `test`, `refactor`, `perf`, `build`, `ci`, `chore`, `style`, `revert` |
-| Scope (optional) | `core`, `aspnetcore`, `healthchecks`, `http`, `polly`, `testing`, `samples`, `docs`, `deps`, `ci`, `release` |
+| Scope (optional) | `core`, `aspnetcore`, `caching`, `data`, `featureflags`, `healthchecks`, `http`, `polly`, `redis`, `testing`, `samples`, `docs`, `deps`, `ci`, `release` |
 
 Examples: `feat(core): add hysteresis to conditions`, `fix(http): dispose the response when IsFailure throws`,
 `docs: explain approvals`. A `!` after the type or scope (`feat(aspnetcore)!: ...`) marks a breaking change.

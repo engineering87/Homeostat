@@ -44,11 +44,14 @@ builder.Services
 ## Packages
 
 - `Homeostat`: core engine, runtime detectors, built-in actions, approvals, audit log.
-- `Homeostat.AspNetCore`: status and control endpoints.
+- `Homeostat.AspNetCore`: status and control endpoints; alerts from Alertmanager, Grafana and Azure Monitor as signals.
 - `Homeostat.HealthChecks`: health check results as signals; Homeostat's own health check.
 - `Homeostat.Http`: HTTP client failures and latency as signals; webhook notifier.
-- `Homeostat.Polly`: Polly v8 circuit breaker state as signals.
-- `Homeostat.Redis`: shared state and coordination across instances.
+- `Homeostat.Polly`: Polly v8 circuit breaker state as signals; circuit isolation; chaos enabled by switches.
+- `Homeostat.Redis`: shared state and coordination across instances; Redis client health signals.
+- `Homeostat.Data`: database probes for any ADO.NET provider; connection pool reset.
+- `Homeostat.Caching`: memory cache hit ratio; HybridCache, distributed and memory cache purge actions.
+- `Homeostat.FeatureManagement` and `Homeostat.OpenFeature`: feature flags driven by Homeostat switches.
 - `Homeostat.Testing`: test host with simulated time.
 
 ## Learn more

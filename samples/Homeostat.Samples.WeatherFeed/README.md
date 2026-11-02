@@ -42,8 +42,9 @@ cooldown, Homeostat tries again. A rejection holds the plan until the feed recov
 | `POST /homeostat/pause`, then a fault | Conditions are tracked, nothing runs; `/health` reports Homeostat as degraded |
 | `POST /homeostat/resume` | Healing resumes on the next unhealthy check |
 | `POST /restore` | The feed recovers; the condition clears after 6 seconds of good checks (`ClearAfter`) |
+| `POST /homeostat/alerts/signals` with `{"source":"RadarTilesSlow","severity":"Degraded"}` | Like an alert from your monitoring: the switch `hide-radar-tiles` turns on; send `"Healthy"` and it turns off |
 | `logs/homeostat-*.jsonl` | The audit trail of every event |
 | `data/homeostat.json` | Cooldowns, budget and history: restart the sample and they are still there |
 
-The sample turns dry-run off and maps the control endpoints without authorization, to keep the demo short.
+The sample turns dry-run off and maps the control and alert endpoints without authorization, to keep the demo short.
 Do neither in a real application.

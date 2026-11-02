@@ -20,6 +20,10 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\Homeostat\Homeostat.csproj" />
     <ProjectReference Include="..\..\src\Homeostat.AspNetCore\Homeostat.AspNetCore.csproj" />
+    <ProjectReference Include="..\..\src\Homeostat.Caching\Homeostat.Caching.csproj" />
+    <ProjectReference Include="..\..\src\Homeostat.Data\Homeostat.Data.csproj" />
+    <ProjectReference Include="..\..\src\Homeostat.FeatureManagement\Homeostat.FeatureManagement.csproj" />
+    <ProjectReference Include="..\..\src\Homeostat.OpenFeature\Homeostat.OpenFeature.csproj" />
     <ProjectReference Include="..\..\src\Homeostat.HealthChecks\Homeostat.HealthChecks.csproj" />
     <ProjectReference Include="..\..\src\Homeostat.Http\Homeostat.Http.csproj" />
     <ProjectReference Include="..\..\src\Homeostat.Polly\Homeostat.Polly.csproj" />

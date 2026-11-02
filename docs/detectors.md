@@ -12,6 +12,11 @@ fixed interval and publish one signal per sample, ready to be used by [condition
 | Circuit breakers | `Homeostat.Polly` | your choice | State of Polly v8 circuit breakers |
 | Metrics | `Homeostat` | `metric:{instrument}` or your choice | Any `System.Diagnostics.Metrics` instrument: ASP.NET Core, HttpClient, Kestrel, runtime, your own |
 | Health checks | `Homeostat.HealthChecks` | health check name | See [Signals](signals.md#health-checks-as-signals) |
+| Probes | `Homeostat` | your choice | Any number or round trip you can fetch: backlogs, lag, free space, pings. See [Integrations](integrations.md#probes-any-number-as-a-signal) |
+| Databases | `Homeostat.Data` | your choice | Connection round trip and transient errors of any ADO.NET provider |
+| Redis client | `Homeostat.Redis` | `redis` | `PING` round trip and lost connections |
+| Memory cache | `Homeostat.Caching` | `memory-cache` | Hit ratio of an `IMemoryCache` |
+| Alerts | `Homeostat.AspNetCore` | `alert:{alert name}` | Alertmanager, Grafana and Azure Monitor notifications. See [Integrations](integrations.md#alerts-from-your-monitoring) |
 
 All detectors except health checks (which follow the `AddHealthCheckSignals` period) run every
 `DetectionInterval` (default **10 seconds**):
@@ -268,7 +273,9 @@ Things to know:
 
 ## Writing your own detector
 
-Implement `ISignalDetector` and register it:
+For a value you can fetch with one call, a [probe](integrations.md#probes-any-number-as-a-signal) is shorter:
+`h.AddProbe("disk-free", (sp, ct) => ..., p => p.DegradedBelow = 10)`. For anything else, implement
+`ISignalDetector` and register it:
 
 ```csharp
 public sealed class DiskSpaceDetector(TimeProvider time) : ISignalDetector

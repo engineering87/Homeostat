@@ -53,6 +53,11 @@ builder.Services
                 .Then<SwitchToBackupProviderAction>().RequireApproval(TimeSpan.FromMinutes(5))
                 // Retry less and less often while the feed stays broken.
                 .CooldownBackoff(2, TimeSpan.FromMinutes(5))))
+        // Fed by your monitoring through POST /homeostat/alerts/alertmanager: heal what alerts already detect.
+        .AddCondition("radar-tiles-slow", c => c
+            .ForSource("alert:RadarTilesSlow")
+            .WhenSeverityAtLeast(SignalSeverity.Degraded)
+            .Heal(p => p.TurnOnSwitch("hide-radar-tiles", turnOffWhenCleared: true)))
         .AddHealthCheckSignals(period: TimeSpan.FromSeconds(2))
         // Every decision, one JSON object per line.
         .AddAuditLog("logs/homeostat-{date}.jsonl"));
@@ -66,6 +71,8 @@ app.MapHealthChecks("/health");
 // Demo only: a real application passes an authorization policy, for example MapHomeostatControl("operations").
 app.MapHomeostatStatus(allowAnonymous: true);
 app.MapHomeostatControl(allowAnonymous: true);
+// POST /homeostat/alerts/alertmanager | grafana | azure-monitor | signals. A real application sets a token or a policy.
+app.MapHomeostatAlerts(allowAnonymous: true);
 
 app.MapGet("/feed", (WeatherFeedClient client) => new { client.IsStuck, client.ActiveProvider, client.Renewals });
 

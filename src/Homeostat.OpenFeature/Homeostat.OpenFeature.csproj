@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <PackageId>Homeostat.OpenFeature</PackageId>
+    <Description>OpenFeature integration for Homeostat: a provider that exposes Homeostat switches as boolean flags, alone or next to your flag provider, so healing plans degrade gracefully through OpenFeature.</Description>
+    <PackageTags>$(PackageTags);feature-flags;openfeature;graceful-degradation</PackageTags>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Homeostat\Homeostat.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="OpenFeature" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="..\..\docs\nuget\README.md" Pack="true" PackagePath="\" />
+    <None Include="..\..\assets\icon.png" Pack="true" PackagePath="\" />
+  </ItemGroup>
+
+</Project>

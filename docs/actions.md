@@ -17,6 +17,11 @@ lambda, or write a class. All three can be mixed in the same plan.
 | `RestartHostedService<T>()` | Stops and starts a hosted service | A background worker stuck in a bad state |
 | `ReloadConfiguration()` | Reloads `IConfiguration` from all providers | Stale settings, rotated endpoints |
 | `TurnOnSwitch(name)` | Turns on a named switch your code reads | Degraded mode: serve cache, skip non-essential work |
+| `ClearConnectionPools<TConnection>()` (`Homeostat.Data`) | Empties the ADO.NET provider's connection pools | Stale connections after a database failover |
+| `PurgeHybridCacheTags(...)`, `RemoveHybridCacheKeys(...)` (`Homeostat.Caching`) | Invalidates `HybridCache` entries | Stale or poisoned cached data |
+| `RemoveDistributedCacheKeys(...)` (`Homeostat.Caching`) | Removes `IDistributedCache` keys | Same, for a distributed cache |
+| `CompactMemoryCache(percentage)` (`Homeostat.Caching`) | Evicts part of the memory cache | Memory pressure |
+| `IsolateCircuit(control)` (`Homeostat.Polly`) | Isolates Polly circuit breakers until the condition clears | Fail fast while a dependency is known to be down |
 
 ### `RestartHostedService<T>()`
 

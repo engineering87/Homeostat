@@ -22,6 +22,7 @@ New to Homeostat? Read the pages in this order: each one builds on the previous.
 | [Observability](observability.md) | Log messages, traces, metrics, `IHomeostatControl`, observers |
 | [Notifications and audit](notifications.md) | JSON Lines audit log, webhook notifier for chats and incident tools |
 | [Persistence and clusters](persistence-and-clusters.md) | File and Redis stores, several instances, plans that run once per cluster |
+| [Integrations](integrations.md) | Probes, databases, Redis, message brokers, caches, alerts from monitoring, feature flags, Polly circuit isolation and chaos |
 | [Configuration](configuration.md) | Conditions and plans in `appsettings.json`, applied at runtime |
 | [ASP.NET Core endpoints](aspnetcore.md) | Status and control endpoints, Homeostat as a health check |
 | [Testing](testing.md) | Scenario tests with simulated time, approvals, fault injection, unit testing actions |

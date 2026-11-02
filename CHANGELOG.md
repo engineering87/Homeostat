@@ -14,6 +14,25 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Added
 
+- Integrations (wave 2), see `docs/integrations.md`:
+  - Probes (`AddProbe`, `AddLatencyProbe`): any number or round trip as a signal value, with thresholds, interval
+    and timeout; probes run in the background in their own scope without delaying other detectors, and a hanging
+    call is cancelled and never stacked with new ones.
+  - `Homeostat.Data`: `AddDatabaseProbe` for any ADO.NET provider, failures tagged `transient` from
+    `DbException.IsTransient`, and the `ClearConnectionPools<TConnection>()` action.
+  - `Homeostat.Redis`: `AddRedisSignals` (ping round trip and connection events of the Redis client);
+    `UseRedis(connectionString)` no longer aborts startup when Redis is down.
+  - `Homeostat.Caching`: `AddMemoryCacheSignals` (hit ratio) and the `PurgeHybridCacheTags`, `RemoveHybridCacheKeys`,
+    `RemoveDistributedCacheKeys` and `CompactMemoryCache` actions.
+  - `Homeostat.AspNetCore`: `MapHomeostatAlerts`, receiving Prometheus Alertmanager, Grafana and Azure Monitor
+    (common alert schema) notifications and generic signals, protected by a policy or a token, with size limits.
+    Alerts are kept as state per source (worst firing series wins, Healthy only when none fires), republished at
+    every detection interval and expired after `FiringTimeToLive`; sources carry the `alert:` prefix.
+  - `Homeostat.FeatureManagement` (`Homeostat.Switch` feature filter) and `Homeostat.OpenFeature`
+    (`HomeostatSwitchProvider`): feature flags driven by switches.
+  - `Homeostat.Polly`: `CircuitControl` and the `IsolateCircuit` action (manual circuit isolation driven by a switch),
+    `ChaosEnabledBySwitch` for chaos strategies during game days.
+  - `IHomeostatSwitches.Changed` event, raised when a switch is turned on or off.
 - Persistent state: `IHomeostatStore` with in-memory, file (`UseFileStore`) and Redis stores; atomic plan-state
   updates (cooldown, backoff, holds), budget and run history survive restarts; fail-closed when the store is
   unavailable, with the status endpoint still answering.

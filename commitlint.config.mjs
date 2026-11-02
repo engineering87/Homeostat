@@ -13,7 +13,10 @@ export default {
     'scope-enum': [
       2,
       'always',
-      ['core', 'aspnetcore', 'healthchecks', 'http', 'polly', 'testing', 'samples', 'docs', 'deps', 'ci', 'release'],
+      [
+        'core', 'aspnetcore', 'caching', 'data', 'featureflags', 'healthchecks', 'http', 'polly', 'redis',
+        'testing', 'samples', 'docs', 'deps', 'ci', 'release',
+      ],
     ],
     'header-max-length': [2, 'always', 100],
     // Long lines in bodies (links, Dependabot release notes) are reported but do not fail.

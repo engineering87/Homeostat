@@ -25,14 +25,17 @@ ships as previews. It is indicative and changes with feedback: open an issue to 
 
 ## Wave 2: integrations where .NET applications break
 
-- [ ] Databases (EF Core, SqlClient, Npgsql): pool exhaustion and transient error signals; pool reset actions
-- [ ] Redis client health signals and reconnect action
-- [ ] Messaging (Azure Service Bus, RabbitMQ, Kafka): consumer lag and dead-letter signals; consumer restart and pause actions
-- [ ] Caches (`HybridCache`, `IDistributedCache`): hit ratio signals; targeted purge actions
-- [ ] Feature flags (Microsoft.FeatureManagement, OpenFeature) as degradation actions
-- [ ] Polly: manual circuit control actions; chaos strategies to validate plans
-- [ ] Alert ingestion (Prometheus Alertmanager, Azure Monitor, Grafana) as signals
-- [ ] .NET Aspire integration
+- [x] Probes: any number or round trip as a signal, concurrent, with timeouts and no pile-up (`AddProbe`, `AddLatencyProbe`)
+- [x] Databases (`Homeostat.Data`): connectivity and latency probes for any ADO.NET provider, transient error tagging, pool reset actions
+- [x] Redis client health signals: ping round trip and connection events
+- [x] Caches (`Homeostat.Caching`): memory cache hit ratio; HybridCache, distributed and memory cache purge actions
+- [x] Feature flags as degradation (`Homeostat.FeatureManagement`, `Homeostat.OpenFeature`), driven by switches with change events
+- [x] Polly: circuit isolation from plans and by hand; chaos strategies enabled by switches for game days
+- [x] Alert ingestion (Prometheus Alertmanager, Grafana, Azure Monitor, generic signals) as signals
+- [x] Message brokers: recipes with probes for Azure Service Bus, RabbitMQ and Kafka
+- [ ] Native broker packages: consumer lag and dead-letter signals, pause and resume of consumers
+- [ ] Pool exhaustion signals for providers without metrics
+- [ ] .NET Aspire hosting integration (resource, dashboard links)
 
 ## Wave 3: operations and developer experience
 

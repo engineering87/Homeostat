@@ -3,7 +3,7 @@
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
     <PackageId>Homeostat.Polly</PackageId>
-    <Description>Turns the state of Polly v8 circuit breakers into Homeostat signals.</Description>
+    <Description>Polly v8 integration for Homeostat: circuit breaker state as signals, manual circuit isolation as a healing action, and chaos strategies enabled by switches for game days.</Description>
   </PropertyGroup>
 
   <ItemGroup>
