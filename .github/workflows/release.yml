@@ -4,7 +4,8 @@ name: Release
 #   git tag v1.0.0 && git push origin v1.0.0
 # Requires the secret NUGET_API_KEY (a key scoped to the Homeostat* packages). Optional: NUGET_SIGNING_CERTIFICATE
 # (a code signing certificate as base64 PFX, registered on nuget.org) and NUGET_SIGNING_PASSWORD sign the packages.
-# Every release carries an SBOM (SPDX) and a build provenance attestation for each package: see SECURITY.md.
+# Every release carries an SBOM (SPDX) and a build provenance attestation for each package, also attached to the
+# release as homeostat-<version>.intoto.jsonl: see SECURITY.md.
 
 on:
   push:
@@ -55,7 +56,8 @@ jobs:
           echo "VERSION=$version" >> "$GITHUB_ENV"
 
       - name: Restore
-        run: dotnet restore Homeostat.slnx
+        # Locked mode: exactly the versions and hashes in the packages.lock.json files, or the build fails.
+        run: dotnet restore Homeostat.slnx --locked-mode
 
       - name: Build
         run: dotnet build Homeostat.slnx --configuration Release --no-restore -p:Version=$VERSION
@@ -101,11 +103,19 @@ jobs:
       - name: Build provenance
         # Signed statements that each package was built by this workflow from this commit:
         #   gh attestation verify Homeostat.1.0.0.nupkg --repo engineering87/Homeostat
+        id: provenance
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
           subject-path: |
             artifacts/*.nupkg
             artifacts/*.spdx.json
+
+      - name: Attach the provenance to the release
+        # The same signed bundle as a release asset, for verifiers that do not query GitHub's attestation API
+        # (for example the Signed-Releases check of OpenSSF Scorecard). It is not pushed to NuGet.
+        env:
+          BUNDLE: ${{ steps.provenance.outputs.bundle-path }}
+        run: cp "$BUNDLE" "artifacts/homeostat-$VERSION.intoto.jsonl"
 
       - name: Push to NuGet
         # Symbol packages (.snupkg) next to the .nupkg files are pushed automatically.

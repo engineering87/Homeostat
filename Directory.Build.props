@@ -8,6 +8,15 @@
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
   </PropertyGroup>
 
+  <!--
+    NuGet lock files: every project records the exact versions and content hashes it restores in packages.lock.json.
+    CI and release restore with locked mode, so a dependency cannot change without a reviewed lock file change
+    (Dependabot updates them together with Directory.Packages.props).
+  -->
+  <PropertyGroup>
+    <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
+  </PropertyGroup>
+
   <!-- Package metadata -->
   <PropertyGroup>
     <VersionPrefix>1.0.0</VersionPrefix>
