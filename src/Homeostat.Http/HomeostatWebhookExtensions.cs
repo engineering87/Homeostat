@@ -35,7 +35,8 @@ public static class HomeostatWebhookExtensions
             .Validate(o => o.MaxAttempts >= 1, "WebhookOptions.MaxAttempts must be at least 1.")
             .ValidateOnStart();
 
-        builder.Services.AddHttpClient(WebhookOptions.HttpClientName);
+        // The default HttpClient logging writes the request URL, and webhook URLs often carry a secret.
+        builder.Services.AddHttpClient(WebhookOptions.HttpClientName).RemoveAllLoggers();
         builder.Services.TryAddSingleton(TimeProvider.System);
         builder.AddEventSink<WebhookSink>();
         return builder;

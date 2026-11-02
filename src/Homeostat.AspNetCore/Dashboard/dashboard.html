@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="referrer" content="no-referrer">
+  <title>Homeostat</title>
+  <link rel="stylesheet" href="dashboard.css">
+  <script src="dashboard.js" defer></script>
+</head>
+<body>
+  <header class="top">
+    <div class="brand">
+      <span class="pulse" aria-hidden="true"></span>
+      <div>
+        <h1 id="app">Homeostat</h1>
+        <p class="muted" id="instance">Loading…</p>
+      </div>
+    </div>
+    <div class="badges" id="badges"></div>
+    <div class="actions">
+      <label class="sr-only" for="pause-for">Pause for</label>
+      <select id="pause-for">
+        <option value="">until resumed</option>
+        <option value="00:15:00">15 minutes</option>
+        <option value="01:00:00" selected>1 hour</option>
+        <option value="04:00:00">4 hours</option>
+      </select>
+      <button id="pause" class="danger">Pause</button>
+      <button id="resume">Resume</button>
+    </div>
+  </header>
+
+  <div id="banner" class="banner" hidden role="alert"></div>
+
+  <main>
+    <section class="card wide" aria-labelledby="h-approvals">
+      <h2 id="h-approvals">Waiting for approval</h2>
+      <div id="approvals"></div>
+    </section>
+
+    <section class="card wide" aria-labelledby="h-conditions">
+      <h2 id="h-conditions">Conditions</h2>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Condition</th><th>Status</th><th>Since</th><th>Last signal</th></tr></thead>
+          <tbody id="conditions"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="card" aria-labelledby="h-budget">
+      <h2 id="h-budget">Action budget</h2>
+      <div id="budget"></div>
+    </section>
+
+    <section class="card" aria-labelledby="h-switches">
+      <h2 id="h-switches">Switches on</h2>
+      <ul id="switches" class="list"></ul>
+      <form id="switch-form" class="inline">
+        <label class="sr-only" for="switch-name">Switch name</label>
+        <input id="switch-name" placeholder="switch name" maxlength="200" autocomplete="off">
+        <button type="submit">Turn on</button>
+      </form>
+    </section>
+
+    <section class="card wide" aria-labelledby="h-runs">
+      <h2 id="h-runs">Recent runs</h2>
+      <ol id="runs" class="runs"></ol>
+    </section>
+  </main>
+
+  <footer class="muted"><span id="updated"></span></footer>
+</body>
+</html>

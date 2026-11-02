@@ -92,7 +92,9 @@ public class ConfigurationTests
     [InlineData("SustainFor", "30s", "is not a known setting")]
     [InlineData("Plan:Steps:0:RequireAproval", "true", "is not a known setting")]
     [InlineData("ClearAfter", "30", "needs a unit")]
-    [InlineData("ValueAbove", "0.5", "only one of Severity, ValueAbove and ValueBelow")]
+    [InlineData("ValueAbove", "0.5", "only one of Severity, ValueAbove, ValueBelow")]
+    [InlineData("RisingFasterThan:PerMinute", "1", "only one of")]
+    [InlineData("AnomalouslyHigh:Window", "1h", "only one of")]
     public async Task Invalid_configuration_fails_at_startup_with_the_path(string key, string value, string expected)
     {
         var config = Config(new()
@@ -101,6 +103,63 @@ public class ConfigurationTests
             ["Conditions:feed-down:Plan:Steps:0:Action"] = "switch:x",
             ["Conditions:feed-down:Severity"] = "Unhealthy",
             [$"Conditions:feed-down:{key}"] = value,
+        });
+
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(() => HomeostatTestHost.StartAsync(h => h
+            .AddConditionsFromConfiguration(config.GetSection("Conditions"))));
+        Assert.Contains(expected, error.Message);
+    }
+
+    [Fact]
+    public async Task Trend_and_anomaly_rules_come_from_configuration()
+    {
+        var config = Config(new()
+        {
+            ["Conditions:leak:Source"] = "memory",
+            ["Conditions:leak:RisingFasterThan:PerMinute"] = "1",
+            ["Conditions:leak:RisingFasterThan:Window"] = "10m",
+            ["Conditions:leak:RisingFasterThan:MinimumSamples"] = "3",
+            ["Conditions:spike:Source"] = "latency",
+            ["Conditions:spike:AnomalouslyHigh:ZScore"] = "3",
+            ["Conditions:spike:AnomalouslyHigh:Window"] = "1h",
+            ["Conditions:spike:AnomalouslyHigh:MinimumHistory"] = "10",
+            ["Conditions:drain:Source"] = "free-disk",
+            ["Conditions:drain:FallingFasterThan:PerMinute"] = "1",
+            ["Conditions:drain:FallingFasterThan:Window"] = "10m",
+        });
+
+        await using var host = await HomeostatTestHost.StartAsync(h => h.AddConditionsFromConfiguration(config.GetSection("Conditions")));
+
+        // Memory rising by 2 per minute.
+        for (var minute = 0; minute <= 6; minute++) // spans more than half the window
+        {
+            host.Signals.TryPublish(new Signal("memory", SignalSeverity.Healthy, host.Time.GetUtcNow()) { Value = 10 + (2 * minute) });
+            host.Signals.TryPublish(new Signal("free-disk", SignalSeverity.Healthy, host.Time.GetUtcNow()) { Value = 100 - (2 * minute) });
+            host.Time.Advance(TimeSpan.FromMinutes(1));
+        }
+
+        // Steady latency, then a spike.
+        for (var i = 0; i < 12; i++)
+        {
+            host.Signals.TryPublish(new Signal("latency", SignalSeverity.Healthy, host.Time.GetUtcNow()) { Value = 100 + (i % 3) });
+            host.Time.Advance(TimeSpan.FromSeconds(10));
+        }
+
+        host.Signals.TryPublish(new Signal("latency", SignalSeverity.Healthy, host.Time.GetUtcNow()) { Value = 900 });
+
+        await PollyControlTests.WaitUntilAsync(() =>
+            host.Control.GetConditions().Count(c => c.Status == Conditions.ConditionStatus.Active) == 3);
+    }
+
+    [Theory]
+    [InlineData("RisingFasterThan:Window", "10m", "RisingFasterThan:PerMinute' is required")]
+    [InlineData("AnomalouslyLow:Score", "3", "is not a known setting")]
+    public async Task Incomplete_trend_and_anomaly_rules_are_rejected(string key, string value, string expected)
+    {
+        var config = Config(new()
+        {
+            ["Conditions:x:Source"] = "x",
+            [$"Conditions:x:{key}"] = value,
         });
 
         var error = await Assert.ThrowsAsync<InvalidOperationException>(() => HomeostatTestHost.StartAsync(h => h

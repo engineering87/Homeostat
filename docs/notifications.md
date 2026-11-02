@@ -108,6 +108,71 @@ builder.Services.AddHttpClient(WebhookOptions.HttpClientName)
 The URL is validated at startup: it must be absolute. One webhook is supported per application; for
 several destinations, point it to a small relay or write your own observer.
 
+## Incidents: PagerDuty and Opsgenie
+
+Page the on-call person only when a person is needed: when healing **gives up** (the run ended as not healed,
+inconclusive, out of budget or not approved) or a step **waits for approval**. The incident is resolved when the
+condition clears. There is one incident per application and condition (`homeostat/{application}/{condition}`), so
+repeated triggers update it instead of opening new ones.
+
+```csharp
+.AddPagerDutyIncidents(o => o.RoutingKey = builder.Configuration["PagerDuty:RoutingKey"])   // Events API v2
+.AddOpsgenieAlerts(o => o.ApiKey = builder.Configuration["Jsm:ApiKey"])                     // Opsgenie alert API
+```
+
+| Setting | Default | Meaning |
+|---|---|---|
+| `OnHealingGaveUp` | `true` | Trigger when a run ends without healing |
+| `OnApprovalRequested` | `true` | Trigger when a step waits for approval |
+| `OnConditionActivated` | `false` | Trigger as soon as a condition is active, before healing |
+| `ResolveWhenCleared` | `true` | Resolve (close) when the condition clears |
+| `Timeout`, `MaxAttempts` | 10 s, 3 | Delivery; network errors, 408, 429 and 5xx are retried, other 4xx are not |
+
+PagerDuty: severity `error` when healing gave up, `warning` otherwise; `component` and `group` are optional; EU
+accounts set `Url` to `https://events.eu.pagerduty.com/v2/enqueue`.
+
+Opsgenie: priority `P2` when healing gave up, `P3` otherwise, tags `homeostat` plus yours. The default endpoint is
+**Jira Service Management Operations** (`OpsgenieOptions.JiraServiceManagement`), where Atlassian is moving Opsgenie;
+standalone Opsgenie (`OpsgenieOptions.Opsgenie`, `OpsgenieOptions.OpsgenieEu`) is supported by Atlassian until
+5 April 2027. The key is sent as `Authorization: GenieKey {key}`; change `AuthorizationScheme` if your integration
+expects another scheme.
+
+## Chat: Slack and Microsoft Teams
+
+### Slack
+
+```csharp
+.AddSlackNotifications(o =>
+{
+    o.WebhookUrl = new Uri(builder.Configuration["Slack:WebhookUrl"]!);
+    o.DashboardUrl = new Uri("https://weather-api.internal/homeostat/dashboard");   // optional link
+    o.ApprovalButtons = true;                                                      // optional, see below
+})
+```
+
+Messages use Block Kit: an icon for the kind of event, the summary, the condition, and an **Open dashboard** button.
+Text coming from signals is escaped, so an alert message cannot mention `@channel` or forge links. With
+`ApprovalButtons`, approval requests carry **Approve** and **Reject** buttons: the webhook must belong to a Slack app
+with interactivity enabled, and the clicks are received by `MapHomeostatSlackInteractions`
+([ASP.NET Core endpoints](aspnetcore.md#slack-approvals)), which checks the signature and who may approve.
+
+### Microsoft Teams
+
+```csharp
+.AddTeamsNotifications(o =>
+{
+    o.WebhookUrl = new Uri(builder.Configuration["Teams:WorkflowUrl"]!);
+    o.DashboardUrl = new Uri("https://weather-api.internal/homeostat/dashboard");
+})
+```
+
+Create a Teams workflow from the template "Post to a channel when a webhook request is received" and use its URL.
+Each event is an Adaptive Card with the condition, step, outcome and expiry; approval requests link to the dashboard
+("Review in dashboard"), where the step is approved.
+
+Both notifiers send the same events as the webhook by default (condition activated and cleared, run completed,
+approval requested and resolved); change `Events` to send fewer.
+
 ## Delivery guarantees
 
 - Events are queued in memory (up to 1000; the oldest are dropped if the sink falls behind).

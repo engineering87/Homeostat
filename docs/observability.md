@@ -97,8 +97,27 @@ Each run produces an activity named `homeostat.heal` with these tags:
 | `homeostat.healing.outcomes` | Counter | `condition`, `outcome` |
 | `homeostat.healing.duration` | Histogram (seconds) | `condition`, `outcome` |
 
-Run outcomes: `Healed`, `NotHealed`, `Inconclusive`, `DryRun`, `BudgetExhausted`, `Paused`,
-`Cancelled`, `Failed`.
+Run outcomes: `Healed`, `NotHealed`, `Inconclusive`, `DryRun`, `BudgetExhausted`, `Paused`, `NotApproved`,
+`Suppressed`, `ConditionCleared`, `Cancelled`.
+
+Gauges describe the current state of each instance:
+
+| Instrument | Type | Tags |
+|---|---|---|
+| `homeostat.conditions` | Gauge | `status` (`Inactive`, `Pending`, `Active`) |
+| `homeostat.approvals.pending` | Gauge | |
+| `homeostat.switches.on` | Gauge | |
+| `homeostat.paused` | Gauge (0 or 1) | |
+| `homeostat.dry_run` | Gauge (0 or 1) | |
+
+### Grafana dashboard
+
+[`deploy/grafana/homeostat-dashboard.json`](../deploy/grafana/homeostat-dashboard.json) is a ready-made dashboard
+for Prometheus: active conditions, pending approvals, switches and paused instances; runs per condition, outcomes,
+actions executed (and simulated in dry-run), p95 run duration, and outcomes by condition. Import it in Grafana and
+choose the Prometheus data source; the `Application` variable filters by the `job` label. It expects the metric names
+produced by the OpenTelemetry Prometheus exporter (`homeostat_conditions`, `homeostat_healing_runs_total`,
+`homeostat_healing_duration_seconds_bucket`...).
 
 Useful views:
 

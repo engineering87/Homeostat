@@ -12,9 +12,20 @@ internal sealed class ConfigurationConditionSource
 {
     private static readonly HashSet<string> ConditionKeys = new(StringComparer.OrdinalIgnoreCase)
     {
-        "Source", "Severity", "ValueAbove", "ValueBelow", "ClearWhenHealthy", "SustainedFor", "ClearAfter",
-        "SuppressedBy", "Occurrences", "AllActive", "AnyActive", "Plan",
+        "Source", "Severity", "ValueAbove", "ValueBelow", "RisingFasterThan", "FallingFasterThan", "AnomalouslyHigh",
+        "AnomalouslyLow", "ClearWhenHealthy", "SustainedFor", "ClearAfter", "SuppressedBy", "Occurrences", "AllActive",
+        "AnyActive", "Plan",
     };
+
+    /// <summary>Settings that decide when a signal triggers the condition: at most one per condition.</summary>
+    private static readonly string[] TriggerKeys =
+    [
+        "Severity", "ValueAbove", "ValueBelow", "RisingFasterThan", "FallingFasterThan", "AnomalouslyHigh", "AnomalouslyLow",
+    ];
+
+    private static readonly HashSet<string> TrendKeys = new(StringComparer.OrdinalIgnoreCase) { "PerMinute", "Window", "MinimumSamples" };
+
+    private static readonly HashSet<string> AnomalyKeys = new(StringComparer.OrdinalIgnoreCase) { "ZScore", "Window", "MinimumHistory" };
 
     private static readonly HashSet<string> PlanKeys = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -90,14 +101,14 @@ internal sealed class ConfigurationConditionSource
             CheckKeys(section, ConditionKeys);
 
             var composite = Strings(section, "AllActive") is not null || Strings(section, "AnyActive") is not null;
-            if (composite && new[] { "Source", "Severity", "ValueAbove", "ValueBelow", "ClearWhenHealthy", "Occurrences" }.Any(k => section.GetSection(k).Exists()))
+            if (composite && TriggerKeys.Concat(["Source", "ClearWhenHealthy", "Occurrences"]).Any(k => section.GetSection(k).Exists()))
             {
                 throw new InvalidOperationException("a composite condition (AllActive or AnyActive) cannot have a Source or trigger and clear rules.");
             }
 
-            if (new[] { "Severity", "ValueAbove", "ValueBelow" }.Count(k => section[k] is { Length: > 0 }) > 1)
+            if (TriggerKeys.Count(k => section.GetSection(k).Exists()) > 1)
             {
-                throw new InvalidOperationException("use only one of Severity, ValueAbove and ValueBelow.");
+                throw new InvalidOperationException($"use only one of {string.Join(", ", TriggerKeys)}.");
             }
 
             if (Strings(section, "AllActive") is { Length: > 0 } all)
@@ -127,6 +138,26 @@ internal sealed class ConfigurationConditionSource
             if (Double(section, "ValueBelow") is { } below)
             {
                 builder.WhenValueBelow(below);
+            }
+
+            if (Trend(section, "RisingFasterThan") is { } rising)
+            {
+                builder.WhenRisingFasterThan(rising.PerMinute, rising.Window, rising.MinimumSamples ?? 5);
+            }
+
+            if (Trend(section, "FallingFasterThan") is { } falling)
+            {
+                builder.WhenFallingFasterThan(falling.PerMinute, falling.Window, falling.MinimumSamples ?? 5);
+            }
+
+            if (Anomaly(section, "AnomalouslyHigh") is { } high)
+            {
+                builder.WhenAnomalouslyHigh(high.ZScore, high.Window, high.MinimumHistory ?? 30);
+            }
+
+            if (Anomaly(section, "AnomalouslyLow") is { } low)
+            {
+                builder.WhenAnomalouslyLow(low.ZScore, low.Window, low.MinimumHistory ?? 30);
             }
 
             if (Bool(section, "ClearWhenHealthy") == true)
@@ -170,6 +201,34 @@ internal sealed class ConfigurationConditionSource
         {
             throw new InvalidOperationException($"Configuration '{section.Path}' is not a valid condition: {ex.Message}", ex);
         }
+    }
+
+    private static (double PerMinute, TimeSpan Window, int? MinimumSamples)? Trend(IConfigurationSection condition, string key)
+    {
+        var section = condition.GetSection(key);
+        if (!section.Exists())
+        {
+            return null;
+        }
+
+        CheckKeys(section, TrendKeys);
+        return (Double(section, "PerMinute") ?? throw Missing(section, "PerMinute"),
+            Duration(section, "Window") ?? throw Missing(section, "Window"),
+            Int(section, "MinimumSamples"));
+    }
+
+    private static (double ZScore, TimeSpan Window, int? MinimumHistory)? Anomaly(IConfigurationSection condition, string key)
+    {
+        var section = condition.GetSection(key);
+        if (!section.Exists())
+        {
+            return null;
+        }
+
+        CheckKeys(section, AnomalyKeys);
+        return (Double(section, "ZScore") ?? throw Missing(section, "ZScore"),
+            Duration(section, "Window") ?? throw Missing(section, "Window"),
+            Int(section, "MinimumHistory"));
     }
 
     private void ParsePlan(IConfigurationSection plan, HealingPlanBuilder builder)

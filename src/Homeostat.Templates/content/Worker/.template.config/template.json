@@ -1,0 +1,17 @@
+{
+  "$schema": "http://json.schemastore.org/template",
+  "author": "Francesco Del Re",
+  "classifications": [ "Worker", "Service", "Resilience", "Self-healing" ],
+  "identity": "Homeostat.Templates.Worker",
+  "groupIdentity": "Homeostat.Worker",
+  "name": "Worker service with Homeostat self-healing",
+  "description": "A background worker with Homeostat: a backlog probe, a plan that restarts the stuck worker, and an audit log.",
+  "shortName": "homeostat-worker",
+  "sourceName": "HomeostatWorker",
+  "preferNameDirectory": true,
+  "tags": { "language": "C#", "type": "project" },
+  "primaryOutputs": [ { "path": "HomeostatWorker.csproj" } ],
+  "postActions": [
+    { "description": "Restore NuGet packages.", "manualInstructions": [ { "text": "Run 'dotnet restore'" } ], "actionId": "210D431B-A78B-4D2F-B762-4ED3E3EA9025", "continueOnError": true }
+  ]
+}

@@ -1,0 +1,50 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Template pack: dotnet new install Homeostat.Templates -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <PackageId>Homeostat.Templates</PackageId>
+    <PackageType>Template</PackageType>
+    <Description>dotnet new templates for Homeostat: an ASP.NET Core API (homeostat-webapi) and a worker service (homeostat-worker) with self-healing set up.</Description>
+    <PackageTags>$(PackageTags);dotnet-new;templates</PackageTags>
+    <IncludeBuildOutput>false</IncludeBuildOutput>
+    <IncludeSymbols>false</IncludeSymbols>
+    <SuppressDependenciesWhenPacking>true</SuppressDependenciesWhenPacking>
+    <NoDefaultExcludes>true</NoDefaultExcludes>
+    <EnableDefaultItems>false</EnableDefaultItems>
+    <EnablePackageValidation>false</EnablePackageValidation>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);NU5128</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="..\..\docs\nuget\README.md" Pack="true" PackagePath="\" />
+    <None Include="..\..\assets\icon.png" Pack="true" PackagePath="\" />
+  </ItemGroup>
+
+  <!--
+    The template projects reference the Homeostat packages with the token HOMEOSTAT_VERSION, replaced at pack time with the
+    version being packed, so templates and libraries always match.
+  -->
+  <Target Name="StampTemplates" BeforeTargets="_GetPackageFiles">
+    <PropertyGroup>
+      <_StampedDir>$(IntermediateOutputPath)stamped\</_StampedDir>
+    </PropertyGroup>
+    <ItemGroup>
+      <_TemplateFile Include="content\**\*" Exclude="content\**\bin\**;content\**\obj\**" />
+      <_TemplateProject Include="@(_TemplateFile)" Condition="'%(Extension)' == '.csproj'" />
+      <_TemplateOther Include="@(_TemplateFile)" Exclude="@(_TemplateProject)" />
+    </ItemGroup>
+    <RemoveDir Directories="$(_StampedDir)" />
+    <Copy SourceFiles="@(_TemplateOther)" DestinationFiles="@(_TemplateOther->'$(_StampedDir)%(RecursiveDir)%(Filename)%(Extension)')" />
+    <WriteLinesToFile
+      File="$(_StampedDir)%(_TemplateProject.RecursiveDir)%(_TemplateProject.Filename)%(_TemplateProject.Extension)"
+      Lines="$([MSBuild]::Escape($([System.IO.File]::ReadAllText('%(_TemplateProject.FullPath)').Replace('HOMEOSTAT_VERSION', '$(PackageVersion)'))))"
+      Overwrite="true" />
+    <ItemGroup>
+      <_StampedFile Include="$(_StampedDir)**\*" />
+      <Content Include="@(_StampedFile)" Pack="true" PackagePath="content\" />
+    </ItemGroup>
+  </Target>
+
+</Project>

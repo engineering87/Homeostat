@@ -37,22 +37,26 @@ builder.Services
 - **Conditions**: thresholds, values, trends, anomalies, intermittent problems, combinations, hysteresis.
 - **Production**: file and Redis stores, plans that run once per cluster, conditions from `appsettings.json`.
 - **Actions**: inline lambdas, restart a hosted service, reload configuration, switches for degraded mode.
-- **Operations**: status and control endpoints, Homeostat as a health check, webhook notifications,
-  JSON Lines audit log, OpenTelemetry-ready traces and metrics.
+- **Operations**: dashboard with one-click approvals, status and control endpoints, command-line tool, Homeostat as
+  a health check, PagerDuty, Opsgenie, Slack and Teams, JSON Lines audit log, OpenTelemetry traces, metrics and a
+  Grafana dashboard.
 - **Testing**: in-memory host with simulated time and fault injection.
 
 ## Packages
 
 - `Homeostat`: core engine, runtime detectors, built-in actions, approvals, audit log.
-- `Homeostat.AspNetCore`: status and control endpoints; alerts from Alertmanager, Grafana and Azure Monitor as signals.
+- `Homeostat.AspNetCore`: status and control endpoints, dashboard with one-click approvals, Slack approvals; alerts from Alertmanager, Grafana and Azure Monitor as signals.
 - `Homeostat.HealthChecks`: health check results as signals; Homeostat's own health check.
-- `Homeostat.Http`: HTTP client failures and latency as signals; webhook notifier.
+- `Homeostat.Http`: HTTP client failures and latency as signals; webhook, PagerDuty, Opsgenie, Slack and Microsoft Teams notifiers.
 - `Homeostat.Polly`: Polly v8 circuit breaker state as signals; circuit isolation; chaos enabled by switches.
 - `Homeostat.Redis`: shared state and coordination across instances; Redis client health signals.
 - `Homeostat.Data`: database probes for any ADO.NET provider; connection pool reset.
 - `Homeostat.Caching`: memory cache hit ratio; HybridCache, distributed and memory cache purge actions.
 - `Homeostat.FeatureManagement` and `Homeostat.OpenFeature`: feature flags driven by Homeostat switches.
 - `Homeostat.Testing`: test host with simulated time.
+- `Homeostat.Cli`: the `homeostat` command-line tool. `Homeostat.Templates`: `dotnet new` templates.
+
+The core package includes Roslyn analyzers (HOMEO001 to HOMEO005).
 
 ## Learn more
 

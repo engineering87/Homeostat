@@ -20,11 +20,13 @@ New to Homeostat? Read the pages in this order: each one builds on the previous.
 | [Actions](actions.md) | Built-in actions, switches for degraded mode, inline lambdas, action classes |
 | [Guardrails](guardrails.md) | Dry-run, budget, cooldown, concurrency, timeouts, kill switch, maintenance windows, all options |
 | [Observability](observability.md) | Log messages, traces, metrics, `IHomeostatControl`, observers |
-| [Notifications and audit](notifications.md) | JSON Lines audit log, webhook notifier for chats and incident tools |
+| [Notifications and audit](notifications.md) | Audit log, webhook, PagerDuty and Opsgenie incidents, Slack and Microsoft Teams |
 | [Persistence and clusters](persistence-and-clusters.md) | File and Redis stores, several instances, plans that run once per cluster |
 | [Integrations](integrations.md) | Probes, databases, Redis, message brokers, caches, alerts from monitoring, feature flags, Polly circuit isolation and chaos |
 | [Configuration](configuration.md) | Conditions and plans in `appsettings.json`, applied at runtime |
-| [ASP.NET Core endpoints](aspnetcore.md) | Status and control endpoints, Homeostat as a health check |
+| [ASP.NET Core endpoints](aspnetcore.md) | Status and control endpoints, dashboard, Slack approvals, Homeostat as a health check |
+| [Tools](tools.md) | `homeostat` command-line tool, `dotnet new` templates |
+| [Analyzers](analyzers.md) | Build-time checks HOMEO001 to HOMEO005 |
 | [Testing](testing.md) | Scenario tests with simulated time, approvals, fault injection, unit testing actions |
 
 ## Practice

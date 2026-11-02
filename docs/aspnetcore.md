@@ -98,9 +98,58 @@ Security notes:
 - The policy decides who can pause Homeostat or approve a failover: make it specific (an operations role or
   group), not "any authenticated user", especially in an application with end-user accounts.
 - The application must use authentication and authorization (`app.UseAuthorization()`).
-- The endpoints are plain `POST` requests without a body or antiforgery token. Call them with bearer tokens
-  (tooling, scripts, chat bots). If your users sign in with cookies, do not rely on cookies for these
-  endpoints: a page on a sibling site could send the request on their behalf.
+- Against cross-site request forgery, every control request must carry an `Authorization: Bearer` token or the
+  `X-Requested-With` header (any value), and requests that the browser marks as cross-site (`Sec-Fetch-Site`) are
+  refused with `403`. A page on another site cannot add those headers, so users signed in with cookies, Windows
+  authentication, Basic or client certificates are protected. The dashboard and the `homeostat` CLI send the header;
+  with curl, add `-H "X-Requested-With: curl"`.
+
+## Dashboard
+
+```csharp
+app.MapHomeostatStatus("operations");
+app.MapHomeostatControl("operations");
+app.MapHomeostatDashboard("operations");   // GET /homeostat/dashboard
+```
+
+A page for operators: active conditions first, steps waiting for approval with **Approve** and **Reject** buttons,
+switches (turn them off, or on by name), the action budget and the recent runs with their steps. It refreshes every 5
+seconds (not while the tab is hidden) and follows the system light or dark theme.
+
+- It reads `{prefix}/status` and calls the control endpoints: map all three with the same prefix and policy. Without
+  `MapHomeostatControl` it is read-only.
+- It is self-contained (no CDN, fonts or images) and served with a strict Content-Security-Policy
+  (`default-src 'none'`, scripts and styles only from the application, no framing). Condition names and messages can
+  come from external alerts, so every value is rendered as text, never as HTML.
+- Its requests carry `X-Requested-With`, which the control endpoints require from callers without a bearer token.
+
+## Slack approvals
+
+With `AddSlackNotifications(o => o.ApprovalButtons = true)` (package `Homeostat.Http`, see
+[Notifications](notifications.md#slack)), approval requests appear in Slack with **Approve** and **Reject** buttons.
+Map the endpoint that receives the clicks, and set it as the interactivity request URL of the Slack app:
+
+```csharp
+app.MapHomeostatSlackInteractions(o =>
+{
+    o.SigningSecret = builder.Configuration["Slack:SigningSecret"];
+    o.AllowedUserIds.Add("U024BE7LH");        // who may approve; or o.AllowAnyChannelMember = true
+});                                           // POST /homeostat/slack/interactions
+```
+
+| Check | Behavior |
+|---|---|
+| Slack signature (`X-Slack-Signature`, HMAC-SHA256 of the body with the signing secret) | Required, constant-time comparison; otherwise `401` |
+| Request age (`X-Slack-Request-Timestamp`) | At most 5 minutes (`MaxRequestAge`), against replays |
+| User | Must be in `AllowedUserIds` unless `AllowAnyChannelMember`; others are told privately that they cannot approve |
+| Decision | Recorded with the approver `slack:{user name}`; the buttons in the message are replaced with the decision |
+
+The endpoint authenticates Slack by its signature, so it is mapped without an authorization policy.
+
+## Alerts
+
+`MapHomeostatAlerts` receives Prometheus Alertmanager, Grafana and Azure Monitor notifications as signals: see
+[Integrations](integrations.md#alerts-from-your-monitoring).
 
 ## Homeostat as a health check
 

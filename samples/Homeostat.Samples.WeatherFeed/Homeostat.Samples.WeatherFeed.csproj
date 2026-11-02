@@ -10,6 +10,8 @@
     <ProjectReference Include="..\..\src\Homeostat\Homeostat.csproj" />
     <ProjectReference Include="..\..\src\Homeostat.AspNetCore\Homeostat.AspNetCore.csproj" />
     <ProjectReference Include="..\..\src\Homeostat.HealthChecks\Homeostat.HealthChecks.csproj" />
+    <!-- The analyzers come with the Homeostat package; with a project reference they are added explicitly. -->
+    <ProjectReference Include="..\..\src\Homeostat.Analyzers\Homeostat.Analyzers.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
   </ItemGroup>
 
 </Project>

@@ -92,9 +92,12 @@ public sealed class HealingPlanBuilder
     // ---------------------------------------------------------------- built-in actions
 
     /// <summary>
-    /// Appends a step that stops and starts the hosted service <typeparamref name="TService"/>
-    /// (registered with <c>AddHostedService</c>). Works with <see cref="BackgroundService"/>, which
-    /// restarts its <c>ExecuteAsync</c> loop.
+    /// Appends a step that restarts the hosted service <typeparamref name="TService"/> (registered with
+    /// <c>AddHostedService</c>). Derive background workers from <see cref="RestartableBackgroundService"/>: the restart
+    /// then happens inside the service and the host does not notice. A plain <see cref="BackgroundService"/> is refused
+    /// (the step fails), because stopping it outside a shutdown makes the generic host stop the application, unless the
+    /// host is configured with <c>BackgroundServiceExceptionBehavior.Ignore</c>. Other hosted services are stopped and
+    /// started again.
     /// </summary>
     public HealingPlanBuilder RestartHostedService<TService>()
         where TService : class, IHostedService
@@ -102,6 +105,7 @@ public sealed class HealingPlanBuilder
             $"Restart {typeof(TService).Name}",
             static sp => new RestartHostedServiceAction<TService>(
                 sp.GetServices<IHostedService>(),
+                sp,
                 sp.GetRequiredService<ILogger<RestartHostedServiceAction<TService>>>()));
 
     /// <summary>

@@ -1,0 +1,17 @@
+{
+  "$schema": "http://json.schemastore.org/template",
+  "author": "Francesco Del Re",
+  "classifications": [ "Web", "API", "Resilience", "Self-healing" ],
+  "identity": "Homeostat.Templates.WebApi",
+  "groupIdentity": "Homeostat.WebApi",
+  "name": "ASP.NET Core API with Homeostat self-healing",
+  "description": "A minimal API with Homeostat: health checks and probes as signals, a healing plan with a degraded mode, status, control and dashboard endpoints, audit log.",
+  "shortName": "homeostat-webapi",
+  "sourceName": "HomeostatWebApi",
+  "preferNameDirectory": true,
+  "tags": { "language": "C#", "type": "project" },
+  "primaryOutputs": [ { "path": "HomeostatWebApi.csproj" } ],
+  "postActions": [
+    { "description": "Restore NuGet packages.", "manualInstructions": [ { "text": "Run 'dotnet restore'" } ], "actionId": "210D431B-A78B-4D2F-B762-4ED3E3EA9025", "continueOnError": true }
+  ]
+}

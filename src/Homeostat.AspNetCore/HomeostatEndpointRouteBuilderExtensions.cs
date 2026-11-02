@@ -41,7 +41,9 @@ public static class HomeostatEndpointRouteBuilderExtensions
     /// <item><description><c>POST {prefix}/switches/{name}/on</c> and <c>.../off</c>: flip a switch by hand.</description></item>
     /// </list>
     /// They change what the application does to itself, so they require an authorization policy (and therefore
-    /// <c>app.UseAuthorization()</c>) unless <paramref name="allowAnonymous"/> is <c>true</c>.
+    /// <c>app.UseAuthorization()</c>) unless <paramref name="allowAnonymous"/> is <c>true</c>. Against cross-site request
+    /// forgery, every request must carry an <c>Authorization: Bearer</c> token or the <c>X-Requested-With</c> header
+    /// (any value), and requests that browsers mark as cross-site are refused.
     /// </summary>
     /// <param name="endpoints">The endpoint route builder.</param>
     /// <param name="policy">Authorization policy required to call the endpoints, for example <c>"operations"</c>.</param>
@@ -60,6 +62,16 @@ public static class HomeostatEndpointRouteBuilderExtensions
     {
         var group = CreateGroup(endpoints, policy, prefix, allowAnonymous);
 
+        // Cross-site request forgery: a page on another site can make the browser POST here with ambient credentials
+        // (cookies, Windows authentication, Basic, client certificates), but cannot add a custom header or an
+        // Authorization: Bearer header without a CORS preflight. So every request must carry a bearer token or the
+        // X-Requested-With header (the dashboard and the CLI send it), and browsers' cross-site requests are refused.
+        group.AddEndpointFilter(static async (context, next) => IsForgeable(context.HttpContext.Request)
+            ? Results.Problem(
+                "Control requests must carry an Authorization: Bearer token or the X-Requested-With header, and come from the same site.",
+                statusCode: StatusCodes.Status403Forbidden)
+            : await next(context));
+
         group.MapPost("/pause", (IHomeostatControl control, TimeProvider time, string? @for) =>
         {
             if (@for is null)
@@ -68,9 +80,10 @@ public static class HomeostatEndpointRouteBuilderExtensions
                 return Results.NoContent();
             }
 
-            if (!TimeSpan.TryParse(@for, System.Globalization.CultureInfo.InvariantCulture, out var duration) || duration <= TimeSpan.Zero)
+            if (!TimeSpan.TryParse(@for, System.Globalization.CultureInfo.InvariantCulture, out var duration)
+                || duration <= TimeSpan.Zero || duration > MaxPause)
             {
-                return Results.BadRequest("'for' must be a positive duration in the hh:mm:ss format.");
+                return Results.BadRequest("'for' must be a positive duration of at most 30 days, in the d.hh:mm:ss format.");
             }
 
             control.PauseUntil(time.GetUtcNow() + duration);
@@ -110,6 +123,20 @@ public static class HomeostatEndpointRouteBuilderExtensions
     }
 
     private const int MaxSwitchNameLength = 200;
+
+    private static readonly TimeSpan MaxPause = TimeSpan.FromDays(30);
+
+    internal static bool IsForgeable(HttpRequest request)
+    {
+        var fetchSite = request.Headers["Sec-Fetch-Site"].ToString();
+        if (fetchSite is "cross-site" or "same-site")
+        {
+            return true;
+        }
+
+        var hasBearer = request.Headers.Authorization.ToString().StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase);
+        return !hasBearer && !request.Headers.ContainsKey("X-Requested-With");
+    }
 
     private static RouteGroupBuilder CreateGroup(IEndpointRouteBuilder endpoints, string? policy, string prefix, bool allowAnonymous)
     {

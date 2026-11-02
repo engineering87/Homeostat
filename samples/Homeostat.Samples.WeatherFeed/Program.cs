@@ -71,6 +71,8 @@ app.MapHealthChecks("/health");
 // Demo only: a real application passes an authorization policy, for example MapHomeostatControl("operations").
 app.MapHomeostatStatus(allowAnonymous: true);
 app.MapHomeostatControl(allowAnonymous: true);
+// GET /homeostat/dashboard: the same information, with one-click approvals.
+app.MapHomeostatDashboard(allowAnonymous: true);
 // POST /homeostat/alerts/alertmanager | grafana | azure-monitor | signals. A real application sets a token or a policy.
 app.MapHomeostatAlerts(allowAnonymous: true);
 

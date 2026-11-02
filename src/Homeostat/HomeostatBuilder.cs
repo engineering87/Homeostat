@@ -133,6 +133,20 @@ public sealed class HomeostatBuilder
     public HomeostatBuilder AddExceptionRateDetector(Action<ExceptionRateDetectorOptions>? configure = null)
         => AddBuiltInDetector<ExceptionRateDetector, ExceptionRateDetectorOptions>(configure);
 
+    /// <summary>
+    /// Publishes the state of every <see cref="RestartableBackgroundService"/> registered with <c>AddHostedService</c>:
+    /// Healthy while it runs, Unhealthy when its loop threw or returned. The source is <c>service:{type name}</c>, so a
+    /// condition can restart a worker that crashed.
+    /// </summary>
+    /// <example>
+    /// <code>
+    /// h.AddBackgroundServiceSignals()
+    ///  .AddCondition("ingest-crashed", c => c.ForSource("service:IngestWorker")
+    ///      .Heal(p => p.RestartHostedService&lt;IngestWorker&gt;()));
+    /// </code>
+    /// </example>
+    public HomeostatBuilder AddBackgroundServiceSignals() => AddDetector<BackgroundServiceSignalDetector>();
+
     /// <summary>Registers a custom <see cref="ISignalDetector"/>.</summary>
     public HomeostatBuilder AddDetector<TDetector>()
         where TDetector : class, ISignalDetector

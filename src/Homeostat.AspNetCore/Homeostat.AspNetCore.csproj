@@ -3,7 +3,7 @@
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
     <PackageId>Homeostat.AspNetCore</PackageId>
-    <Description>ASP.NET Core endpoints for Homeostat: a status endpoint, and control endpoints to pause, resume, approve steps and flip switches.</Description>
+    <Description>ASP.NET Core endpoints for Homeostat: status and control endpoints, an embedded dashboard with one-click approvals, and alert ingestion from Prometheus Alertmanager, Grafana and Azure Monitor.</Description>
   </PropertyGroup>
 
   <ItemGroup>
@@ -12,6 +12,10 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Homeostat\Homeostat.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="Dashboard\*" LogicalName="Homeostat.AspNetCore.Dashboard.%(Filename)%(Extension)" />
   </ItemGroup>
 
   <ItemGroup>

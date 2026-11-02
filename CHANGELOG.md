@@ -9,11 +9,43 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 ### Platform
 
 - Targets .NET 10 (LTS). .NET 8 and .NET 9 reach end of support on November 10, 2026.
-- Dependencies on the current releases: Microsoft.Extensions 10.0.14, Polly.Core 8.9.0,
-  Microsoft.Extensions.TimeProvider.Testing 10.11.0; tests on xUnit v3 (VSTest runner, Microsoft Testing Platform off).
+- Dependencies on the current releases: Microsoft.Extensions 10.0.14, Polly.Core 8.9.0, StackExchange.Redis 3.4.29,
+  Microsoft.FeatureManagement 4.8.0, OpenFeature 2.14.1, System.CommandLine 2.0.14,
+  Microsoft.Extensions.TimeProvider.Testing 10.11.0; analyzers on Microsoft.CodeAnalysis.CSharp 5.0.0 (the Roslyn of
+  the .NET 10.0.1xx SDK, on purpose); tests on xUnit v3 (VSTest runner, Microsoft Testing Platform off).
+
+### Fixed
+
+- `RestartHostedService<T>()` on a `BackgroundService` stopped the whole application: the generic host treats a
+  background service stopped outside a shutdown as failed (`BackgroundServiceExceptionBehavior.StopHost`). Workers
+  now derive from `RestartableBackgroundService`, restarted inside the service; a plain `BackgroundService` is
+  refused unless the host ignores background service failures.
+
+### Security
+
+- Control endpoints require an `Authorization: Bearer` token or the `X-Requested-With` header, and refuse requests
+  that browsers mark as cross-site: protection against cross-site request forgery with cookies, Windows
+  authentication, Basic or client certificates.
+- Notifier HTTP clients no longer log request URLs, which carry the webhook secret.
 
 ### Added
 
+- Operations and developer experience (wave 3):
+  - `MapHomeostatDashboard`: embedded dashboard with one-click approvals, switches, pause and recent runs; strict
+    Content-Security-Policy, text-only rendering.
+  - Notifiers in `Homeostat.Http`: `AddPagerDutyIncidents` (Events API v2), `AddOpsgenieAlerts` (Jira Service
+    Management Operations by default, or Opsgenie), `AddSlackNotifications` (Block Kit, optional approval buttons),
+    `AddTeamsNotifications` (Adaptive Cards); only network errors, 408, 429 and 5xx are retried.
+  - `MapHomeostatSlackInteractions`: Slack approval buttons, with signature, request age and allowed users checks.
+  - `Homeostat.Cli`: the `homeostat` tool (status, pause, resume, approve, reject, switch, signal).
+  - `Homeostat.Templates`: `homeostat-webapi` and `homeostat-worker`.
+  - Analyzers HOMEO001 to HOMEO005, shipped in the `Homeostat` package.
+  - `RestartableBackgroundService` and `AddBackgroundServiceSignals`.
+  - Gauges `homeostat.conditions`, `homeostat.approvals.pending`, `homeostat.switches.on`, `homeostat.paused`,
+    `homeostat.dry_run`; Grafana dashboard in `deploy/grafana`.
+  - Trend and anomaly rules from configuration (`RisingFasterThan`, `FallingFasterThan`, `AnomalouslyHigh`,
+    `AnomalouslyLow`).
+  - Worker service sample.
 - Integrations (wave 2), see `docs/integrations.md`:
   - Probes (`AddProbe`, `AddLatencyProbe`): any number or round trip as a signal value, with thresholds, interval
     and timeout; probes run in the background in their own scope without delaying other detectors, and a hanging

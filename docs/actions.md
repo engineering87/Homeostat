@@ -25,16 +25,44 @@ lambda, or write a class. All three can be mixed in the same plan.
 
 ### `RestartHostedService<T>()`
 
+Derive the worker from `RestartableBackgroundService` and put its loop in `RunAsync`:
+
 ```csharp
+public sealed class ForecastPoller(ForecastClient client) : RestartableBackgroundService
+{
+    protected override async Task RunAsync(CancellationToken stoppingToken)
+    {
+        while (!stoppingToken.IsCancellationRequested)
+        {
+            await client.PollAsync(stoppingToken);
+            await Task.Delay(TimeSpan.FromSeconds(30), stoppingToken);
+        }
+    }
+}
+
 builder.Services.AddHostedService<ForecastPoller>();
 
 .Heal(p => p.RestartHostedService<ForecastPoller>())
 ```
 
-Calls `StopAsync` and then `StartAsync` on the registered instance. With `BackgroundService` this
-cancels the running `ExecuteAsync` loop and starts a fresh one. For custom `IHostedService`
-implementations, make sure starting again after a stop is supported. If the service is not registered
-with `AddHostedService`, the step fails and the plan escalates.
+The restart cancels the current run and starts a new one **inside the same `ExecuteAsync`**, so the generic host does
+not notice. This matters: stopping a plain `BackgroundService` outside a shutdown makes the host treat it as failed
+and, with the default `HostOptions.BackgroundServiceExceptionBehavior` (`StopHost`), **stop the whole application**.
+So the step refuses a plain `BackgroundService` (it fails and the plan escalates), unless the host is configured with
+`BackgroundServiceExceptionBehavior.Ignore`; the [analyzer](analyzers.md#homeo005) flags it at build time. Other
+`IHostedService` implementations are stopped and started again: make sure starting after a stop is supported. If the
+service is not registered with `AddHostedService`, the step fails.
+
+`RestartableBackgroundService` also survives its own crashes: when `RunAsync` throws (or returns), the service stays
+alive but idle, with `IsRunning = false` and the exception in `LastError`, instead of taking the application down.
+`AddBackgroundServiceSignals()` turns that into a signal, so a condition can restart it:
+
+```csharp
+h.AddBackgroundServiceSignals()                        // source: service:{type name}
+ .AddCondition("poller-crashed", c => c
+     .ForSource("service:ForecastPoller")
+     .Heal(p => p.RestartHostedService<ForecastPoller>()));
+```
 
 ### `ReloadConfiguration()`
 

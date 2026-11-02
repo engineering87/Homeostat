@@ -153,8 +153,8 @@ app.MapHomeostatControl("operations");                 // pause, resume, approve
 | HTTP clients (failures, p95 latency) | Combinations of conditions | Switches with automatic reset | Status and control endpoints |
 | Polly circuit breakers | Hysteresis, causes vs symptoms | Compensating actions | Webhooks, audit log, health check |
 | Databases, Redis, memory caches | Escalation with verification, human approval | Connection pool reset, cache purge | Conditions from `appsettings.json`, test host |
-| Alertmanager, Grafana, Azure Monitor alerts | | Circuit isolation, feature flags | Chaos for game days |
-| Probes: queues, lag, any number you can fetch | | | |
+| Alertmanager, Grafana, Azure Monitor alerts | Trends and anomalies from `appsettings.json` | Circuit isolation, feature flags | Dashboard, CLI, Grafana dashboard |
+| Probes: queues, lag, any number you can fetch | | Safe restart of crashed or stuck workers | PagerDuty, Opsgenie, Slack and Teams, chaos for game days |
 
 ## Why Homeostat
 
@@ -216,16 +216,20 @@ dotnet add package Homeostat
 | Package | Purpose |
 |---|---|
 | `Homeostat` | Core engine, runtime detectors, built-in actions, switches, guardrails, approvals, audit log |
-| `Homeostat.AspNetCore` | Status and control endpoints; alerts from Alertmanager, Grafana and Azure Monitor as signals |
+| `Homeostat.AspNetCore` | Status and control endpoints, dashboard with one-click approvals, Slack approvals; alerts from Alertmanager, Grafana and Azure Monitor as signals |
 | `Homeostat.Caching` | Memory cache hit ratio as signals; HybridCache, distributed and memory cache purge actions |
 | `Homeostat.Data` | Database probes for any ADO.NET provider; connection pool reset |
 | `Homeostat.FeatureManagement` | Feature filter driven by Homeostat switches |
 | `Homeostat.HealthChecks` | Health check results as signals; Homeostat's own health check |
-| `Homeostat.Http` | Failure ratio and latency of `IHttpClientFactory` clients as signals; webhook notifier |
+| `Homeostat.Http` | Failure ratio and latency of `IHttpClientFactory` clients as signals; webhook, PagerDuty, Opsgenie, Slack and Teams notifiers |
 | `Homeostat.OpenFeature` | OpenFeature provider exposing Homeostat switches as flags |
 | `Homeostat.Polly` | Polly v8 circuit breaker state as signals; circuit isolation; chaos enabled by switches |
 | `Homeostat.Redis` | State shared by every instance, plans that run once per cluster; Redis client health signals |
 | `Homeostat.Testing` | Test host with simulated time, fault injection, helpers for unit tests |
+| `Homeostat.Cli` | `homeostat` command-line tool: status, pause, approvals, switches (`dotnet tool install -g Homeostat.Cli`) |
+| `Homeostat.Templates` | `dotnet new homeostat-webapi` and `homeostat-worker` |
+
+The core package includes [analyzers](docs/analyzers.md) that catch mistakes at build time.
 
 Targets **.NET 10** (LTS, supported until November 2028).
 

@@ -25,11 +25,12 @@ curl -X POST http://localhost:5000/faults/primary-outage
 curl http://localhost:5000/homeostat/status
 ```
 
-Renewing does not help, so Homeostat escalates to the backup provider, a step that requires approval. The
-request appears under `pendingApprovals` in the status. Approve it (or reject it) with its id:
+Renewing does not help, so Homeostat escalates to the backup provider, a step that requires approval. Open
+`http://localhost:5000/homeostat/dashboard`: the request is at the top, with **Approve** and **Reject** buttons. It
+also appears under `pendingApprovals` in the status, and can be answered with its id:
 
 ```bash
-curl -X POST http://localhost:5000/homeostat/approvals/<id>/approve
+curl -X POST -H "X-Requested-With: curl" http://localhost:5000/homeostat/approvals/<id>/approve
 ```
 
 Without an answer within five minutes, the run stops and the condition stays visible in the status; after the
@@ -39,7 +40,7 @@ cooldown, Homeostat tries again. A rejection holds the plan until the feed recov
 
 | Try | What happens |
 |---|---|
-| `POST /homeostat/pause`, then a fault | Conditions are tracked, nothing runs; `/health` reports Homeostat as degraded |
+| `POST /homeostat/pause` (with the `X-Requested-With` header, as every control request), then a fault | Conditions are tracked, nothing runs; `/health` reports Homeostat as degraded |
 | `POST /homeostat/resume` | Healing resumes on the next unhealthy check |
 | `POST /restore` | The feed recovers; the condition clears after 6 seconds of good checks (`ClearAfter`) |
 | `POST /homeostat/alerts/signals` with `{"source":"RadarTilesSlow","severity":"Degraded"}` | Like an alert from your monitoring: the switch `hide-radar-tiles` turns on; send `"Healthy"` and it turns off |

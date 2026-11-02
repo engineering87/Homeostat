@@ -42,6 +42,7 @@ public class AspNetCoreTests
 
         await app.StartAsync();
         var client = new HttpClient(new HttpClientHandler { UseProxy = false }) { BaseAddress = new Uri(app.Urls.First()) };
+        client.DefaultRequestHeaders.Add("X-Requested-With", "tests");
         return (app, client);
     }
 

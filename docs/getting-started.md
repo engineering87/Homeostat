@@ -8,7 +8,9 @@ and needs to be recreated.
 let Homeostat act.
 
 > Prefer to run something first? The complete code is in
-> [`samples/Homeostat.Samples.WeatherFeed`](../samples/Homeostat.Samples.WeatherFeed).
+> [`samples/Homeostat.Samples.WeatherFeed`](../samples/Homeostat.Samples.WeatherFeed). Or start a new project with
+> everything set up: `dotnet new install Homeostat.Templates`, then `dotnet new homeostat-webapi` or
+> `dotnet new homeostat-worker` (see [Tools](tools.md)).
 
 ## 1. Install
 
@@ -136,8 +138,9 @@ app.MapHomeostatStatus("operations");   // GET /homeostat/status: conditions, ru
 ```
 
 `"operations"` is the name of an authorization policy of your application: the endpoint reveals internal
-details, so Homeostat asks for one (for a local experiment, `MapHomeostatStatus(allowAnonymous: true)`). The control endpoints (pause, resume, approvals) are described in
-[ASP.NET Core endpoints](aspnetcore.md).
+details, so Homeostat asks for one (for a local experiment, `MapHomeostatStatus(allowAnonymous: true)`). The control endpoints (pause, resume, approvals) and the
+dashboard (`MapHomeostatDashboard`, a page with one-click approvals) are described in
+[ASP.NET Core endpoints](aspnetcore.md); the `homeostat` command-line tool in [Tools](tools.md).
 
 ## Where to go next
 

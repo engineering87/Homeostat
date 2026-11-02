@@ -1,8 +1,10 @@
 <Solution>
   <Folder Name="/src/">
     <Project Path="src/Homeostat/Homeostat.csproj" />
+    <Project Path="src/Homeostat.Analyzers/Homeostat.Analyzers.csproj" />
     <Project Path="src/Homeostat.AspNetCore/Homeostat.AspNetCore.csproj" />
     <Project Path="src/Homeostat.Caching/Homeostat.Caching.csproj" />
+    <Project Path="src/Homeostat.Cli/Homeostat.Cli.csproj" />
     <Project Path="src/Homeostat.Data/Homeostat.Data.csproj" />
     <Project Path="src/Homeostat.FeatureManagement/Homeostat.FeatureManagement.csproj" />
     <Project Path="src/Homeostat.HealthChecks/Homeostat.HealthChecks.csproj" />
@@ -10,10 +12,12 @@
     <Project Path="src/Homeostat.OpenFeature/Homeostat.OpenFeature.csproj" />
     <Project Path="src/Homeostat.Polly/Homeostat.Polly.csproj" />
     <Project Path="src/Homeostat.Redis/Homeostat.Redis.csproj" />
+    <Project Path="src/Homeostat.Templates/Homeostat.Templates.csproj" />
     <Project Path="src/Homeostat.Testing/Homeostat.Testing.csproj" />
   </Folder>
   <Folder Name="/samples/">
     <Project Path="samples/Homeostat.Samples.WeatherFeed/Homeostat.Samples.WeatherFeed.csproj" />
+    <Project Path="samples/Homeostat.Samples.Worker/Homeostat.Samples.Worker.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/Homeostat.Tests/Homeostat.Tests.csproj" />

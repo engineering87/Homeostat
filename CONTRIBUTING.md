@@ -33,7 +33,7 @@ Commits and pull request titles follow [Conventional Commits](https://www.conven
 | Part | Allowed values |
 |---|---|
 | Type | `feat`, `fix`, `docs`, `test`, `refactor`, `perf`, `build`, `ci`, `chore`, `style`, `revert` |
-| Scope (optional) | `core`, `aspnetcore`, `caching`, `data`, `featureflags`, `healthchecks`, `http`, `polly`, `redis`, `testing`, `samples`, `docs`, `deps`, `ci`, `release` |
+| Scope (optional) | `core`, `analyzers`, `aspnetcore`, `caching`, `cli`, `data`, `featureflags`, `healthchecks`, `http`, `polly`, `redis`, `templates`, `testing`, `samples`, `docs`, `deps`, `ci`, `release` |
 
 Examples: `feat(core): add hysteresis to conditions`, `fix(http): dispose the response when IsFailure throws`,
 `docs: explain approvals`. A `!` after the type or scope (`feat(aspnetcore)!: ...`) marks a breaking change.
@@ -70,5 +70,14 @@ The workflow needs a repository secret `NUGET_API_KEY` (a NuGet API key scoped t
 packages) and runs in the `nuget` environment, where you can require a manual approval.
 After the first release, set `PackageValidationBaselineVersion` in `Directory.Build.props` to the latest
 published version, so that accidental breaking changes fail the build.
+
+Notes for dependencies:
+
+- The templates reference the Homeostat packages with the token `HOMEOSTAT_VERSION`, replaced at pack time, so they
+  always match the release. Other versions in the template projects (such as `Microsoft.Extensions.Hosting`) are not
+  updated by Dependabot: update them with the Microsoft.Extensions servicing releases.
+- The analyzers reference `Microsoft.CodeAnalysis.CSharp` **5.0.0**, the Roslyn of the .NET 10.0.1xx SDK, on
+  purpose: an analyzer built against a newer Roslyn does not load in older compilers (CS9057). Dependabot ignores it.
+- Move shipped analyzer rules from `AnalyzerReleases.Unshipped.md` to `AnalyzerReleases.Shipped.md` at release.
 
 By contributing, you agree that your contributions are licensed under the MIT License.

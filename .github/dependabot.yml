@@ -18,6 +18,8 @@ updates:
       # The libraries target net10.0: the Microsoft.Extensions 11.x packages come with a new target framework.
       - dependency-name: "Microsoft.Extensions.*"
         update-types: [ "version-update:semver-major" ]
+      # Pinned to the Roslyn of the .NET 10.0.1xx SDK: a newer one stops the analyzers from loading (CS9057).
+      - dependency-name: "Microsoft.CodeAnalysis.CSharp"
 
   - package-ecosystem: "github-actions"
     directory: "/"

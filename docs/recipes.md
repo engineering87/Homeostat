@@ -193,8 +193,8 @@ public sealed class DeploymentWindow(IHomeostatControl control)
 }
 ```
 
-Or call the control endpoints of [Homeostat.AspNetCore](aspnetcore.md) from your pipeline:
-`POST /homeostat/pause` before the deployment, `POST /homeostat/resume` after it.
+Or call the control endpoints of [Homeostat.AspNetCore](aspnetcore.md) from your pipeline, most simply with the
+[`homeostat` tool](tools.md): `homeostat pause --for 20m` before the deployment, `homeostat resume` after it.
 
 ---
 

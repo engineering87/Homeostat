@@ -83,6 +83,137 @@ public class BuiltInActionTests
     }
 
     [Fact]
+    public async Task RestartHostedService_restarts_a_restartable_worker_inside_the_same_execution()
+    {
+        await using var host = await StartAsync(
+            p => p.RestartHostedService<RestartableWorker>(),
+            s => s.AddHostedService<RestartableWorker>());
+        var worker = host.Services.GetServices<IHostedService>().OfType<RestartableWorker>().Single();
+        await PollyControlTests.WaitUntilAsync(() => worker.IsRunning);
+        var execution = worker.ExecuteTask;
+
+        host.Publish(Source, SignalSeverity.Unhealthy);
+        var run = await host.WaitForRunAsync(Condition);
+
+        Assert.Equal(HealingRunOutcome.Healed, run.Outcome);
+        Assert.Equal(2, worker.Runs);
+        Assert.Equal(1, worker.Restarts);
+        Assert.True(worker.IsRunning);
+        Assert.Same(execution, worker.ExecuteTask);          // the host's view of the service did not change
+        Assert.False(execution!.IsCompleted);
+    }
+
+    [Fact]
+    public async Task A_worker_cannot_restart_itself_from_its_run()
+    {
+        var worker = new SelfRestartingWorker();
+        await worker.StartAsync(CancellationToken.None);
+        try
+        {
+            var error = await worker.Attempt.Task.WaitAsync(TimeSpan.FromSeconds(10));
+            Assert.IsType<InvalidOperationException>(error);
+        }
+        finally
+        {
+            await worker.StopAsync(CancellationToken.None);
+        }
+    }
+
+    [Fact]
+    public async Task Cancellation_surfacing_as_another_exception_is_a_restart_not_a_crash()
+    {
+        var worker = new DisposingWorker();
+        await worker.StartAsync(CancellationToken.None);
+        try
+        {
+            await PollyControlTests.WaitUntilAsync(() => worker.IsRunning);
+            await worker.RestartAsync().WaitAsync(TimeSpan.FromSeconds(10));
+            await PollyControlTests.WaitUntilAsync(() => worker.IsRunning);
+            Assert.Null(worker.LastError);
+            Assert.False(worker.IsIdle);
+            Assert.Equal(1, worker.Restarts);
+        }
+        finally
+        {
+            await worker.StopAsync(CancellationToken.None);
+        }
+    }
+
+    internal sealed class SelfRestartingWorker : RestartableBackgroundService
+    {
+        public TaskCompletionSource<Exception?> Attempt { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        protected override async Task RunAsync(CancellationToken stoppingToken)
+        {
+            try
+            {
+                await RestartAsync(stoppingToken);
+                Attempt.TrySetResult(null);
+            }
+            catch (Exception ex)
+            {
+                Attempt.TrySetResult(ex);
+            }
+
+            await Task.Delay(Timeout.Infinite, stoppingToken);
+        }
+    }
+
+    internal sealed class DisposingWorker : RestartableBackgroundService
+    {
+        protected override async Task RunAsync(CancellationToken stoppingToken)
+        {
+            try
+            {
+                await Task.Delay(Timeout.Infinite, stoppingToken);
+            }
+            catch (OperationCanceledException)
+            {
+                throw new ObjectDisposedException("connection");   // like a client torn down by the cancellation
+            }
+        }
+    }
+
+    [Fact]
+    public async Task RestartHostedService_refuses_a_plain_background_service()
+    {
+        await using var host = await StartAsync(
+            p => p.RestartHostedService<PlainWorker>(),
+            s => s.AddHostedService<PlainWorker>());
+
+        host.Publish(Source, SignalSeverity.Unhealthy);
+        var run = await host.WaitForRunAsync(Condition);
+
+        Assert.Equal(HealingRunOutcome.NotHealed, run.Outcome);
+        var error = Assert.IsType<InvalidOperationException>(run.Steps.Single().Error);
+        Assert.Contains("RestartableBackgroundService", error.Message);
+        Assert.False(host.Services.GetServices<IHostedService>().OfType<PlainWorker>().Single().ExecuteTask!.IsCompleted);
+    }
+
+    [Fact]
+    public async Task A_crashed_restartable_worker_is_reported_and_restarted()
+    {
+        await using var host = await HomeostatTestHost.StartAsync(
+            h => h
+                .AddBackgroundServiceSignals()
+                .AddCondition("worker-crashed", c => c.ForSource("service:RestartableWorker").Heal(p => p
+                    .RestartHostedService<RestartableWorker>()
+                    .VerifyWith<AlwaysHealed>())),
+            s => s.AddSingleton(new RestartableWorker { FailFirstRun = true }).AddHostedService(sp => sp.GetRequiredService<RestartableWorker>()));
+        var worker = host.Services.GetRequiredService<RestartableWorker>();
+
+        // The first run throws: the worker goes idle instead of ending, the detector reports it, the plan restarts it.
+        var run = await host.WaitForRunAsync("worker-crashed");
+
+        Assert.Equal(HealingRunOutcome.Healed, run.Outcome);
+        await PollyControlTests.WaitUntilAsync(() => worker.IsRunning);
+        Assert.Null(worker.LastError);
+        Assert.Equal(2, worker.Runs);
+        Assert.Equal(1, worker.Restarts);
+        Assert.False(worker.ExecuteTask!.IsCompleted);       // never ended: the application kept running
+    }
+
+    [Fact]
     public async Task RestartHostedService_fails_the_step_when_the_service_is_not_registered()
     {
         await using var host = await StartAsync(p => p.RestartHostedService<CountingService>());
@@ -147,7 +278,8 @@ public class BuiltInActionTests
             => Task.FromResult(VerificationOutcome.Healed);
     }
 
-    internal sealed class CountingService : BackgroundService
+    /// <summary>A plain hosted service (not a BackgroundService): stopped and started again.</summary>
+    internal sealed class CountingService : IHostedService
     {
         private int _starts;
         private int _stops;
@@ -156,20 +288,43 @@ public class BuiltInActionTests
 
         public int Stops => Volatile.Read(ref _stops);
 
-        public override Task StartAsync(CancellationToken cancellationToken)
+        public Task StartAsync(CancellationToken cancellationToken)
         {
             Interlocked.Increment(ref _starts);
-            return base.StartAsync(cancellationToken);
+            return Task.CompletedTask;
         }
 
-        public override Task StopAsync(CancellationToken cancellationToken)
+        public Task StopAsync(CancellationToken cancellationToken)
         {
             Interlocked.Increment(ref _stops);
-            return base.StopAsync(cancellationToken);
+            return Task.CompletedTask;
         }
+    }
 
-        protected override Task ExecuteAsync(CancellationToken stoppingToken)
-            => Task.Delay(Timeout.Infinite, stoppingToken).ContinueWith(_ => { }, TaskScheduler.Default);
+    /// <summary>A plain BackgroundService: restarting it with StopAsync would stop a generic host.</summary>
+    internal sealed class PlainWorker : BackgroundService
+    {
+        protected override Task ExecuteAsync(CancellationToken stoppingToken) => Task.Delay(Timeout.Infinite, stoppingToken);
+    }
+
+    /// <summary>Counts its runs; throws on the first run when asked to.</summary>
+    internal sealed class RestartableWorker : RestartableBackgroundService
+    {
+        private int _runs;
+
+        public bool FailFirstRun { get; set; }
+
+        public int Runs => Volatile.Read(ref _runs);
+
+        protected override async Task RunAsync(CancellationToken stoppingToken)
+        {
+            if (Interlocked.Increment(ref _runs) == 1 && FailFirstRun)
+            {
+                throw new InvalidOperationException("connection lost");
+            }
+
+            await Task.Delay(Timeout.Infinite, stoppingToken);
+        }
     }
 
     internal sealed class CollectingObserver : IHealingObserver

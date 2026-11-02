@@ -58,6 +58,7 @@ public static class HomeostatServiceCollectionExtensions
         services.TryAddTransient<ConditionClearedVerifier>();
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IHostedService, HomeostatEngine>());
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IHostedService, DetectorHost>());
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IHostedService, Diagnostics.HomeostatGauges>());
 
         var builder = new HomeostatBuilder(services);
         configure?.Invoke(builder);

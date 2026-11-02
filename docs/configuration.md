@@ -55,9 +55,19 @@ composites).
 | `Source` | `ForSource` | `"weather-feed"` |
 | `Severity` | `WhenSeverityAtLeast` | `"Degraded"`, `"Unhealthy"` |
 | `ValueAbove`, `ValueBelow` | `WhenValueAbove`, `WhenValueBelow` | `0.9` |
+
+A condition has at most one trigger: `Severity`, `ValueAbove`, `ValueBelow`, `RisingFasterThan`, `FallingFasterThan`,
+`AnomalouslyHigh` or `AnomalouslyLow`.
+
+| Key | Same as | Example |
+|---|---|---|
 | `ClearWhenHealthy` | `ClearWhen(s => s.Severity == Healthy)` | `true` |
 | `SustainedFor`, `ClearAfter` | `SustainedFor`, `ClearAfter` | `"30s"`, `"00:02:00"` |
 | `SuppressedBy` | `SuppressedBy` | `[ "network-down" ]` or `"a,b"` |
+| `RisingFasterThan:PerMinute`, `:Window`, `:MinimumSamples` | `WhenRisingFasterThan` | `0.005`, `"15m"`, `5` (optional) |
+| `FallingFasterThan:PerMinute`, `:Window`, `:MinimumSamples` | `WhenFallingFasterThan` | `-`, as above |
+| `AnomalouslyHigh:ZScore`, `:Window`, `:MinimumHistory` | `WhenAnomalouslyHigh` | `3`, `"1h"`, `30` (optional) |
+| `AnomalouslyLow:ZScore`, `:Window`, `:MinimumHistory` | `WhenAnomalouslyLow` | as above |
 | `Occurrences:Count`, `Occurrences:Within` | `Occurrences` | `3`, `"5m"` |
 | `AllActive`, `AnyActive` | `WhenAllActive`, `WhenAnyActive` | `[ "db-slow", "cache-down" ]` (no `Source`) |
 | `Plan` | `Heal` | see below |
@@ -84,9 +94,9 @@ When the configuration changes (a file is saved, a ConfigMap is updated, App Con
 Homeostat rebuilds the conditions defined there:
 
 - conditions whose **configuration did not change are not touched**, including the history of their
-  `Occurrences` rule;
+  `Occurrences`, trend and anomaly rules;
 - conditions whose **configuration changed keep their status** (an active condition stays active with its new
-  rules), but their `Occurrences` history starts again;
+  rules), but the history of those rules starts again;
 - new conditions start inactive; removed conditions stop being tracked: their pending approvals are withdrawn and
   the switches they turned on are turned off (a run already in progress finishes);
 - an **invalid change is logged as an error and ignored**: Homeostat keeps the previous conditions.
@@ -98,8 +108,17 @@ Configuration 'Homeostat:Conditions:weather-feed-down:Plan:Steps:0': unknown act
 Known actions: switch:<name>, reload-configuration, renew-feed-client, switch-to-backup. Map action classes with MapAction<T>(name).
 ```
 
-Trend and anomaly rules are not available from configuration yet: they need a window of history that a reload
-would reset. Define those conditions in code.
+```json
+"memory-leak-suspected": {
+  "Source": "memory",
+  "RisingFasterThan": { "PerMinute": 0.005, "Window": "15m" }
+},
+"latency-anomaly": {
+  "Source": "http-server-latency",
+  "AnomalouslyHigh": { "ZScore": 4, "Window": "1h", "MinimumHistory": 60 },
+  "SustainedFor": "2m"
+}
+```
 
 ## Global options
 

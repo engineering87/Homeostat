@@ -64,6 +64,7 @@ How probes behave:
 
 ```csharp
 // Backlog that keeps growing, even if it is still below any fixed threshold.
+// IngestWorker derives from RestartableBackgroundService, so it can be restarted safely (see Actions).
 h.AddCondition("backlog-growing", c => c
     .ForSource("ingest-backlog")
     .WhenRisingFasterThan(perMinute: 500, window: TimeSpan.FromMinutes(5))
@@ -225,7 +226,7 @@ h.AddCondition("ingest-stuck", c => c
     .ForSource("ingest-queue")
     .WhenRisingFasterThan(perMinute: 200, window: TimeSpan.FromMinutes(5))
     .Heal(p => p
-        .RestartHostedService<IngestConsumer>()                    // restart the consumer loop
+        .RestartHostedService<IngestConsumer>()                    // a RestartableBackgroundService
         .Then("pause producers", sp => sp.GetRequiredService<IHomeostatSwitches>().TurnOn("pause-ingest"))));
 
 h.AddCondition("poison-messages", c => c

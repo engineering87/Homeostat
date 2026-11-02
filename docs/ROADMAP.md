@@ -39,12 +39,16 @@ ships as previews. It is indicative and changes with feedback: open an issue to 
 
 ## Wave 3: operations and developer experience
 
-- [ ] Embedded dashboard: status, history, one-click approvals
-- [ ] Interactive approvals in Slack and Microsoft Teams; PagerDuty and Opsgenie incidents
-- [ ] `dotnet homeostat` CLI and `dotnet new` template
-- [ ] Roslyn analyzers (actions that ignore cancellation, conditions without a source)
-- [ ] Grafana dashboard; documentation site; samples gallery (worker service, Aspire, Kubernetes)
-- [ ] Trend and anomaly rules from configuration; persisted condition history
+- [x] Embedded dashboard (`MapHomeostatDashboard`): status, history, one-click approvals, switches, pause
+- [x] Incidents in PagerDuty and Opsgenie (Jira Service Management); Slack notifications with interactive approvals; Microsoft Teams cards
+- [x] `homeostat` command-line tool (`Homeostat.Cli`) and `dotnet new` templates (`Homeostat.Templates`)
+- [x] Roslyn analyzers HOMEO001 to HOMEO005 (unawaited inline actions, conditions without a source, ignored cancellation, anonymous endpoints, unsafe worker restarts)
+- [x] Grafana dashboard and state gauges; worker service sample
+- [x] Trend and anomaly rules from configuration
+- [x] `RestartableBackgroundService`: safe restarts of stuck or crashed workers, with `AddBackgroundServiceSignals`
+- [ ] Interactive approvals in Microsoft Teams (bot) and from incident tools
+- [ ] Documentation site; Aspire and Kubernetes samples
+- [ ] Persisted condition history
 
 ## Wave 4: cloud and orchestrators (separate packages, approval on by default)
 
