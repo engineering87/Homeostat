@@ -10,7 +10,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 - Targets .NET 10 (LTS). .NET 8 and .NET 9 reach end of support on November 10, 2026.
 - Dependencies on the current releases: Microsoft.Extensions 10.0.14, Polly.Core 8.9.0,
-  Microsoft.Extensions.TimeProvider.Testing 10.11.0; tests on xUnit v3.
+  Microsoft.Extensions.TimeProvider.Testing 10.11.0; tests on xUnit v3 (VSTest runner, Microsoft Testing Platform off).
 
 ### Added
 
