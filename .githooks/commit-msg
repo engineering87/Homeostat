@@ -1,0 +1,10 @@
+#!/bin/sh
+# Checks the commit message against commitlint.config.mjs.
+# Enabled by `npm install` (it sets core.hooksPath to .githooks); skip once with `git commit --no-verify`.
+
+if [ ! -x node_modules/.bin/commitlint ]; then
+  echo "commit-msg: commitlint is not installed; run 'npm install' to enable commit message checks." >&2
+  exit 0
+fi
+
+exec node_modules/.bin/commitlint --edit "$1"

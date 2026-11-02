@@ -4,7 +4,40 @@ updates:
     directory: "/"
     schedule:
       interval: "weekly"
+    # Conventional commit messages, accepted by commitlint: "build(deps): bump ..."
+    commit-message:
+      prefix: "build"
+      include: "scope"
+    groups:
+      # One pull request for the monthly .NET servicing release instead of one per package.
+      microsoft-extensions:
+        patterns: [ "Microsoft.Extensions.*" ]
+      test-tooling:
+        patterns: [ "xunit*", "Microsoft.NET.Test.Sdk" ]
+    ignore:
+      # The libraries target net10.0: the Microsoft.Extensions 11.x packages come with a new target framework.
+      - dependency-name: "Microsoft.Extensions.*"
+        update-types: [ "version-update:semver-major" ]
+
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
       interval: "weekly"
+    commit-message:
+      prefix: "ci"
+      include: "scope"
+    groups:
+      github-actions:
+        patterns: [ "*" ]
+
+  # Repository tooling only (commitlint).
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "monthly"
+    commit-message:
+      prefix: "build"
+      include: "scope"
+    groups:
+      commitlint:
+        patterns: [ "@commitlint/*" ]

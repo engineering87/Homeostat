@@ -83,7 +83,8 @@ to export traces and metrics.
 
 ### Which .NET versions are supported?
 
-.NET 8 and .NET 10.
+.NET 10, the current long-term support release. .NET 8 and .NET 9 reach end of support on
+November 10, 2026, so Homeostat does not target them; new .NET versions are added as they are released.
 
 ### Where does the name come from?
 

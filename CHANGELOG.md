@@ -6,6 +6,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+### Platform
+
+- Targets .NET 10 (LTS). .NET 8 and .NET 9 reach end of support on November 10, 2026.
+- Dependencies on the current releases: Microsoft.Extensions 10.0.14, Polly.Core 8.9.0,
+  Microsoft.Extensions.TimeProvider.Testing 10.11.0; tests on xUnit v3.
+
 ### Added
 
 - Signals, conditions, healing plans with escalation and three-outcome verification.
@@ -32,6 +38,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   require an authorization policy unless explicitly mapped for anonymous use.
 - Homeostat's own health check (`AddHomeostatCheck`).
 - Release workflow on version tags, package validation, XML documentation for the whole public API.
+- Conventional Commits enforced by commitlint: local `commit-msg` hook and a CI workflow that also checks
+  pull request titles; Dependabot writes compliant commit messages.
 - Weather feed sample and unit tests.
 - Logo, package icon and social preview image.
 - Documentation: getting started, concepts, signals, detectors, conditions, healing plans, actions,

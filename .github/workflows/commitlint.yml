@@ -1,0 +1,94 @@
+name: Commit lint
+
+# Commit messages and pull request titles must follow Conventional Commits (see commitlint.config.mjs).
+# The title matters because squash merges use it as the commit message on main.
+
+on:
+  pull_request:
+    types: [ opened, edited, synchronize, reopened ]
+  push:
+    branches: [ main ]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  commits:
+    name: Commit messages
+    runs-on: ubuntu-latest
+    # Editing only the title or description does not change the commits.
+    if: github.event_name == 'push' || github.event.action != 'edited'
+
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install commitlint
+        run: npm ci --ignore-scripts --no-audit --no-fund
+
+      - name: Lint the commits of the pull request
+        if: github.event_name == 'pull_request'
+        run: >
+          npx --no -- commitlint --verbose
+          --from "${{ github.event.pull_request.base.sha }}"
+          --to "${{ github.event.pull_request.head.sha }}"
+
+      - name: Lint the pushed commits
+        if: github.event_name == 'push'
+        env:
+          BEFORE: ${{ github.event.before }}
+          AFTER: ${{ github.event.after }}
+        run: |
+          # A new branch or a force push has no usable "before": check the last commit only.
+          if [ "$BEFORE" = "0000000000000000000000000000000000000000" ] || ! git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then
+            npx --no -- commitlint --verbose --last
+          else
+            npx --no -- commitlint --verbose --from "$BEFORE" --to "$AFTER"
+          fi
+
+  title:
+    name: Pull request title
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+
+    steps:
+      - uses: amannn/action-semantic-pull-request@v6
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          # Same types and scopes as commitlint.config.mjs.
+          types: |
+            build
+            chore
+            ci
+            docs
+            feat
+            fix
+            perf
+            refactor
+            revert
+            style
+            test
+          scopes: |
+            core
+            aspnetcore
+            healthchecks
+            http
+            polly
+            testing
+            samples
+            docs
+            deps
+            ci
+            release
+          requireScope: false
+          subjectPattern: ^(?![A-Z]).+$
+          subjectPatternError: |
+            The subject "{subject}" of the pull request title "{title}" must start with a lower-case letter.

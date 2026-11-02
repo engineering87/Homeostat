@@ -28,3 +28,6 @@ Thumbs.db
 
 # Sample audit logs
 logs/
+
+# Repository tooling (commitlint)
+node_modules/

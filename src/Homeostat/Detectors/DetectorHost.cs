@@ -35,7 +35,7 @@ internal sealed class DetectorHost : BackgroundService
             return;
         }
 
-        // Leave StartAsync immediately: a slow detector must not delay host startup on .NET 8.
+        // Leave StartAsync immediately, whatever the hosting model: a slow detector must not delay host startup.
         await Task.Yield();
 
         using var timer = new PeriodicTimer(_interval, _timeProvider);

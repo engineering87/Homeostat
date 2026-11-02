@@ -9,7 +9,7 @@
   <a href="https://www.nuget.org/packages/Homeostat"><img src="https://img.shields.io/nuget/vpre/Homeostat?logo=nuget&label=NuGet&color=6366F1" alt="NuGet version"></a>
   <a href="https://www.nuget.org/packages/Homeostat"><img src="https://img.shields.io/nuget/dt/Homeostat?label=downloads&color=06B6D4" alt="NuGet downloads"></a>
   <a href="https://github.com/engineering87/Homeostat/actions/workflows/ci.yml"><img src="https://github.com/engineering87/Homeostat/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
-  <img src="https://img.shields.io/badge/.NET-8%20%7C%2010-512BD4?logo=dotnet" alt=".NET 8 and 10">
+  <img src="https://img.shields.io/badge/.NET-10-512BD4?logo=dotnet" alt=".NET 10">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-10B981" alt="MIT license"></a>
 </p>
 
@@ -206,7 +206,7 @@ dotnet add package Homeostat
 | `Homeostat.Polly` | Polly v8 circuit breaker state as signals |
 | `Homeostat.Testing` | Test host with simulated time, fault injection, helpers for unit tests |
 
-Targets **.NET 8** and **.NET 10**.
+Targets **.NET 10** (LTS, supported until November 2028).
 
 ## Safe by default
 

@@ -10,7 +10,7 @@ Thanks for your interest in contributing.
 
 ## Development
 
-Requirements: .NET 10 SDK and the .NET 8 runtime (the libraries and tests target both).
+Requirements: .NET 10 SDK.
 
 ```bash
 dotnet restore Homeostat.slnx
@@ -18,9 +18,40 @@ dotnet build Homeostat.slnx
 dotnet test Homeostat.slnx
 ```
 
+## Commit messages
+
+Commits and pull request titles follow [Conventional Commits](https://www.conventionalcommits.org):
+
+```text
+<type>(<scope>): <subject in lower case>
+
+<optional body: what and why>
+
+<optional footers, for example BREAKING CHANGE: ... or Co-Authored-By: ...>
+```
+
+| Part | Allowed values |
+|---|---|
+| Type | `feat`, `fix`, `docs`, `test`, `refactor`, `perf`, `build`, `ci`, `chore`, `style`, `revert` |
+| Scope (optional) | `core`, `aspnetcore`, `healthchecks`, `http`, `polly`, `testing`, `samples`, `docs`, `deps`, `ci`, `release` |
+
+Examples: `feat(core): add hysteresis to conditions`, `fix(http): dispose the response when IsFailure throws`,
+`docs: explain approvals`. A `!` after the type or scope (`feat(aspnetcore)!: ...`) marks a breaking change.
+The header can be up to 100 characters.
+
+The rules live in `commitlint.config.mjs` and are checked:
+
+- **locally**, by a `commit-msg` hook: run `npm install` once (Node.js 22.12 or later); it installs commitlint
+  and points git to the hooks in `.githooks`. Without Node.js the hook does nothing.
+- **in CI**, by the `Commit lint` workflow, on every commit of a pull request and on the pull request title,
+  which becomes the commit message when the pull request is squash-merged.
+
+Dependabot is configured to write compliant messages (`build(deps): ...`, `ci(deps): ...`).
+
 ## Pull requests
 
 - Keep changes focused; one topic per pull request.
+- Give the pull request a Conventional Commits title (see above).
 - Add or update tests for behavior changes.
 - Public APIs must have XML documentation: missing comments are build warnings, and errors in CI.
 - New guardrail-relevant behavior must default to the safe option.
