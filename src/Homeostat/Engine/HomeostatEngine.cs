@@ -18,6 +18,9 @@ internal sealed class HomeostatEngine : BackgroundService
     private readonly SwitchOwnership _ownership;
     private readonly HomeostatApprovals _approvals;
     private readonly ILogger<HomeostatEngine> _logger;
+    private readonly Diagnostics.ActivationLog _activations;
+    private readonly Recording.SignalRecorder[] _recorders;
+    private readonly TimeProvider _timeProvider;
 
     public HomeostatEngine(
         SignalChannel channel,
@@ -28,8 +31,14 @@ internal sealed class HomeostatEngine : BackgroundService
         SwitchOwnership ownership,
         HomeostatApprovals approvals,
         ILogger<HomeostatEngine> logger,
-        Healing.Actions.ApplicationClock clock)
+        Healing.Actions.ApplicationClock clock,
+        Diagnostics.ActivationLog activations,
+        IEnumerable<Recording.SignalRecorder> recorders,
+        TimeProvider timeProvider)
     {
+        _activations = activations;
+        _recorders = recorders.ToArray();
+        _timeProvider = timeProvider;
         // Resolved here, when the host starts, so the clock records the application's start time.
         _ = clock;
         _channel = channel;
@@ -54,7 +63,13 @@ internal sealed class HomeostatEngine : BackgroundService
         {
             await foreach (var signal in _channel.Reader.ReadAllAsync(stoppingToken).ConfigureAwait(false))
             {
+                foreach (var recorder in _recorders)
+                {
+                    recorder.Record(signal);
+                }
+
                 Process(signal, stoppingToken);
+                _channel.MarkProcessed();
             }
         }
         catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
@@ -129,6 +144,7 @@ internal sealed class HomeostatEngine : BackgroundService
                     "Condition {Condition} is active (source {Source}, severity {Severity}).",
                     tracker.Definition.Name, signal.Source, signal.Severity);
                 var snapshot = _conditions.Snapshot(tracker);
+                _activations.Record(tracker.Definition.Name, _timeProvider.GetUtcNow());
                 _notifier.Notify(o => o.OnConditionActivated(snapshot));
                 if (snapshot.SuppressedBy is { } cause && tracker.Definition.Plan is not null)
                 {

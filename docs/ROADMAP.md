@@ -60,10 +60,12 @@ ships as previews. It is indicative and changes with feedback: open an issue to 
 
 ## Wave 5: intelligence
 
-- [ ] Adaptive plans: order steps by measured success
-- [ ] Predictive healing from trends
-- [ ] Signal recording and replay: "what would the plans have done yesterday?"
-- [ ] Plan coverage reports from chaos experiments
+- [x] Adaptive plans: steps ordered by measured success, approval steps as barriers (`Adaptive()`)
+- [x] Predictive healing from trends (`WhenProjectedAbove`, `WhenProjectedBelow`, also from configuration)
+- [x] Signal recording (`RecordSignals`) and replay (`HomeostatReplay`): "what would the plans have done yesterday?"
+- [x] Coverage reports for game days (`GetCoverageAsync`, `GET /homeostat/coverage`, `homeostat coverage --fail-below`)
+- [ ] Seasonality-aware anomalies (daily and weekly baselines)
+- [ ] Replay from the command line and coverage in the dashboard
 
 ## Toward 1.0
 

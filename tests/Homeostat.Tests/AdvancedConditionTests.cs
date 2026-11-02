@@ -69,7 +69,14 @@ public class AdvancedConditionTests
         }
 
         Assert.Equal(ConditionStatus.Active, tracker.Snapshot().Status);
-        Assert.Equal(ConditionTransition.Cleared, tracker.Observe(new Signal("memory", SignalSeverity.Unhealthy, T0.AddSeconds(150))));
+
+        // A signal without a value (a failed probe) neither triggers nor clears: the state stays as it is.
+        Assert.NotEqual(ConditionTransition.Cleared, tracker.Observe(new Signal("memory", SignalSeverity.Unhealthy, T0.AddSeconds(150))));
+        Assert.Equal(ConditionStatus.Active, tracker.Snapshot().Status);
+
+        // A value that shows the rise has stopped clears it.
+        Assert.Equal(ConditionTransition.StillActive, tracker.Observe(Value(180, 0.34)));
+        Assert.Equal(ConditionTransition.Cleared, tracker.Observe(Value(210, 0.30)));
     }
 
     [Fact]

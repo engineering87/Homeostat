@@ -150,3 +150,10 @@ and index, start time.
 Detectors are plain classes: call `DetectAsync` with your own `ISignalPublisher` implementation that
 collects signals, then assert on them. To test a detector end to end, register it in a
 `HomeostatTestHost` with `AddDetector<T>()`: the detection interval runs on simulated time.
+
+## Replaying recorded signals
+
+`HomeostatReplay` runs recorded signals (`RecordSignals`) through the conditions and plans you pass in, in dry-run on
+simulated time, and reports what would have happened: a regression test on real traffic for a new threshold or plan.
+See [Learning and foresight](intelligence.md#recording-and-replay).
+

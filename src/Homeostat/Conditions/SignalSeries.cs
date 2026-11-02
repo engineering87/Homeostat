@@ -34,7 +34,55 @@ internal sealed class SignalSeries(TimeSpan window)
     /// Least-squares slope of the values, per minute; <c>null</c> with fewer than <paramref name="minimum"/> points or
     /// when they span less than half the window, so a short burst (for example at startup) is not extrapolated.
     /// </summary>
-    public double? SlopePerMinute(int minimum)
+    public double? SlopePerMinute(int minimum) => Regression(minimum)?.Slope;
+
+    /// <summary>The latest value, if any.</summary>
+    public double? Latest => _points.Count == 0 ? null : _points[^1].Value;
+
+    /// <summary>
+    /// Least-squares slope per minute of the latest <paramref name="count"/> values only: the direction right now,
+    /// without the older history that a fix has made irrelevant. <c>null</c> with fewer values or no time span.
+    /// </summary>
+    public double? RecentSlopePerMinute(int count)
+    {
+        if (_points.Count < Math.Max(count, 2))
+        {
+            return null;
+        }
+
+        var recent = _points.Skip(_points.Count - count).ToList();
+        var origin = recent[0].At;
+        double n = recent.Count, sumX = 0, sumY = 0, sumXY = 0, sumXX = 0;
+        foreach (var (at, value) in recent)
+        {
+            var x = (at - origin).TotalMinutes;
+            sumX += x;
+            sumY += value;
+            sumXY += x * value;
+            sumXX += x * x;
+        }
+
+        var denominator = n * sumXX - sumX * sumX;
+        return denominator <= 1e-12 ? null : (n * sumXY - sumX * sumY) / denominator;
+    }
+
+    /// <summary>
+    /// The value the regression line reaches <paramref name="horizon"/> after the latest point; <c>null</c> under the
+    /// same conditions as <see cref="SlopePerMinute"/>.
+    /// </summary>
+    public double? ProjectedValue(int minimum, TimeSpan horizon)
+    {
+        if (Regression(minimum) is not { } line)
+        {
+            return null;
+        }
+
+        var x = (_points[^1].At - _points[0].At + horizon).TotalMinutes;
+        return line.Intercept + (line.Slope * x);
+    }
+
+    /// <summary>Least-squares line of the values against minutes since the first point.</summary>
+    private (double Slope, double Intercept)? Regression(int minimum)
     {
         if (_points.Count < minimum || _points.Count < 2 || _points[^1].At - _points[0].At < window / 2)
         {
@@ -53,7 +101,13 @@ internal sealed class SignalSeries(TimeSpan window)
         }
 
         var denominator = n * sumXX - sumX * sumX;
-        return denominator <= 1e-12 ? null : (n * sumXY - sumX * sumY) / denominator;
+        if (denominator <= 1e-12)
+        {
+            return null;
+        }
+
+        var slope = (n * sumXY - sumX * sumY) / denominator;
+        return (slope, (sumY - slope * sumX) / n);
     }
 
     /// <summary>

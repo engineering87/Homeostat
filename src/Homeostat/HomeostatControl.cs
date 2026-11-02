@@ -13,6 +13,7 @@ internal sealed class HomeostatControl : IHomeostatControl
     private readonly TimeProvider _timeProvider;
     private readonly HomeostatOptions _options;
     private readonly object _gate = new();
+    private readonly Diagnostics.ActivationLog _activations;
     private bool _paused;
     private DateTimeOffset? _pausedUntil;
 
@@ -21,8 +22,10 @@ internal sealed class HomeostatControl : IHomeostatControl
         IHomeostatStore store,
         MaintenanceWindows maintenance,
         TimeProvider timeProvider,
-        IOptions<HomeostatOptions> options)
+        IOptions<HomeostatOptions> options,
+        Diagnostics.ActivationLog activations)
     {
+        _activations = activations;
         _conditions = conditions;
         _store = store;
         _maintenance = maintenance;
@@ -91,5 +94,36 @@ internal sealed class HomeostatControl : IHomeostatControl
     {
         var used = await _store.GetBudgetUsedAsync(_timeProvider.GetUtcNow(), _options.ActionBudgetWindow, cancellationToken).ConfigureAwait(false);
         return new ActionBudgetStatus(used, _options.MaxActionsPerWindow, _options.ActionBudgetWindow);
+    }
+
+    public async ValueTask<CoverageReport> GetCoverageAsync(DateTimeOffset since, CancellationToken cancellationToken = default)
+    {
+        var history = await GetRecentRunsAsync(cancellationToken).ConfigureAwait(false);
+        var runs = history.Where(r => r.CompletedAt >= since).ToList();
+
+        // A full history whose oldest run is inside the period has lost the older runs of the period.
+        var truncated = history.Count >= _options.RunHistorySize && history.Count > 0 && history.Min(r => r.CompletedAt) > since;
+
+        var conditions = new List<ConditionCoverage>();
+        foreach (var tracker in _conditions.Trackers)
+        {
+            var definition = tracker.Definition;
+            var mine = runs.Where(r => string.Equals(r.ConditionName, definition.Name, StringComparison.Ordinal)).ToList();
+            var tried = mine.SelectMany(r => r.Steps).Select(s => s.Name).ToHashSet(StringComparer.Ordinal);
+            var ran = mine.SelectMany(r => r.Steps).Where(s => s.Succeeded).Select(s => s.Name).ToHashSet(StringComparer.Ordinal);
+            var planSteps = definition.Plan?.Steps.Select(s => s.Name).ToList() ?? [];
+            conditions.Add(new ConditionCoverage(
+                definition.Name,
+                definition.Plan is not null,
+                _activations.Since(definition.Name, since).Count,
+                mine.Count,
+                mine.GroupBy(r => r.Outcome.ToString()).ToDictionary(g => g.Key, g => g.Count(), StringComparer.Ordinal),
+                [.. planSteps.Where(ran.Contains)],
+                [.. planSteps.Where(s => tried.Contains(s) && !ran.Contains(s))],
+                [.. planSteps.Where(s => !tried.Contains(s))],
+                mine.Count == 0 ? null : mine.Max(r => r.CompletedAt)));
+        }
+
+        return new CoverageReport(since, _timeProvider.GetUtcNow(), conditions, truncated);
     }
 }

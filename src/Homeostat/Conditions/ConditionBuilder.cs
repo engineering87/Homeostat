@@ -13,6 +13,10 @@ public sealed class ConditionBuilder
     private Func<Signal, bool>? _relevant;
     private Func<Signal, bool>? _trigger;
     private Func<Signal, bool>? _clear;
+
+    // Default clear of the series-based rules (trend, anomaly, projection): only a signal the rule can evaluate, and
+    // that it finds good, clears the condition. A signal without a value (a failed probe) leaves the state alone.
+    private Func<Signal, bool>? _seriesClear;
     private TimeSpan _sustainFor = TimeSpan.Zero;
     private TimeSpan _clearAfter = TimeSpan.Zero;
     private readonly List<string> _suppressedBy = [];
@@ -100,6 +104,31 @@ public sealed class ConditionBuilder
     /// <param name="minimumSamples">Values needed before the rule can trigger (at least 3).</param>
     public ConditionBuilder WhenFallingFasterThan(double perMinute, TimeSpan window, int minimumSamples = 5)
         => Trend(window, minimumSamples, slope => slope < -perMinute);
+
+    /// <summary>
+    /// Predictive trigger: when the trend of the values, measured by linear regression over <paramref name="window"/>,
+    /// will cross <paramref name="threshold"/> within <paramref name="within"/>. Heals before the problem: the disk that
+    /// will be full in two hours, the backlog that will exceed its limit, the memory that will run out tonight. Like the
+    /// trend rules, it needs values spanning at least half the window, so a short burst is not extrapolated.
+    /// </summary>
+    /// <param name="threshold">Level the values must not reach.</param>
+    /// <param name="within">How far ahead to look.</param>
+    /// <param name="window">History used to measure the trend; make it at least as long as <paramref name="within"/>.</param>
+    /// <param name="minimumSamples">Values needed before the rule can trigger (at least 3).</param>
+    /// <example><code>c.ForSource("memory").WhenProjectedAbove(0.95, within: TimeSpan.FromHours(2), window: TimeSpan.FromHours(2))</code></example>
+    public ConditionBuilder WhenProjectedAbove(double threshold, TimeSpan within, TimeSpan window, int minimumSamples = 5)
+        => Projection(threshold, within, window, minimumSamples, above: true);
+
+    /// <summary>
+    /// Predictive trigger: when the trend of the values will fall below <paramref name="threshold"/> within
+    /// <paramref name="within"/> (see <see cref="WhenProjectedAbove"/>), for example free disk space or available workers.
+    /// </summary>
+    /// <param name="threshold">Level the values must stay above.</param>
+    /// <param name="within">How far ahead to look.</param>
+    /// <param name="window">History used to measure the trend.</param>
+    /// <param name="minimumSamples">Values needed before the rule can trigger (at least 3).</param>
+    public ConditionBuilder WhenProjectedBelow(double threshold, TimeSpan within, TimeSpan window, int minimumSamples = 5)
+        => Projection(threshold, within, window, minimumSamples, above: false);
 
     /// <summary>
     /// Trigger when a value is unusually high compared with the recent past: at least <paramref name="zScore"/> standard
@@ -249,6 +278,49 @@ public sealed class ConditionBuilder
         var series = new SignalSeries(window);
         _recorders.Add(series.Add);
         _trigger = s => HasValue(s) && series.SlopePerMinute(minimumSamples) is { } slope && rule(slope);
+        _seriesClear = s => HasValue(s) && series.SlopePerMinute(minimumSamples) is { } slope && !rule(slope);
+        return this;
+    }
+
+    private ConditionBuilder Projection(double threshold, TimeSpan within, TimeSpan window, int minimumSamples, bool above)
+    {
+        EnsureNotComposite("a predictive rule");
+        if (!double.IsFinite(threshold))
+        {
+            throw new ArgumentOutOfRangeException(nameof(threshold), "The threshold must be a finite number.");
+        }
+
+        if (within <= TimeSpan.Zero || window <= TimeSpan.Zero)
+        {
+            throw new ArgumentOutOfRangeException(nameof(within), "The horizon and the window must be positive.");
+        }
+
+        ArgumentOutOfRangeException.ThrowIfLessThan(minimumSamples, 3);
+        var series = new SignalSeries(window);
+        _recorders.Add(series.Add);
+
+        // The value at the horizon, not just the slope: a fast rise far below the threshold does not trigger, a slow one
+        // close to it does.
+        _trigger = s => HasValue(s) && series.ProjectedValue(minimumSamples, within) is { } projected
+            && (above ? projected >= threshold : projected <= threshold);
+
+        // Recovery cannot wait for the old trend to leave the window (up to a whole window after a fix): the condition
+        // clears when the current value is on the safe side and either the projection is safe again or the latest
+        // values no longer move toward the threshold.
+        _seriesClear = s =>
+        {
+            if (!HasValue(s) || series.Latest is not { } current || (above ? current >= threshold : current <= threshold))
+            {
+                return false;
+            }
+
+            if (series.ProjectedValue(minimumSamples, within) is { } projected && (above ? projected < threshold : projected > threshold))
+            {
+                return true;
+            }
+
+            return series.RecentSlopePerMinute(minimumSamples) is { } recent && (above ? recent <= 0 : recent >= 0);
+        };
         return this;
     }
 
@@ -264,6 +336,7 @@ public sealed class ConditionBuilder
         var series = new SignalSeries(window);
         _recorders.Add(series.Add);
         _trigger = s => HasValue(s) && series.LatestZScore(minimumHistory) is { } z && rule(z);
+        _seriesClear = s => HasValue(s) && series.LatestZScore(minimumHistory) is { } z && !rule(z);
         return this;
     }
 
@@ -340,7 +413,7 @@ public sealed class ConditionBuilder
             _clear ??= _ => matches.Count < occurrences.Count;
         }
 
-        Func<Signal, bool> clear = _clear ?? (s => !trigger(s));
+        Func<Signal, bool> clear = _clear ?? _seriesClear ?? (s => !trigger(s));
         Action<Signal>? record = recorders.Count switch
         {
             0 => null,

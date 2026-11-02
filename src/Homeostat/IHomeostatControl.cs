@@ -36,6 +36,15 @@ public interface IHomeostatControl
     /// <param name="cancellationToken">Cancellation token.</param>
     ValueTask<IReadOnlyList<HealingRunRecord>> GetRecentRunsAsync(CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// What was exercised since <paramref name="since"/>: activations (on this instance), runs and their outcomes, steps
+    /// that never ran. Runs come from the run history, so a period longer than <see cref="HomeostatOptions.RunHistorySize"/>
+    /// runs is truncated.
+    /// </summary>
+    /// <param name="since">Start of the period, for example the start of a game day.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    ValueTask<CoverageReport> GetCoverageAsync(DateTimeOffset since, CancellationToken cancellationToken = default);
+
     /// <summary>Current use of the action budget, from the store.</summary>
     /// <param name="cancellationToken">Cancellation token.</param>
     ValueTask<ActionBudgetStatus> GetBudgetAsync(CancellationToken cancellationToken = default);

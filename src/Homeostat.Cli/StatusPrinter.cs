@@ -87,4 +87,45 @@ internal static class StatusPrinter
 
         return text.ToString();
     }
+
+    public static string PrintCoverage(JsonElement report)
+    {
+        var text = new StringBuilder();
+        text.AppendLine(CultureInfo.InvariantCulture,
+            $"Coverage since {report.GetProperty("since").GetDateTimeOffset().ToLocalTime():yyyy-MM-dd HH:mm}: {report.GetProperty("stepCoverage").GetDouble():P0} of plan steps ran");
+        text.AppendLine();
+        var conditions = report.GetProperty("conditions").EnumerateArray().ToList();
+        var width = conditions.Count == 0 ? 9 : Math.Max(9, conditions.Max(c => c.GetProperty("name").GetString()!.Length));
+        text.AppendLine(CultureInfo.InvariantCulture, $"  {"Condition".PadRight(width)}  Activations  Runs  Outcomes");
+        foreach (var c in conditions)
+        {
+            var outcomes = string.Join(", ", c.GetProperty("outcomes").EnumerateObject().Select(o => $"{o.Name} {o.Value.GetInt32()}"));
+            text.AppendLine(CultureInfo.InvariantCulture,
+                $"  {c.GetProperty("name").GetString()!.PadRight(width)}  {c.GetProperty("activations").GetInt32(),11}  {c.GetProperty("runs").GetInt32(),4}  {outcomes}");
+            var failed = c.TryGetProperty("stepsFailed", out var f) ? f.EnumerateArray().Select(s => s.GetString()).ToList() : [];
+            if (failed.Count > 0)
+            {
+                text.AppendLine(CultureInfo.InvariantCulture, $"  {string.Empty.PadRight(width)}  always failed: {string.Join(", ", failed)}");
+            }
+
+            var never = c.GetProperty("stepsNeverRun").EnumerateArray().Select(s => s.GetString()).ToList();
+            if (never.Count > 0)
+            {
+                text.AppendLine(CultureInfo.InvariantCulture, $"  {string.Empty.PadRight(width)}  never ran: {string.Join(", ", never)}");
+            }
+        }
+
+        var neverActivated = report.GetProperty("neverActivated").EnumerateArray().Select(s => s.GetString()).ToList();
+        if (neverActivated.Count > 0)
+        {
+            text.AppendLine().AppendLine(CultureInfo.InvariantCulture, $"Never activated: {string.Join(", ", neverActivated)}");
+        }
+
+        if (report.TryGetProperty("truncated", out var truncated) && truncated.ValueKind == JsonValueKind.True)
+        {
+            text.AppendLine().AppendLine("Warning: the run history does not reach back to the start of the period; older runs are not counted.");
+        }
+
+        return text.ToString();
+    }
 }

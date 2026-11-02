@@ -23,6 +23,7 @@ New to Homeostat? Read the pages in this order: each one builds on the previous.
 | [Notifications and audit](notifications.md) | Audit log, webhook, PagerDuty and Opsgenie incidents, Slack and Microsoft Teams |
 | [Persistence and clusters](persistence-and-clusters.md) | File and Redis stores, several instances, plans that run once per cluster |
 | [Integrations](integrations.md) | Probes, databases, Redis, message brokers, caches, alerts from monitoring, feature flags, Polly circuit isolation and chaos |
+| [Learning and foresight](intelligence.md) | Predictive conditions, adaptive plans, signal recording and replay, coverage reports |
 | [Cloud and orchestrators](cloud.md) | Restart the application, Kubernetes and Azure actions, permissions |
 | [Configuration](configuration.md) | Conditions and plans in `appsettings.json`, applied at runtime |
 | [ASP.NET Core endpoints](aspnetcore.md) | Status and control endpoints, dashboard, Slack approvals, Homeostat as a health check |

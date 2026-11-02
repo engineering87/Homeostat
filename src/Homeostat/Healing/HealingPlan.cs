@@ -27,6 +27,13 @@ public sealed class HealingPlan
         Cooldown = cooldown;
     }
 
+    /// <summary>
+    /// When set, the steps are reordered for each run by how often they healed this condition (see
+    /// <see cref="HealingPlanBuilder.Adaptive"/>), once they have been tried this many times; <c>null</c> keeps the
+    /// declared order.
+    /// </summary>
+    public int? AdaptiveMinimumAttempts { get; internal init; }
+
     /// <summary>Name of the condition this plan heals.</summary>
     public string ConditionName { get; }
 

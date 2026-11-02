@@ -303,11 +303,14 @@ internal sealed class HealingRunner
         var outcome = HealingRunOutcome.Failed;
         var held = false;
 
-        using var activity = HomeostatDiagnostics.ActivitySource.StartActivity("homeostat.heal");
+        using var activity = TelemetryEnabled ? HomeostatDiagnostics.ActivitySource.StartActivity("homeostat.heal") : null;
         activity?.SetTag("homeostat.condition", name);
         activity?.SetTag("homeostat.signal.source", trigger.Source);
         activity?.SetTag("homeostat.instance", _options.InstanceId);
-        HomeostatDiagnostics.Runs.Add(1, new KeyValuePair<string, object?>("condition", name));
+        if (TelemetryEnabled)
+        {
+            HomeostatDiagnostics.Runs.Add(1, new KeyValuePair<string, object?>("condition", name));
+        }
 
         var slot = new ConcurrencySlot(_concurrency);
         try
@@ -333,8 +336,11 @@ internal sealed class HealingRunner
                 new KeyValuePair<string, object?>("condition", name),
                 new KeyValuePair<string, object?>("outcome", outcomeName),
             };
-            HomeostatDiagnostics.Outcomes.Add(1, tags);
-            HomeostatDiagnostics.Duration.Record(_timeProvider.GetElapsedTime(startTimestamp).TotalSeconds, tags);
+            if (TelemetryEnabled)
+            {
+                HomeostatDiagnostics.Outcomes.Add(1, tags);
+                HomeostatDiagnostics.Duration.Record(_timeProvider.GetElapsedTime(startTimestamp).TotalSeconds, tags);
+            }
             activity?.SetTag("homeostat.outcome", outcomeName);
 
             slot.Release();
@@ -384,6 +390,35 @@ internal sealed class HealingRunner
         _notifier.Notify(o => o.OnRunCompleted(result));
     }
 
+    /// <summary>The steps of this run: the declared order, or the learned one for an adaptive plan.</summary>
+    private async Task<IReadOnlyList<HealingStep>> OrderStepsAsync(HealingPlan plan, CancellationToken cancellationToken)
+    {
+        if (plan.AdaptiveMinimumAttempts is not { } minimum || _options.RunHistorySize <= 0)
+        {
+            return plan.Steps;
+        }
+
+        IReadOnlyList<HealingRunRecord> history;
+        try
+        {
+            history = await _store.GetRecentRunsAsync(_options.RunHistorySize, cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
+        {
+            _logger.LogDebug(ex, "Condition {Condition}: run history unavailable; declared step order.", plan.ConditionName);
+            return plan.Steps;
+        }
+
+        var ordered = AdaptiveOrder.Order(plan.Steps, history, plan.ConditionName, minimum);
+        if (!ordered.SequenceEqual(plan.Steps))
+        {
+            _logger.LogInformation("Condition {Condition}: steps ordered by measured success: {Steps}.",
+                plan.ConditionName, string.Join(", ", ordered.Select(s => s.Name)));
+        }
+
+        return ordered;
+    }
+
     private async Task<(HealingRunOutcome Outcome, bool Held)> ExecutePlanAsync(
         ConditionTracker tracker,
         HealingPlan plan,
@@ -393,33 +428,34 @@ internal sealed class HealingRunner
         CancellationToken cancellationToken)
     {
         var name = plan.ConditionName;
+        var planSteps = await OrderStepsAsync(plan, cancellationToken).ConfigureAwait(false);
 
         if (_options.DryRun)
         {
-            for (var i = 0; i < plan.Steps.Count; i++)
+            for (var i = 0; i < planSteps.Count; i++)
             {
-                if (plan.Steps[i].RequiresApproval)
+                if (planSteps[i].RequiresApproval)
                 {
                     _logger.LogWarning(
                         "[dry-run] Condition {Condition}: step {Step}/{Total} would request approval, then execute {Action}.",
-                        name, i + 1, plan.Steps.Count, plan.Steps[i].Name);
+                        name, i + 1, planSteps.Count, planSteps[i].Name);
                 }
                 else
                 {
                     _logger.LogWarning(
                         "[dry-run] Condition {Condition}: step {Step}/{Total} would execute {Action}.",
-                        name, i + 1, plan.Steps.Count, plan.Steps[i].Name);
+                        name, i + 1, planSteps.Count, planSteps[i].Name);
                 }
 
-                RecordAction(name, plan.Steps[i].Name, dryRun: true);
+                RecordAction(name, planSteps[i].Name, dryRun: true);
             }
 
             return (HealingRunOutcome.DryRun, false);
         }
 
-        for (var i = 0; i < plan.Steps.Count; i++)
+        for (var i = 0; i < planSteps.Count; i++)
         {
-            var step = plan.Steps[i];
+            var step = planSteps[i];
 
             if (CheckStop(tracker, i) is { } stop)
             {
@@ -430,7 +466,7 @@ internal sealed class HealingRunner
             {
                 // Waiting for a person must not block the other plans: give the concurrency slot back meanwhile.
                 slot.Release();
-                var approval = await WaitForApprovalAsync(name, i, plan.Steps.Count, step, trigger, cancellationToken).ConfigureAwait(false);
+                var approval = await WaitForApprovalAsync(name, i, planSteps.Count, step, trigger, cancellationToken).ConfigureAwait(false);
                 await slot.AcquireAsync(cancellationToken).ConfigureAwait(false);
 
                 // The world may have changed while waiting (cleared, paused, suppressed).
@@ -482,7 +518,7 @@ internal sealed class HealingRunner
 
             _logger.LogWarning(
                 "Condition {Condition}: executing step {Step}/{Total} {Action}.",
-                name, i + 1, plan.Steps.Count, step.Name);
+                name, i + 1, planSteps.Count, step.Name);
             RecordAction(name, step.Name, dryRun: false);
 
             var (executed, error) = await TryExecuteAsync(context, step, plan, scope.ServiceProvider, cancellationToken).ConfigureAwait(false);
@@ -545,7 +581,7 @@ internal sealed class HealingRunner
 
         _logger.LogError(
             "Condition {Condition}: all {Count} healing steps were tried without success. Manual intervention required.",
-            name, plan.Steps.Count);
+            name, planSteps.Count);
         return (HealingRunOutcome.NotHealed, false);
     }
 
@@ -718,10 +754,21 @@ internal sealed class HealingRunner
         _notifier.Notify(o => o.OnStepCompleted(result));
     }
 
-    private static void RecordAction(string condition, string step, bool dryRun)
-        => HomeostatDiagnostics.Actions.Add(
-            1,
-            new KeyValuePair<string, object?>("condition", condition),
-            new KeyValuePair<string, object?>("action", step),
-            new KeyValuePair<string, object?>("dry_run", dryRun));
+    /// <summary>
+    /// Whether runs emit traces and metrics. Off in a replay, whose simulated runs must not show up in the process's
+    /// telemetry (the instruments are static, shared by every engine in the process).
+    /// </summary>
+    internal bool TelemetryEnabled { get; set; } = true;
+
+    private void RecordAction(string condition, string step, bool dryRun)
+    {
+        if (TelemetryEnabled)
+        {
+            HomeostatDiagnostics.Actions.Add(
+                1,
+                new KeyValuePair<string, object?>("condition", condition),
+                new KeyValuePair<string, object?>("action", step),
+                new KeyValuePair<string, object?>("dry_run", dryRun));
+        }
+    }
 }

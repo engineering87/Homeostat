@@ -57,7 +57,7 @@ composites).
 | `ValueAbove`, `ValueBelow` | `WhenValueAbove`, `WhenValueBelow` | `0.9` |
 
 A condition has at most one trigger: `Severity`, `ValueAbove`, `ValueBelow`, `RisingFasterThan`, `FallingFasterThan`,
-`AnomalouslyHigh` or `AnomalouslyLow`.
+`AnomalouslyHigh`, `AnomalouslyLow`, `ProjectedAbove` or `ProjectedBelow`.
 
 | Key | Same as | Example |
 |---|---|---|
@@ -68,6 +68,8 @@ A condition has at most one trigger: `Severity`, `ValueAbove`, `ValueBelow`, `Ri
 | `FallingFasterThan:PerMinute`, `:Window`, `:MinimumSamples` | `WhenFallingFasterThan` | `-`, as above |
 | `AnomalouslyHigh:ZScore`, `:Window`, `:MinimumHistory` | `WhenAnomalouslyHigh` | `3`, `"1h"`, `30` (optional) |
 | `AnomalouslyLow:ZScore`, `:Window`, `:MinimumHistory` | `WhenAnomalouslyLow` | as above |
+| `ProjectedAbove:Threshold`, `:Within`, `:Window`, `:MinimumSamples` | `WhenProjectedAbove` | `0.95`, `"2h"`, `"2h"`, `5` (optional) |
+| `ProjectedBelow:Threshold`, `:Within`, `:Window`, `:MinimumSamples` | `WhenProjectedBelow` | as above |
 | `Occurrences:Count`, `Occurrences:Within` | `Occurrences` | `3`, `"5m"` |
 | `AllActive`, `AnyActive` | `WhenAllActive`, `WhenAnyActive` | `[ "db-slow", "cache-down" ]` (no `Source`) |
 | `Plan` | `Heal` | see below |
@@ -82,6 +84,7 @@ A condition has at most one trigger: `Severity`, `ValueAbove`, `ValueBelow`, `Ri
 | `Cooldown`, `ActionTimeout`, `VerificationTimeout` | Same-name methods |
 | `CooldownBackoff:Multiplier`, `CooldownBackoff:Max` | `CooldownBackoff(multiplier, max)` |
 | `Scope` | `"Instance"` (default) or `"Cluster"` (`OncePerCluster()`) |
+| `Adaptive` | `true` (`Adaptive()`), or `{ "MinimumAttempts": 10 }` (`Adaptive(10)`) |
 
 Durations accept `hh:mm:ss` or a number with a unit: `500ms`, `30s`, `5m`, `2h`, `1d` (a bare number is rejected,
 so `"30"` cannot silently mean 30 days). Numbers use the invariant culture (`0.9`, not `0,9`). Keys are not

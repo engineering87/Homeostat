@@ -13,6 +13,7 @@ internal static class HomeostatCli
     internal const int Ok = 0;
     internal const int Failed = 1;
     internal const int ActiveConditions = 3;
+    internal const int LowCoverage = 4;
 
     public static async Task<int> InvokeAsync(string[] args, TextWriter output, TextWriter error, HttpMessageHandler? handler = null)
     {
@@ -72,6 +73,33 @@ internal static class HomeostatCli
             return result.GetValue(failOnActive) && active > 0 ? ActiveConditions : Ok;
         }));
         root.Subcommands.Add(status);
+
+        // coverage
+        var last = new Option<string>("--last") { Description = "Period to report: 30m, 4h, 1d or hh:mm:ss.", HelpName = "duration", DefaultValueFactory = _ => "1d" };
+        var coverageJson = new Option<bool>("--json") { Description = "Print the raw JSON." };
+        var failBelow = new Option<double?>("--fail-below")
+        {
+            Description = $"Exit with code {LowCoverage} when the share of plan steps that ran is below this value, 0 to 1 (for game days in pipelines).",
+            HelpName = "share",
+        };
+        failBelow.Validators.Add(r =>
+        {
+            if (r.GetValueOrDefault<double?>() is { } v && (double.IsNaN(v) || v < 0 || v > 1))
+            {
+                r.AddError("--fail-below must be between 0 and 1, for example 0.8.");
+            }
+        });
+        var coverage = new Command("coverage", "Show which conditions activated, which plans ran and which steps never ran.") { last, coverageJson, failBelow };
+        coverage.SetAction((result, ct) => Run(error, async () =>
+        {
+            using var client = Connect(result);
+            var body = await client.GetAsync($"coverage?last={Uri.EscapeDataString(Durations.ToHms(result.GetValue(last)!, TimeSpan.FromDays(365)))}", ct);
+            using var document = JsonDocument.Parse(body);
+            await output.WriteAsync(result.GetValue(coverageJson) ? body + Environment.NewLine : StatusPrinter.PrintCoverage(document.RootElement));
+            var share = document.RootElement.GetProperty("stepCoverage").GetDouble();
+            return result.GetValue(failBelow) is { } minimum && share < minimum ? LowCoverage : Ok;
+        }));
+        root.Subcommands.Add(coverage);
 
         // pause / resume
         var duration = new Option<string?>("--for") { Description = "Resume by itself after this time: 30m, 2h, 1d or hh:mm:ss.", HelpName = "duration" };
@@ -279,7 +307,9 @@ internal sealed class Client : IDisposable
 internal static class Durations
 {
     /// <summary>Converts <c>30m</c>, <c>2h</c>, <c>1d</c>, <c>45s</c> or <c>hh:mm:ss</c> to <c>hh:mm:ss</c> (or <c>d.hh:mm:ss</c>).</summary>
-    public static string ToHms(string text)
+    public static string ToHms(string text) => ToHms(text, TimeSpan.FromDays(30));
+
+    public static string ToHms(string text, TimeSpan maximum)
     {
         text = text.Trim();
         TimeSpan? span = null;
@@ -308,9 +338,9 @@ internal static class Durations
             span = parsed;
         }
 
-        if (span is not { } value || value <= TimeSpan.Zero || value > TimeSpan.FromDays(30))
+        if (span is not { } value || value <= TimeSpan.Zero || value > maximum)
         {
-            throw new CliException($"'{text}' is not a positive duration of at most 30 days: use 30m, 2h, 1d or hh:mm:ss.");
+            throw new CliException($"'{text}' is not a positive duration of at most {maximum.TotalDays:0} days: use 30m, 2h, 1d or hh:mm:ss.");
         }
 
         return value.ToString("c", CultureInfo.InvariantCulture);

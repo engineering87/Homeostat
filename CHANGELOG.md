@@ -30,6 +30,23 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Added
 
+- Learning and foresight (wave 5):
+  - Predictive conditions `WhenProjectedAbove` and `WhenProjectedBelow` (and `ProjectedAbove`, `ProjectedBelow` in
+    configuration), which clear soon after a fix when the latest values stop moving toward the threshold.
+  - `Adaptive()` plans (and `Adaptive` in configuration): steps with enough attempts of their own are ordered by
+    measured success in the run history; new steps keep their position; approval steps are barriers.
+  - `RecordSignals`: daily JSON Lines files per instance with retention, owner-only file permissions on Unix, messages
+    and tags only on request; `RecordedSignal.Read`.
+  - `HomeostatReplay` (Homeostat.Testing): replays recordings file by file, in enforced dry-run on simulated time,
+    isolated from stores, detectors, notifiers, logging providers and telemetry, with a timeline and per-condition
+    summary.
+  - Coverage: `IHomeostatControl.GetCoverageAsync`, `GET /homeostat/coverage`, `homeostat coverage --fail-below`, with
+    failed steps and a warning when the run history does not cover the period.
+
+### Changed
+
+- Trend and anomaly conditions no longer clear on a signal without a value (such as a failed probe) or with too
+  little history: they clear only on a signal they evaluate as good.
 - Cloud and orchestrators (wave 4), all with approval by default:
   - `RestartApplication()`: graceful stop with an exit code for the orchestrator to restart. `RestartGuard` and
     `RestartLimits` (also used by `RestartPod`): minimum uptime and restarts per window counted in the store.

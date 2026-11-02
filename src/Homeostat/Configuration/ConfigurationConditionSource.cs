@@ -13,7 +13,7 @@ internal sealed class ConfigurationConditionSource
     private static readonly HashSet<string> ConditionKeys = new(StringComparer.OrdinalIgnoreCase)
     {
         "Source", "Severity", "ValueAbove", "ValueBelow", "RisingFasterThan", "FallingFasterThan", "AnomalouslyHigh",
-        "AnomalouslyLow", "ClearWhenHealthy", "SustainedFor", "ClearAfter", "SuppressedBy", "Occurrences", "AllActive",
+        "AnomalouslyLow", "ProjectedAbove", "ProjectedBelow", "ClearWhenHealthy", "SustainedFor", "ClearAfter", "SuppressedBy", "Occurrences", "AllActive",
         "AnyActive", "Plan",
     };
 
@@ -21,7 +21,10 @@ internal sealed class ConfigurationConditionSource
     private static readonly string[] TriggerKeys =
     [
         "Severity", "ValueAbove", "ValueBelow", "RisingFasterThan", "FallingFasterThan", "AnomalouslyHigh", "AnomalouslyLow",
+        "ProjectedAbove", "ProjectedBelow",
     ];
+
+    private static readonly HashSet<string> ProjectionKeys = new(StringComparer.OrdinalIgnoreCase) { "Threshold", "Within", "Window", "MinimumSamples" };
 
     private static readonly HashSet<string> TrendKeys = new(StringComparer.OrdinalIgnoreCase) { "PerMinute", "Window", "MinimumSamples" };
 
@@ -29,7 +32,7 @@ internal sealed class ConfigurationConditionSource
 
     private static readonly HashSet<string> PlanKeys = new(StringComparer.OrdinalIgnoreCase)
     {
-        "Steps", "Cooldown", "CooldownBackoff", "ActionTimeout", "VerificationTimeout", "Scope",
+        "Steps", "Cooldown", "CooldownBackoff", "ActionTimeout", "VerificationTimeout", "Scope", "Adaptive",
     };
 
     private static readonly HashSet<string> StepKeys = new(StringComparer.OrdinalIgnoreCase)
@@ -160,6 +163,16 @@ internal sealed class ConfigurationConditionSource
                 builder.WhenAnomalouslyLow(low.ZScore, low.Window, low.MinimumHistory ?? 30);
             }
 
+            if (Projection(section, "ProjectedAbove") is { } projectedAbove)
+            {
+                builder.WhenProjectedAbove(projectedAbove.Threshold, projectedAbove.Within, projectedAbove.Window, projectedAbove.MinimumSamples ?? 5);
+            }
+
+            if (Projection(section, "ProjectedBelow") is { } projectedBelow)
+            {
+                builder.WhenProjectedBelow(projectedBelow.Threshold, projectedBelow.Within, projectedBelow.Window, projectedBelow.MinimumSamples ?? 5);
+            }
+
             if (Bool(section, "ClearWhenHealthy") == true)
             {
                 builder.ClearWhen(s => s.Severity == SignalSeverity.Healthy);
@@ -231,6 +244,21 @@ internal sealed class ConfigurationConditionSource
             Int(section, "MinimumHistory"));
     }
 
+    private static (double Threshold, TimeSpan Within, TimeSpan Window, int? MinimumSamples)? Projection(IConfigurationSection condition, string key)
+    {
+        var section = condition.GetSection(key);
+        if (!section.Exists())
+        {
+            return null;
+        }
+
+        CheckKeys(section, ProjectionKeys);
+        return (Double(section, "Threshold") ?? throw Missing(section, "Threshold"),
+            Duration(section, "Within") ?? throw Missing(section, "Within"),
+            Duration(section, "Window") ?? throw Missing(section, "Window"),
+            Int(section, "MinimumSamples"));
+    }
+
     private void ParsePlan(IConfigurationSection plan, HealingPlanBuilder builder)
     {
         CheckKeys(plan, PlanKeys);
@@ -259,6 +287,21 @@ internal sealed class ConfigurationConditionSource
         if (Duration(plan, "Cooldown") is { } cooldown)
         {
             builder.Cooldown(cooldown);
+        }
+
+        // "Adaptive": true, or { "MinimumAttempts": 5 }.
+        var adaptive = plan.GetSection("Adaptive");
+        if (adaptive.Value is not null)
+        {
+            if (Bool(plan, "Adaptive") == true)
+            {
+                builder.Adaptive();
+            }
+        }
+        else if (adaptive.Exists())
+        {
+            CheckKeys(adaptive, new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "MinimumAttempts" });
+            builder.Adaptive(Int(adaptive, "MinimumAttempts") ?? 5);
         }
 
         var backoff = plan.GetSection("CooldownBackoff");

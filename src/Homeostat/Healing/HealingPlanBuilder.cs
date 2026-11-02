@@ -23,6 +23,7 @@ public sealed class HealingPlanBuilder
     private PlanScope _scope = PlanScope.Instance;
     private double _cooldownBackoff = 1;
     private TimeSpan? _maxCooldown;
+    private int? _adaptiveMinimumAttempts;
 
     internal HealingPlanBuilder(IServiceCollection services) => _services = services;
 
@@ -278,6 +279,34 @@ public sealed class HealingPlanBuilder
         return this;
     }
 
+    // ---------------------------------------------------------------- learning
+
+    /// <summary>
+    /// Lets the plan learn which step works: before each run, the steps are ordered by how often each one healed this
+    /// condition in the run history (successes over attempts, smoothed so that one lucky run does not decide), best
+    /// first, ties in the declared order. Steps move only among the steps between two approval steps: a step that needs
+    /// approval never moves ahead of the cheaper ones before it. Only steps tried at least
+    /// <paramref name="minimumAttempts"/> times each are reordered, among their own positions; a step with fewer
+    /// attempts (a new one, or one rarely reached) keeps its declared position. The history is the run history of
+    /// the store (<see cref="HomeostatOptions.RunHistorySize"/> runs), shared by every instance with a shared store.
+    /// </summary>
+    /// <param name="minimumAttempts">Attempts a step needs before it is reordered; defaults to 5.</param>
+    /// <example>
+    /// <code>
+    /// .Heal(p => p
+    ///     .With&lt;RenewClientAction&gt;()
+    ///     .Then&lt;FlushDnsCacheAction&gt;()
+    ///     .Then&lt;ResetConnectionPoolAction&gt;()
+    ///     .Adaptive())          // whichever usually fixes it goes first
+    /// </code>
+    /// </example>
+    public HealingPlanBuilder Adaptive(int minimumAttempts = 5)
+    {
+        ArgumentOutOfRangeException.ThrowIfLessThan(minimumAttempts, 1);
+        _adaptiveMinimumAttempts = minimumAttempts;
+        return this;
+    }
+
     // ---------------------------------------------------------------- compensation
 
     /// <summary>
@@ -313,7 +342,10 @@ public sealed class HealingPlanBuilder
 
         return new HealingPlan(
             conditionName, _steps.ToArray(), _verifierType, _verificationTimeout, _actionTimeout, _cooldown,
-            _scope, _cooldownBackoff, _maxCooldown);
+            _scope, _cooldownBackoff, _maxCooldown)
+        {
+            AdaptiveMinimumAttempts = _adaptiveMinimumAttempts,
+        };
     }
 
     private HealingPlanBuilder SetUndo(string name, Func<IServiceProvider, IHealingAction> resolve)

@@ -165,9 +165,21 @@ Things to know:
 - An anomaly that lasts becomes the new baseline, so the condition eventually clears even if the value stays
   high. Combine it with a fixed threshold when a high level must keep the condition active.
 - The history lives in memory and starts empty after a restart, or when the condition's own configuration changes
-  (for conditions defined in [configuration](configuration.md); trend and anomaly rules are only available in code).
+  (for conditions defined in [configuration](configuration.md)).
+- Unless you set `ClearWhen`, trend, anomaly and projection rules clear only on a signal they can evaluate and find
+  good: a signal without a value (a failed probe, for example) or too little history leaves the condition as it is.
 - The anomaly rule floors the standard deviation at 1% of the mean, so a perfectly flat history does not turn every
   tiny change into an anomaly; with an all-zero history, any non-zero value is anomalous.
+
+### Predictions: `WhenProjectedAbove` and `WhenProjectedBelow`
+
+Trigger when the trend of the values will cross a threshold within a horizon, before the problem happens:
+
+```csharp
+c.ForSource("disk-used").WhenProjectedAbove(0.95, within: TimeSpan.FromHours(2), window: TimeSpan.FromHours(2))
+```
+
+See [Learning and foresight](intelligence.md#predictive-conditions).
 
 ### Intermittent problems: `Occurrences`
 

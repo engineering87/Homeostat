@@ -12,7 +12,9 @@ namespace Homeostat;
 public static class HomeostatEndpointRouteBuilderExtensions
 {
     /// <summary>
-    /// Maps <c>GET {prefix}/status</c>: conditions, switches, pending approvals, recent runs and budget, as JSON.
+    /// Maps <c>GET {prefix}/status</c>: conditions, switches, pending approvals, recent runs and budget, as JSON; and
+    /// <c>GET {prefix}/coverage</c> (<c>?last=04:00:00</c> or <c>?since=2026-11-02T08:00:00Z</c>, default the last 24
+    /// hours): which conditions activated, which plans ran and which steps never ran (see <see cref="CoverageReport"/>).
     /// The endpoint reveals internal details (condition names, error messages, approval ids), so it requires an
     /// authorization policy unless <paramref name="allowAnonymous"/> is <c>true</c>.
     /// </summary>
@@ -30,6 +32,7 @@ public static class HomeostatEndpointRouteBuilderExtensions
     {
         var group = CreateGroup(endpoints, policy, prefix, allowAnonymous);
         group.MapGet("/status", GetStatus).WithName("HomeostatStatus");
+        group.MapGet("/coverage", GetCoverageAsync).WithName("HomeostatCoverage");
         return group;
     }
 
@@ -195,6 +198,53 @@ public static class HomeostatEndpointRouteBuilderExtensions
             runInfos,
             storeError);
         return Results.Ok(status);
+    }
+
+    private static async Task<IResult> GetCoverageAsync(
+        IHomeostatControl control, TimeProvider time, string? since, string? last, CancellationToken cancellationToken)
+    {
+        var now = time.GetUtcNow();
+        DateTimeOffset from;
+        if (since is not null)
+        {
+            if (!DateTimeOffset.TryParse(since, System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.AssumeUniversal, out from))
+            {
+                return Results.BadRequest("'since' must be a date and time, for example 2026-11-02T08:00:00Z.");
+            }
+        }
+        else if (last is not null)
+        {
+            if (!TimeSpan.TryParse(last, System.Globalization.CultureInfo.InvariantCulture, out var span) || span <= TimeSpan.Zero || span > TimeSpan.FromDays(365))
+            {
+                return Results.BadRequest("'last' must be a positive duration in the d.hh:mm:ss format.");
+            }
+
+            from = now - span;
+        }
+        else
+        {
+            from = now - TimeSpan.FromDays(1);
+        }
+
+        try
+        {
+            var report = await control.GetCoverageAsync(from, cancellationToken);
+            return Results.Ok(new
+            {
+                report.Since,
+                report.Until,
+                report.StepCoverage,
+                report.NeverActivated,
+                report.PlansNeverRun,
+                report.Truncated,
+                report.Conditions,
+            });
+        }
+        catch (Exception) when (!cancellationToken.IsCancellationRequested)
+        {
+            // No exception details: they can carry store connection details.
+            return Results.Problem("The run history is unavailable.", statusCode: StatusCodes.Status503ServiceUnavailable);
+        }
     }
 
     private static string? UserName(ClaimsPrincipal user)

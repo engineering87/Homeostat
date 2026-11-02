@@ -154,7 +154,8 @@ app.MapHomeostatControl("operations");                 // pause, resume, approve
 | Polly circuit breakers | Hysteresis, causes vs symptoms | Compensating actions | Webhooks, audit log, health check |
 | Databases, Redis, memory caches | Escalation with verification, human approval | Connection pool reset, cache purge | Conditions from `appsettings.json`, test host |
 | Alertmanager, Grafana, Azure Monitor alerts | Trends and anomalies from `appsettings.json` | Circuit isolation, feature flags | Dashboard, CLI, Grafana dashboard |
-| Probes: queues, lag, any number you can fetch | | Safe restart of crashed or stuck workers | PagerDuty, Opsgenie, Slack and Teams, chaos for game days |
+| Probes: queues, lag, any number you can fetch | Predictions: "full in two hours" | Safe restart of crashed or stuck workers | PagerDuty, Opsgenie, Slack and Teams, chaos for game days |
+| Recorded signals, replayed against new rules | Adaptive plans that learn which step works | Kubernetes and Azure actions, self-restart | Coverage reports for game days |
 
 ## Why Homeostat
 

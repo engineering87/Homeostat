@@ -78,6 +78,12 @@ answers; budget and runs come from the [store](persistence-and-clusters.md), so 
 every instance. The endpoint is read-only but reveals condition names,
 error messages and approval ids, which is why it needs a policy too.
 
+## Coverage
+
+`MapHomeostatStatus` also maps `GET /homeostat/coverage` (`?last=04:00:00` or `?since=...`, default the last 24 hours):
+which conditions activated, which plans ran and which steps never ran. See
+[Learning and foresight](intelligence.md#coverage).
+
 ## Control
 
 | Endpoint | Effect | Response |

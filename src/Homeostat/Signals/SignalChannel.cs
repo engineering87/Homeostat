@@ -37,4 +37,18 @@ internal sealed class SignalChannel : ISignalPublisher
     }
 
     public void Complete() => _channel.Writer.TryComplete();
+
+    private long _processed;
+
+    /// <summary>Signals the engine has finished processing, for replays that wait for each signal.</summary>
+    internal long Processed => Interlocked.Read(ref _processed);
+
+    internal void MarkProcessed()
+    {
+        Interlocked.Increment(ref _processed);
+        ProcessedNotifier?.Release();
+    }
+
+    /// <summary>Released once per processed signal, when set (by a replay, to wait without polling).</summary>
+    internal SemaphoreSlim? ProcessedNotifier { get; set; }
 }

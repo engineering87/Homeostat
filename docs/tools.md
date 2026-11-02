@@ -34,8 +34,11 @@ every request carries `X-Requested-With`, as the control endpoints require. When
 a token and the others by a policy, run `signal` with the alert token in `--token`.
 
 Exit codes: `0` success, `1` failure (unreachable, not allowed, not found, invalid input), `3` active conditions with
-`--fail-on-active`. The status endpoint is needed for `status`, the control endpoints for the other commands, and
+`--fail-on-active`, `4` coverage below `--fail-below`. The status endpoint is needed for `status`, the control endpoints for the other commands, and
 the alert endpoints for `signal`.
+
+`homeostat coverage --last 4h [--fail-below 0.8] [--json]` shows which conditions activated, which plans ran and which
+steps never ran (exit code `4` below the threshold): see [Learning and foresight](intelligence.md#coverage).
 
 A deployment script, for example:
 
