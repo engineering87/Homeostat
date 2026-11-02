@@ -22,8 +22,8 @@ New to Homeostat? Read the pages in this order: each one builds on the previous.
 | [Observability](observability.md) | Log messages, traces, metrics, `IHomeostatControl`, observers |
 | [Notifications and audit](notifications.md) | Audit log, webhook, PagerDuty and Opsgenie incidents, Slack and Microsoft Teams |
 | [Persistence and clusters](persistence-and-clusters.md) | File and Redis stores, several instances, plans that run once per cluster |
-| [Integrations](integrations.md) | Probes, databases and pool exhaustion, Redis, caches, alerts from monitoring, feature flags, Polly circuit isolation and chaos, .NET Aspire |
-| [Message brokers](messaging.md) | Azure Service Bus, RabbitMQ and Kafka: backlog, dead letters, lag; pausing consumers |
+| [Integrations](integrations.md) | Probes, databases and pool exhaustion, MongoDB, Redis, caches, alerts from monitoring, feature flags, Polly circuit isolation and chaos, .NET Aspire |
+| [Message brokers](messaging.md) | Azure Service Bus, RabbitMQ, Kafka and ActiveMQ Artemis: backlog, dead letters, lag; pausing consumers |
 | [Learning and foresight](intelligence.md) | Predictive conditions, adaptive plans, signal recording and replay, coverage reports |
 | [Cloud and orchestrators](cloud.md) | Restart the application, Kubernetes and Azure actions, permissions |
 | [Configuration](configuration.md) | Conditions and plans in `appsettings.json`, applied at runtime |

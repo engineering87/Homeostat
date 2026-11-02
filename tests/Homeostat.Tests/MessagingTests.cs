@@ -391,6 +391,11 @@ public class MessagingTests
 
     private const string Statistics = """
         { "name": "rdkafka#consumer-1", "type": "consumer",
+          "brokers": {
+            "kafka-0:9092/bootstrap": { "nodeid": -1, "source": "configured", "state": "UP", "toppars": {} },
+            "kafka-0:9092/0": { "nodeid": 0, "source": "learned", "state": "UP", "toppars": { "telemetry-0": {}, "telemetry-1": {} } },
+            "kafka-1:9092/1": { "nodeid": 1, "source": "learned", "state": "INIT", "toppars": {} },
+            "GroupCoordinator": { "nodeid": 0, "source": "logical", "state": "UP" } },
           "topics": {
             "telemetry": { "topic": "telemetry", "partitions": {
               "0": { "partition": 0, "consumer_lag": 150, "consumer_lag_stored": 120 },
@@ -400,18 +405,39 @@ public class MessagingTests
         """;
 
     [Fact]
-    public void Kafka_lag_is_summed_over_the_known_partitions()
+    public void Kafka_statistics_give_lag_brokers_and_producer_queue()
     {
-        Assert.Equal((150L, 2, 120L), KafkaLagReporter.Measure(Statistics, fromCommitted: false));
-        Assert.Equal((190L, 2, 150L), KafkaLagReporter.Measure(Statistics, fromCommitted: true));
-        Assert.Null(KafkaLagReporter.Measure("""{ "topics": {} }""", fromCommitted: false));
-        Assert.Null(KafkaLagReporter.Measure("not json", fromCommitted: false));
+        var consumer = KafkaSignalReporter.Read(Statistics, fromCommitted: false);
+        Assert.Equal((150L, 2, 120L), consumer.Lag);
+        Assert.Equal((1, 1), consumer.Brokers);                            // only the broker leading our partitions counts
+        Assert.Null(consumer.QueueShare);
+        Assert.Equal((190L, 2, 150L), KafkaSignalReporter.Read(Statistics, fromCommitted: true).Lag);
+        Assert.Null(KafkaSignalReporter.Read("""{ "type": "consumer", "topics": {} }""", fromCommitted: false).Lag);
 
         var signals = new CollectingPublisher();
-        new KafkaLagReporter(signals, "telemetry", new KafkaLagOptions { DegradedAbove = 100, UnhealthyAbove = 1_000 }).Report(Statistics);
-        var signal = Assert.Single(signals.Signals);
-        Assert.Equal(("kafka:telemetry:lag", SignalSeverity.Degraded, 150d), (signal.Source, signal.Severity, signal.Value!.Value));
-        Assert.Equal("120", signal.Tags!["max-partition-lag"]);
+        var reporter = new KafkaSignalReporter(signals, "telemetry", new KafkaSignalOptions { LagDegradedAbove = 100, LagUnhealthyAbove = 1_000 });
+        reporter.Report(Statistics);
+        reporter.Report("not json");
+        var lag = signals.Signals.Single(s => s.Source == "kafka:telemetry:lag");
+        Assert.Equal((SignalSeverity.Degraded, 150d), (lag.Severity, lag.Value!.Value));
+        Assert.Equal("120", lag.Tags!["max-partition-lag"]);
+        var brokers = signals.Signals.Single(s => s.Source == "kafka:telemetry:brokers");
+        Assert.Equal((SignalSeverity.Healthy, 1d), (brokers.Severity, brokers.Value!.Value));
+
+        signals = new CollectingPublisher();
+        var producer = new KafkaSignalReporter(signals, "audit");
+        const string Down = """
+            { "type": "producer", "msg_cnt": 10, "msg_max": 100000, "msg_size": 1060000000, "msg_size_max": 1073741824,
+              "brokers": { "kafka:9092/1": { "nodeid": 1, "source": "learned", "state": "DOWN", "toppars": { "audit-0": {} } } } }
+            """;
+        producer.Report(Down);
+        producer.Report(Down);
+        producer.Report("""{ "type": 5, "brokers": [] }""");                // odd documents are skipped, never thrown
+        Assert.Equal(SignalSeverity.Unhealthy, signals.Signals.First(s => s.Source == "kafka:audit:queue").Severity);   // the byte limit
+        Assert.Equal(
+            [SignalSeverity.Healthy, SignalSeverity.Unhealthy],                 // confirmed by the second document
+            signals.Signals.Where(s => s.Source == "kafka:audit:brokers").Select(s => s.Severity));
+        Assert.DoesNotContain(signals.Signals, s => s.Source == "kafka:audit:lag");
     }
 
     [Fact]

@@ -15,7 +15,7 @@ updates:
       test-tooling:
         patterns: [ "xunit*", "Microsoft.NET.Test.Sdk" ]
       messaging-clients:
-        patterns: [ "Azure.Messaging.ServiceBus", "RabbitMQ.Client", "Confluent.Kafka" ]
+        patterns: [ "Azure.Messaging.ServiceBus", "RabbitMQ.Client", "Confluent.Kafka", "MongoDB.Driver" ]
     ignore:
       # The libraries target net10.0: the Microsoft.Extensions 11.x packages come with a new target framework.
       - dependency-name: "Microsoft.Extensions.*"

@@ -10,7 +10,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 - Targets .NET 10 (LTS). .NET 8 and .NET 9 reach end of support on November 10, 2026.
 - Dependencies on the current releases: Microsoft.Extensions 10.0.14, Polly.Core 8.9.0, StackExchange.Redis 3.4.29,
-  Azure.Messaging.ServiceBus 7.21.0, RabbitMQ.Client 7.2.2, Confluent.Kafka 2.16.0, Aspire.Hosting 13.6.4,
+  Azure.Messaging.ServiceBus 7.21.0, RabbitMQ.Client 7.2.2, Confluent.Kafka 2.16.0, MongoDB.Driver 3.13.0,
+  Aspire.Hosting 13.6.4,
   Microsoft.FeatureManagement 4.8.0, OpenFeature 2.14.1, System.CommandLine 2.0.14,
   Microsoft.Extensions.TimeProvider.Testing 10.11.0; analyzers on Microsoft.CodeAnalysis.CSharp 5.0.0 (the Roslyn of
   the .NET 10.0.1xx SDK, on purpose); tests on xUnit v3 (VSTest runner, Microsoft Testing Platform off).
@@ -45,8 +46,14 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
     `ServiceBusProcessor` and `ServiceBusSessionProcessor`.
   - `Homeostat.RabbitMQ`: ready messages, consumers and dead letters of a queue as signals (passive declare on a
     short-lived channel); `PausableRabbitMqConsumer`.
-  - `Homeostat.Kafka`: consumer lag from the client statistics (`SetHomeostatLagSignal`, `KafkaLagReporter`);
-    `KafkaPauseGate`, applied on the consumer's own thread.
+  - `Homeostat.Kafka`: from the client statistics (`SetHomeostatSignals` on consumer and producer builders,
+    `KafkaSignalReporter`), consumer lag, broker connections and producer queue use; `KafkaPauseGate`, applied on the
+    consumer's own thread.
+  - `Homeostat.Artemis`: message and consumer counts of ActiveMQ Artemis queues and their dead-letter queue, read
+    through the broker's Jolokia management API (no client library).
+  - `Homeostat.MongoDB`: ping latency, primary availability and connection pool timeouts (from the driver events,
+    `MongoClientSettings.AddHomeostatSignals`), replication lag (opt-in).
+  - `PauseGate`: pauses any receive loop (AMQP receivers, change streams, polling workers).
   - Any event counter as a signal (`AddEventCounterSignal`), enabling only the counters; `AddSqlClientPoolSignal`
     (`Homeostat.Data`) for SqlClient pool exhaustion.
   - `Homeostat.Aspire.Hosting`: `WithHomeostat()` adds a Homeostat dashboard link and Pause/Resume healing commands to

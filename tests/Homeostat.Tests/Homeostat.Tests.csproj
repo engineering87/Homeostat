@@ -22,7 +22,9 @@
     <ProjectReference Include="..\..\src\Homeostat\Homeostat.csproj" />
     <ProjectReference Include="..\..\src\Homeostat.Analyzers\Homeostat.Analyzers.csproj" />
     <ProjectReference Include="..\..\src\Homeostat.Aspire.Hosting\Homeostat.Aspire.Hosting.csproj" />
+    <ProjectReference Include="..\..\src\Homeostat.Artemis\Homeostat.Artemis.csproj" />
     <ProjectReference Include="..\..\src\Homeostat.Kafka\Homeostat.Kafka.csproj" />
+    <ProjectReference Include="..\..\src\Homeostat.MongoDB\Homeostat.MongoDB.csproj" />
     <ProjectReference Include="..\..\src\Homeostat.RabbitMQ\Homeostat.RabbitMQ.csproj" />
     <ProjectReference Include="..\..\src\Homeostat.ServiceBus\Homeostat.ServiceBus.csproj" />
     <ProjectReference Include="..\..\src\Homeostat.AspNetCore\Homeostat.AspNetCore.csproj" />

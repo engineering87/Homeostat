@@ -33,7 +33,8 @@ ships as previews. It is indicative and changes with feedback: open an issue to 
 - [x] Polly: circuit isolation from plans and by hand; chaos strategies enabled by switches for game days
 - [x] Alert ingestion (Prometheus Alertmanager, Grafana, Azure Monitor, generic signals) as signals
 - [x] Message brokers: recipes with probes for Azure Service Bus, RabbitMQ and Kafka
-- [x] Native broker packages (`Homeostat.ServiceBus`, `Homeostat.RabbitMQ`, `Homeostat.Kafka`): backlog, consumers, dead-letter and lag signals; pause and resume of consumers (`PauseConsumer`)
+- [x] Native broker packages (`Homeostat.ServiceBus`, `Homeostat.RabbitMQ`, `Homeostat.Kafka`, `Homeostat.Artemis`): backlog, consumers, dead-letter, lag and broker connection signals; pause and resume of consumers (`PauseConsumer`, `PauseGate`)
+- [x] MongoDB (`Homeostat.MongoDB`): ping, primary availability, connection pool exhaustion, replication lag
 - [x] Pool exhaustion signals for providers without metrics: any event counter as a signal, SqlClient pool preset
 - [x] .NET Aspire hosting integration (`Homeostat.Aspire.Hosting`): dashboard link, Pause and Resume healing commands
 

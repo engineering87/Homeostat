@@ -53,7 +53,8 @@ builder.Services
 - `Homeostat.Polly`: Polly v8 circuit breaker state as signals; circuit isolation; chaos enabled by switches.
 - `Homeostat.Redis`: shared state and coordination across instances; Redis client health signals.
 - `Homeostat.Data`: database probes for any ADO.NET provider; SqlClient pool exhaustion; connection pool reset.
-- `Homeostat.ServiceBus`, `Homeostat.RabbitMQ`, `Homeostat.Kafka`: backlog, dead letters, consumers and lag as signals; consumers that plans pause and resume.
+- `Homeostat.ServiceBus`, `Homeostat.RabbitMQ`, `Homeostat.Kafka`, `Homeostat.Artemis`: backlog, dead letters, consumers, lag and broker connections as signals; consumers that plans pause and resume.
+- `Homeostat.MongoDB`: ping, primary availability, connection pool exhaustion and replication lag as signals.
 - `Homeostat.Aspire.Hosting`: Homeostat link and Pause/Resume healing commands in the Aspire dashboard.
 - `Homeostat.Caching`: memory cache hit ratio; HybridCache, distributed and memory cache purge actions.
 - `Homeostat.FeatureManagement` and `Homeostat.OpenFeature`: feature flags driven by Homeostat switches.

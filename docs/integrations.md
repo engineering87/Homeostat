@@ -9,7 +9,8 @@ view (databases, Redis, message brokers, caches, external monitoring) and which 
 | Any number or round trip, polled periodically | `Homeostat` | `AddProbe`, `AddLatencyProbe` |
 | Database connectivity, latency, transient errors; pool reset | `Homeostat.Data` | `AddDatabaseProbe`, `ClearConnectionPools<T>` |
 | Redis client health | `Homeostat.Redis` | `AddRedisSignals` |
-| Message brokers: backlog, dead letters, lag; pause and resume consumers | `Homeostat.ServiceBus`, `Homeostat.RabbitMQ`, `Homeostat.Kafka` | [Message brokers](messaging.md) |
+| MongoDB: ping, primary availability, pool exhaustion, replication lag | `Homeostat.MongoDB` | `AddMongoSignals`, `AddHomeostatSignals` on the client settings |
+| Message brokers: backlog, dead letters, lag; pause and resume consumers | `Homeostat.ServiceBus`, `Homeostat.RabbitMQ`, `Homeostat.Kafka`, `Homeostat.Artemis` | [Message brokers](messaging.md) |
 | Libraries that report through event counters (SqlClient pool) | `Homeostat`, `Homeostat.Data` | `AddEventCounterSignal`, `AddSqlClientPoolSignal` |
 | .NET Aspire dashboard: link and Pause/Resume commands | `Homeostat.Aspire.Hosting` | `WithHomeostat` |
 | Cache hit ratio; purge and compaction | `Homeostat.Caching` | `AddMemoryCacheSignals`, `PurgeHybridCacheTags`, `RemoveDistributedCacheKeys`, `CompactMemoryCache` |
@@ -57,7 +58,7 @@ How probes behave:
   other probes nor the other detectors. A probe still within its timeout is not started again.
 - A call that ignores cancellation is abandoned at the timeout, and the probe is **not called again until that call
   ends** (it publishes `outcome=still-running` meanwhile): a hanging dependency never piles up connections.
-- Signals carry the tags `origin` (`probe`, `latency-probe`, `database-probe`, `redis-ping`, `servicebus`, `rabbitmq`), `outcome`
+- Signals carry the tags `origin` (`probe`, `latency-probe`, `database-probe`, `redis-ping`, `servicebus`, `rabbitmq`, `artemis`, `mongodb`), `outcome`
   (`ok`, `failed`, `timeout`, `still-running`) and, on failure, `error` (the exception type) and, for a
   `DbException`, `transient`. Failure messages of a `DbException` keep only the exception type (provider messages
   can name servers and users); the details go to the application log.
@@ -176,6 +177,51 @@ h.AddMetricSignal("db.client.connections.pending_requests", m => m
     .UnhealthyAbove(20));
 ```
 
+## MongoDB
+
+`Homeostat.MongoDB` watches a deployment through the driver (MongoDB.Driver 3): a ping, and the driver's own events,
+which know at once when the primary is lost or the connection pool runs dry.
+
+```csharp
+builder.Services.AddSingleton<IMongoClient>(sp =>
+{
+    var settings = MongoClientSettings.FromConnectionString(builder.Configuration.GetConnectionString("archive"));
+    settings.AddHomeostatSignals(sp, "archive");       // driver events: primary and pool
+    return new MongoClient(settings);
+});
+
+builder.Services.AddHomeostat(h => h
+    .AddMongoSignals("archive", o =>
+    {
+        o.Ping.DegradedAbove = 100;                    // milliseconds
+        o.ReplicationLag = true;                       // needs the clusterMonitor role
+        o.Lag.UnhealthyAbove = 30;                     // seconds
+    })
+    .AddCondition("archive-no-primary", c => c
+        .ForSource("mongodb:archive:primary")
+        .SustainedFor(TimeSpan.FromSeconds(30))        // an election takes a few seconds: do not act on it
+        .Heal(p => p.PauseConsumer("ingest"))));
+```
+
+| Signal | Value | Unhealthy when |
+|---|---|---|
+| `mongodb:{name}:ping` | round trip of `ping`, ms | the ping fails or times out (thresholds with `o.Ping`) |
+| `mongodb:{name}:primary` | servers connected | no writable server (primary, mongos, standalone) is connected; published at once when it changes, then every `Interval` |
+| `mongodb:{name}:pool` | connection checkouts that timed out in the `Interval` (30 seconds by default) | more than `PoolTimeoutsUnhealthyAbove` (0: any) |
+| `mongodb:{name}:replication-lag` | seconds between the freshest data member and the furthest secondary or recovering member | above `o.Lag` thresholds (opt-in) |
+
+- `primary` and `pool` come from the driver events, so the client must be created with `AddHomeostatSignals` on its
+  settings (it keeps any `ClusterConfigurator` you set), with the same name as `AddMongoSignals`. Without it, only the
+  probes are published. Nothing is published before the driver has heard from a server, so the start-up of the
+  application is not reported as a lost primary.
+- Register the client as a **singleton**, as MongoDB recommends. Give each deployment its own name: two clients of
+  different deployments under one name would mix their states (the worst one wins).
+- Replication lag: a single-node replica set reports 0; during an election the lag is measured against the freshest
+  member; members that fell behind (`RECOVERING`) count, since that is when the lag matters. Leave out delayed or hidden
+  members, which lag on purpose, with `o.LagExcludedMembers.Add("db-3:27017")`.
+- The driver fails over by itself: the useful healing is to **degrade** while there is no primary (pause consumers,
+  serve reads from secondaries or a cache) and to shed load when the pool is exhausted.
+
 ## Redis
 
 `AddRedisSignals` watches the `IConnectionMultiplexer` registered in the container (the one used by `UseRedis`, or
@@ -203,7 +249,7 @@ client, so they work even when Redis was down at startup.
 
 ## Message brokers
 
-Azure Service Bus, RabbitMQ and Kafka have their own packages: backlog, consumers, dead letters and lag as signals,
+Azure Service Bus, RabbitMQ, Kafka and ActiveMQ Artemis have their own packages: backlog, consumers, dead letters and lag as signals,
 and consumers that plans can pause and resume. See [Message brokers](messaging.md). For other brokers, a probe on
 their client is enough:
 

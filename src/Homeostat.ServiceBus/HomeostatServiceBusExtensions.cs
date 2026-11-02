@@ -140,13 +140,17 @@ internal sealed class SharedRead<T>(Func<IServiceProvider, CancellationToken, Ta
     {
         lock (_gate)
         {
-            if (_current is { IsFaulted: false, IsCanceled: false } current && (!current.IsCompleted || Environment.TickCount64 - _startedAt < 1000))
+            // A read in progress, or one (even failed) from less than a second ago, serves every probe of the tick.
+            if (_current is { } current && (!current.IsCompleted || Environment.TickCount64 - _startedAt < 1000))
             {
                 return current;
             }
 
             _startedAt = Environment.TickCount64;
             _current = ReadAsync(services);
+
+            // Probes that stopped waiting (their own timeout) leave the failure unobserved: observe it here.
+            _current.ContinueWith(static t => _ = t.Exception, CancellationToken.None, TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
             return _current;
         }
     }
