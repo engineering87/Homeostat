@@ -8,6 +8,7 @@
 <p align="center">
   <a href="https://www.nuget.org/packages/Homeostat"><img src="https://img.shields.io/nuget/vpre/Homeostat?logo=nuget&label=NuGet&color=6366F1" alt="NuGet version"></a>
   <a href="https://github.com/engineering87/Homeostat/actions/workflows/ci.yml"><img src="https://github.com/engineering87/Homeostat/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://github.com/engineering87/Homeostat/actions/workflows/codeql.yml"><img src="https://github.com/engineering87/Homeostat/actions/workflows/codeql.yml/badge.svg" alt="CodeQL"></a>
   <a href="https://scorecard.dev/viewer/?uri=github.com/engineering87/Homeostat"><img src="https://api.scorecard.dev/projects/github.com/engineering87/Homeostat/badge" alt="OpenSSF Scorecard"></a>
   <img src="https://img.shields.io/badge/.NET-10-512BD4?logo=dotnet" alt=".NET 10">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-10B981" alt="MIT license"></a>
@@ -204,7 +205,7 @@ approved step of a plan instead of the first reaction.
 - **Stable API**: the public API of every library package is recorded in [`api/`](api) and checked by a test. From 1.0 the
   project follows Semantic Versioning ([versioning policy](docs/versioning.md)).
 - **Supply chain**: releases carry an SBOM and build provenance; every CI action is pinned to a commit
-  ([SECURITY.md](SECURITY.md)).
+  ([SECURITY.md](SECURITY.md)); CodeQL analyzes the C# code and the workflows on every pull request.
 
 Start in dry-run, then turn on actions one condition at a time.
 
