@@ -1,0 +1,22 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Homeostat/Homeostat.csproj" />
+    <Project Path="src/Homeostat.AspNetCore/Homeostat.AspNetCore.csproj" />
+    <Project Path="src/Homeostat.HealthChecks/Homeostat.HealthChecks.csproj" />
+    <Project Path="src/Homeostat.Http/Homeostat.Http.csproj" />
+    <Project Path="src/Homeostat.Polly/Homeostat.Polly.csproj" />
+    <Project Path="src/Homeostat.Testing/Homeostat.Testing.csproj" />
+  </Folder>
+  <Folder Name="/samples/">
+    <Project Path="samples/Homeostat.Samples.WeatherFeed/Homeostat.Samples.WeatherFeed.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Homeostat.Tests/Homeostat.Tests.csproj" />
+  </Folder>
+  <Folder Name="/Solution Items/">
+    <File Path="Directory.Build.props" />
+    <File Path="Directory.Packages.props" />
+    <File Path="global.json" />
+    <File Path="README.md" />
+  </Folder>
+</Solution>

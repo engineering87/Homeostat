@@ -1,0 +1,34 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFrameworks>net8.0;net10.0</TargetFrameworks>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="xunit" />
+    <PackageReference Include="xunit.runner.visualstudio" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Homeostat\Homeostat.csproj" />
+    <ProjectReference Include="..\..\src\Homeostat.AspNetCore\Homeostat.AspNetCore.csproj" />
+    <ProjectReference Include="..\..\src\Homeostat.HealthChecks\Homeostat.HealthChecks.csproj" />
+    <ProjectReference Include="..\..\src\Homeostat.Http\Homeostat.Http.csproj" />
+    <ProjectReference Include="..\..\src\Homeostat.Polly\Homeostat.Polly.csproj" />
+    <ProjectReference Include="..\..\src\Homeostat.Testing\Homeostat.Testing.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Provides Microsoft.Extensions.* (configuration, DI, logging) and Kestrel for the endpoint tests. -->
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="Xunit" />
+  </ItemGroup>
+
+</Project>

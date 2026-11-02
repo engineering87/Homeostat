@@ -1,0 +1,45 @@
+name: Bug report
+description: Something does not work as documented
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report a problem. Before opening, please check the
+        [FAQ & troubleshooting](https://github.com/engineering87/Homeostat/blob/main/docs/faq.md) page.
+  - type: input
+    id: version
+    attributes:
+      label: Homeostat version
+      placeholder: 0.1.0-preview.1
+    validations:
+      required: true
+  - type: input
+    id: runtime
+    attributes:
+      label: .NET version
+      placeholder: "net10.0"
+    validations:
+      required: true
+  - type: textarea
+    id: configuration
+    attributes:
+      label: Configuration
+      description: The relevant `AddHomeostat(...)` setup (conditions, plans, options).
+      render: csharp
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      description: Include the Homeostat log lines (enable Debug level for the `Homeostat` category if possible).
+      render: text
+    validations:
+      required: true

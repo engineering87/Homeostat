@@ -1,0 +1,21 @@
+name: Feature request
+description: Suggest an idea or a scenario Homeostat should support
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: What failure or situation would you like Homeostat to handle?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: How would you like to configure or use it? A code sketch helps.
+  - type: textarea
+    id: safety
+    attributes:
+      label: Safety considerations
+      description: Homeostat acts in production. What could go wrong, and what should the safe default be?

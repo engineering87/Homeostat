@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 990 320" width="990" height="320">
+  <g transform="translate(40,32)">
+  
+  <defs>
+    <linearGradient id="ring" x1="40" y1="220" x2="220" y2="36" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#6366F1"/>
+      <stop offset="1" stop-color="#06B6D4"/>
+    </linearGradient>
+    <linearGradient id="pulse" x1="52" y1="0" x2="204" y2="0" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#06B6D4"/>
+      <stop offset="1" stop-color="#10B981"/>
+    </linearGradient>
+  </defs>
+  <!-- Feedback loop: the system observes itself and comes back around -->
+  <path d="M218.2 95.2 A96 96 0 1 1 160.8 37.8" fill="none" stroke="url(#ring)" stroke-width="14" stroke-linecap="round"/>
+  <path d="M176 43.5 L149.5 49.5 L157.5 20.5 Z" fill="#06B6D4" stroke="#06B6D4" stroke-width="4" stroke-linejoin="round"/>
+  <!-- Disturbance that settles back to equilibrium -->
+  <path d="M52 136 H90 L102 88 L118 182 L132 110 L144 152 L154 128 L162 140 L168 136 H204" fill="none" stroke="url(#pulse)" stroke-width="12" stroke-linecap="round" stroke-linejoin="round"/>
+</g>
+  <text x="330" y="178" font-family="Inter Display" font-weight="700" font-size="124" letter-spacing="-3" fill="#0F172A">Homeostat</text>
+  <text x="336" y="238" font-family="Inter Display" font-weight="500" font-size="34" fill="#475569">Self-healing for .NET applications</text>
+</svg>

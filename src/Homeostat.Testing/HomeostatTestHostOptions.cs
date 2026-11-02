@@ -1,0 +1,23 @@
+namespace Homeostat.Testing;
+
+/// <summary>Settings for <see cref="HomeostatTestHost"/>.</summary>
+public sealed class HomeostatTestHostOptions
+{
+    /// <summary>Dry-run setting of the host. Tests usually want real actions, so the default is <c>false</c>.</summary>
+    public bool DryRun { get; set; }
+
+    /// <summary>
+    /// How much simulated time passes at each tick. Ticks run in the background from the moment the host starts.
+    /// <c>null</c> disables automatic advancing: move time yourself with <see cref="HomeostatTestHost.Time"/>.
+    /// </summary>
+    public TimeSpan? AutoAdvanceStep { get; set; } = TimeSpan.FromSeconds(1);
+
+    /// <summary>Real time between two automatic ticks.</summary>
+    public TimeSpan AutoAdvanceInterval { get; set; } = TimeSpan.FromMilliseconds(5);
+
+    /// <summary>Real time after which waiting methods give up with a <see cref="TimeoutException"/>.</summary>
+    public TimeSpan DefaultTimeout { get; set; } = TimeSpan.FromSeconds(10);
+
+    /// <summary>Initial simulated time.</summary>
+    public DateTimeOffset StartTime { get; set; } = new(2030, 1, 1, 0, 0, 0, TimeSpan.Zero);
+}

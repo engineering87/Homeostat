@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Documentation
+    url: https://github.com/engineering87/Homeostat/tree/main/docs
+    about: Guides, reference and recipes.
+  - name: Security vulnerability
+    url: https://github.com/engineering87/Homeostat/security/advisories/new
+    about: Please report vulnerabilities privately.

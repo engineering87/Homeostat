@@ -1,0 +1,279 @@
+using Homeostat.Conditions;
+using Homeostat.Healing;
+using Homeostat.Signals;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Time.Testing;
+
+namespace Homeostat.Testing;
+
+/// <summary>
+/// Runs Homeostat in memory with simulated time, so tests can publish signals and assert on the
+/// outcome of healing runs without waiting for real cooldowns or verification timeouts.
+/// </summary>
+/// <example>
+/// <code>
+/// await using var host = await HomeostatTestHost.StartAsync(h => h
+///     .AddCondition("feed-down", c => c
+///         .ForSource("feed")
+///         .Heal(p => p.With("renew", sp => sp.GetRequiredService&lt;FeedClient&gt;().Renew()))),
+///     services => services.AddSingleton&lt;FeedClient&gt;());
+///
+/// host.Publish("feed", SignalSeverity.Unhealthy);
+/// var run = await host.WaitForRunAsync("feed-down");
+/// </code>
+/// </example>
+public sealed class HomeostatTestHost : IAsyncDisposable
+{
+    private readonly ServiceProvider _provider;
+    private readonly IHostedService[] _hostedServices;
+    private readonly RunRecorder _recorder;
+    private readonly HomeostatTestHostOptions _options;
+    private readonly CancellationTokenSource _autoAdvance = new();
+    private Task _autoAdvanceLoop = Task.CompletedTask;
+
+    private HomeostatTestHost(ServiceProvider provider, RunRecorder recorder, FakeTimeProvider time, HomeostatTestHostOptions options)
+    {
+        _provider = provider;
+        _recorder = recorder;
+        _options = options;
+        Time = time;
+        _hostedServices = provider.GetServices<IHostedService>().ToArray();
+    }
+
+    /// <summary>The simulated clock. Advance it manually when automatic advancing is disabled.</summary>
+    public FakeTimeProvider Time { get; }
+
+    /// <summary>The host's services, to resolve your own components or Homeostat's.</summary>
+    public IServiceProvider Services => _provider;
+
+    /// <summary>Publishes signals; <see cref="Publish"/> is a shortcut.</summary>
+    public ISignalPublisher Signals => _provider.GetRequiredService<ISignalPublisher>();
+
+    /// <summary>Pause, resume and inspect Homeostat.</summary>
+    public IHomeostatControl Control => _provider.GetRequiredService<IHomeostatControl>();
+
+    /// <summary>The switches turned on by healing plans.</summary>
+    public IHomeostatSwitches Switches => _provider.GetRequiredService<IHomeostatSwitches>();
+
+    /// <summary>Approves or rejects steps that require approval.</summary>
+    public IHomeostatApprovals Approvals => _provider.GetRequiredService<IHomeostatApprovals>();
+
+    /// <summary>Every run completed so far, in completion order.</summary>
+    public IReadOnlyList<HealingRunResult> CompletedRuns => _recorder.Runs;
+
+    /// <summary>Creates and starts a host.</summary>
+    /// <param name="configure">Homeostat configuration: conditions, plans, detectors, options.</param>
+    /// <param name="services">Your own services, such as the components your actions use.</param>
+    /// <param name="options">Host settings.</param>
+    public static async Task<HomeostatTestHost> StartAsync(
+        Action<HomeostatBuilder> configure,
+        Action<IServiceCollection>? services = null,
+        HomeostatTestHostOptions? options = null)
+    {
+        ArgumentNullException.ThrowIfNull(configure);
+        options ??= new HomeostatTestHostOptions();
+
+        var time = new FakeTimeProvider(options.StartTime);
+        var recorder = new RunRecorder();
+
+        var collection = new ServiceCollection();
+        collection.AddLogging();
+        collection.AddSingleton<TimeProvider>(time);
+        services?.Invoke(collection);
+        collection.AddHomeostat(h =>
+        {
+            h.Configure(o => o.DryRun = options.DryRun);
+            configure(h);
+        });
+
+        // Registered last so it is notified after the user's observers: when a test's wait completes,
+        // every observer has already seen the run.
+        collection.AddSingleton<IHealingObserver>(recorder);
+
+        var host = new HomeostatTestHost(collection.BuildServiceProvider(validateScopes: true), recorder, time, options);
+        try
+        {
+            // Same sequence as the generic host, lifecycle callbacks included.
+            foreach (var lifecycle in host._hostedServices.OfType<IHostedLifecycleService>())
+            {
+                await lifecycle.StartingAsync(CancellationToken.None).ConfigureAwait(false);
+            }
+
+            foreach (var hosted in host._hostedServices)
+            {
+                await hosted.StartAsync(CancellationToken.None).ConfigureAwait(false);
+            }
+
+            foreach (var lifecycle in host._hostedServices.OfType<IHostedLifecycleService>())
+            {
+                await lifecycle.StartedAsync(CancellationToken.None).ConfigureAwait(false);
+            }
+        }
+        catch
+        {
+            await host.DisposeAsync().ConfigureAwait(false);
+            throw;
+        }
+
+        host.StartAutoAdvance();
+        return host;
+    }
+
+    /// <summary>Publishes a signal stamped with the simulated time.</summary>
+    public bool Publish(string source, SignalSeverity severity, string? message = null)
+        => Signals.TryPublish(source, severity, message);
+
+    /// <summary>
+    /// Waits for a run of <paramref name="conditionName"/> to complete and returns its result.
+    /// Each run is returned once: call again to get the next run of the same condition.
+    /// </summary>
+    public async Task<HealingRunResult> WaitForRunAsync(string conditionName, TimeSpan? timeout = null)
+    {
+        var limit = timeout ?? _options.DefaultTimeout;
+        using var cts = new CancellationTokenSource(limit);
+        try
+        {
+            return await _recorder.NextAsync(conditionName, cts.Token).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (cts.IsCancellationRequested)
+        {
+            throw new TimeoutException(
+                $"No healing run of condition '{conditionName}' completed within {limit} (real time). " +
+                $"Condition state: {Describe(conditionName)}.");
+        }
+    }
+
+    /// <summary>Waits until a condition reaches <paramref name="status"/>.</summary>
+    public async Task WaitForConditionAsync(string conditionName, ConditionStatus status, TimeSpan? timeout = null)
+    {
+        var limit = timeout ?? _options.DefaultTimeout;
+        using var cts = new CancellationTokenSource(limit);
+
+        while (!cts.IsCancellationRequested)
+        {
+            if (GetCondition(conditionName)?.Status == status)
+            {
+                return;
+            }
+
+            try
+            {
+                await Task.Delay(TimeSpan.FromMilliseconds(5), cts.Token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                break;
+            }
+        }
+
+        throw new TimeoutException(
+            $"Condition '{conditionName}' did not reach {status} within {limit} (real time). Current state: {Describe(conditionName)}.");
+    }
+
+    /// <summary>
+    /// Waits until a step of <paramref name="conditionName"/> is waiting for approval and returns the request.
+    /// Simulated time keeps moving, so answer before the approval timeout expires.
+    /// </summary>
+    public async Task<PendingApproval> WaitForApprovalAsync(string conditionName, TimeSpan? timeout = null)
+    {
+        var limit = timeout ?? _options.DefaultTimeout;
+        using var cts = new CancellationTokenSource(limit);
+
+        while (!cts.IsCancellationRequested)
+        {
+            var pending = Approvals.GetPending().FirstOrDefault(a => a.ConditionName == conditionName);
+            if (pending is not null)
+            {
+                return pending;
+            }
+
+            try
+            {
+                await Task.Delay(TimeSpan.FromMilliseconds(2), cts.Token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                break;
+            }
+        }
+
+        throw new TimeoutException(
+            $"No approval request for condition '{conditionName}' within {limit} (real time). Condition state: {Describe(conditionName)}.");
+    }
+
+    /// <summary>Stops the services and releases the host.</summary>
+    public async ValueTask DisposeAsync()
+    {
+        // Stop the services first, while simulated time still moves, so anything waiting on it can finish;
+        // bound the wait so a misbehaving action or verifier cannot hang the test.
+        using (var stopCts = new CancellationTokenSource(_options.DefaultTimeout))
+        {
+            // Enumerable.Reverse explicitly: on C# 14 array.Reverse() binds to the in-place span overload.
+            var reversed = Enumerable.Reverse(_hostedServices).ToArray();
+            foreach (var lifecycle in reversed.OfType<IHostedLifecycleService>())
+            {
+                await StopSafelyAsync(() => lifecycle.StoppingAsync(stopCts.Token)).ConfigureAwait(false);
+            }
+
+            foreach (var hosted in reversed)
+            {
+                await StopSafelyAsync(() => hosted.StopAsync(stopCts.Token)).ConfigureAwait(false);
+            }
+
+            foreach (var lifecycle in reversed.OfType<IHostedLifecycleService>())
+            {
+                await StopSafelyAsync(() => lifecycle.StoppedAsync(stopCts.Token)).ConfigureAwait(false);
+            }
+        }
+
+        _autoAdvance.Cancel();
+        try
+        {
+            await _autoAdvanceLoop.ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            // Expected.
+        }
+
+        await _provider.DisposeAsync().ConfigureAwait(false);
+        _autoAdvance.Dispose();
+    }
+
+    private static async Task StopSafelyAsync(Func<Task> stop)
+    {
+        try
+        {
+            await stop().ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            // Shutdown timeout reached; keep stopping the others.
+        }
+    }
+
+    private ConditionSnapshot? GetCondition(string name)
+        => Control.GetConditions().FirstOrDefault(c => c.Name == name);
+
+    private string Describe(string name)
+        => GetCondition(name) is { } c ? $"{c.Status}, last signal at {c.LastSignalAt?.ToString("O") ?? "never"}" : "unknown condition";
+
+    private void StartAutoAdvance()
+    {
+        if (_options.AutoAdvanceStep is not { } step)
+        {
+            return;
+        }
+
+        var token = _autoAdvance.Token;
+        _autoAdvanceLoop = Task.Run(async () =>
+        {
+            while (!token.IsCancellationRequested)
+            {
+                await Task.Delay(_options.AutoAdvanceInterval, token).ConfigureAwait(false);
+                Time.Advance(step);
+            }
+        }, token);
+    }
+}
