@@ -33,9 +33,9 @@ ships as previews. It is indicative and changes with feedback: open an issue to 
 - [x] Polly: circuit isolation from plans and by hand; chaos strategies enabled by switches for game days
 - [x] Alert ingestion (Prometheus Alertmanager, Grafana, Azure Monitor, generic signals) as signals
 - [x] Message brokers: recipes with probes for Azure Service Bus, RabbitMQ and Kafka
-- [ ] Native broker packages: consumer lag and dead-letter signals, pause and resume of consumers
-- [ ] Pool exhaustion signals for providers without metrics
-- [ ] .NET Aspire hosting integration (resource, dashboard links)
+- [x] Native broker packages (`Homeostat.ServiceBus`, `Homeostat.RabbitMQ`, `Homeostat.Kafka`): backlog, consumers, dead-letter and lag signals; pause and resume of consumers (`PauseConsumer`)
+- [x] Pool exhaustion signals for providers without metrics: any event counter as a signal, SqlClient pool preset
+- [x] .NET Aspire hosting integration (`Homeostat.Aspire.Hosting`): dashboard link, Pause and Resume healing commands
 
 ## Wave 3: operations and developer experience
 

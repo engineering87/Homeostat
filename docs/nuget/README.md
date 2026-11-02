@@ -33,7 +33,8 @@ builder.Services
 ## Batteries included
 
 - **Detectors**: thread pool starvation, memory pressure, exception rate, HTTP clients, Polly circuit breakers,
-  and any `System.Diagnostics.Metrics` instrument (OpenTelemetry metrics).
+  any `System.Diagnostics.Metrics` instrument (OpenTelemetry metrics) or event counter, message broker backlogs,
+  dead letters and lag.
 - **Conditions**: thresholds, values, trends, anomalies (also by time of day and week), predictions, intermittent
   problems, combinations, hysteresis.
 - **Production**: file and Redis stores, plans that run once per cluster, conditions from `appsettings.json`.
@@ -51,7 +52,9 @@ builder.Services
 - `Homeostat.Http`: HTTP client failures and latency as signals; webhook, PagerDuty, Opsgenie, Slack and Microsoft Teams notifiers.
 - `Homeostat.Polly`: Polly v8 circuit breaker state as signals; circuit isolation; chaos enabled by switches.
 - `Homeostat.Redis`: shared state and coordination across instances; Redis client health signals.
-- `Homeostat.Data`: database probes for any ADO.NET provider; connection pool reset.
+- `Homeostat.Data`: database probes for any ADO.NET provider; SqlClient pool exhaustion; connection pool reset.
+- `Homeostat.ServiceBus`, `Homeostat.RabbitMQ`, `Homeostat.Kafka`: backlog, dead letters, consumers and lag as signals; consumers that plans pause and resume.
+- `Homeostat.Aspire.Hosting`: Homeostat link and Pause/Resume healing commands in the Aspire dashboard.
 - `Homeostat.Caching`: memory cache hit ratio; HybridCache, distributed and memory cache purge actions.
 - `Homeostat.FeatureManagement` and `Homeostat.OpenFeature`: feature flags driven by Homeostat switches.
 - `Homeostat.Testing`: test host with simulated time.

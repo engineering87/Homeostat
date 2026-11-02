@@ -2,6 +2,7 @@
   <Folder Name="/src/">
     <Project Path="src/Homeostat/Homeostat.csproj" />
     <Project Path="src/Homeostat.Analyzers/Homeostat.Analyzers.csproj" />
+    <Project Path="src/Homeostat.Aspire.Hosting/Homeostat.Aspire.Hosting.csproj" />
     <Project Path="src/Homeostat.AspNetCore/Homeostat.AspNetCore.csproj" />
     <Project Path="src/Homeostat.Azure/Homeostat.Azure.csproj" />
     <Project Path="src/Homeostat.Caching/Homeostat.Caching.csproj" />
@@ -10,10 +11,13 @@
     <Project Path="src/Homeostat.FeatureManagement/Homeostat.FeatureManagement.csproj" />
     <Project Path="src/Homeostat.HealthChecks/Homeostat.HealthChecks.csproj" />
     <Project Path="src/Homeostat.Http/Homeostat.Http.csproj" />
+    <Project Path="src/Homeostat.Kafka/Homeostat.Kafka.csproj" />
     <Project Path="src/Homeostat.Kubernetes/Homeostat.Kubernetes.csproj" />
     <Project Path="src/Homeostat.OpenFeature/Homeostat.OpenFeature.csproj" />
     <Project Path="src/Homeostat.Polly/Homeostat.Polly.csproj" />
+    <Project Path="src/Homeostat.RabbitMQ/Homeostat.RabbitMQ.csproj" />
     <Project Path="src/Homeostat.Redis/Homeostat.Redis.csproj" />
+    <Project Path="src/Homeostat.ServiceBus/Homeostat.ServiceBus.csproj" />
     <Project Path="src/Homeostat.Templates/Homeostat.Templates.csproj" />
     <Project Path="src/Homeostat.Testing/Homeostat.Testing.csproj" />
   </Folder>

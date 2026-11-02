@@ -9,7 +9,9 @@ view (databases, Redis, message brokers, caches, external monitoring) and which 
 | Any number or round trip, polled periodically | `Homeostat` | `AddProbe`, `AddLatencyProbe` |
 | Database connectivity, latency, transient errors; pool reset | `Homeostat.Data` | `AddDatabaseProbe`, `ClearConnectionPools<T>` |
 | Redis client health | `Homeostat.Redis` | `AddRedisSignals` |
-| Message brokers (Service Bus, RabbitMQ, Kafka) | `Homeostat` | recipes with `AddProbe` below |
+| Message brokers: backlog, dead letters, lag; pause and resume consumers | `Homeostat.ServiceBus`, `Homeostat.RabbitMQ`, `Homeostat.Kafka` | [Message brokers](messaging.md) |
+| Libraries that report through event counters (SqlClient pool) | `Homeostat`, `Homeostat.Data` | `AddEventCounterSignal`, `AddSqlClientPoolSignal` |
+| .NET Aspire dashboard: link and Pause/Resume commands | `Homeostat.Aspire.Hosting` | `WithHomeostat` |
 | Cache hit ratio; purge and compaction | `Homeostat.Caching` | `AddMemoryCacheSignals`, `PurgeHybridCacheTags`, `RemoveDistributedCacheKeys`, `CompactMemoryCache` |
 | Alerts from Prometheus Alertmanager, Grafana, Azure Monitor | `Homeostat.AspNetCore` | `MapHomeostatAlerts` |
 | Feature flags as degradation | `Homeostat.FeatureManagement`, `Homeostat.OpenFeature` | `AddHomeostatSwitchFilter`, `HomeostatSwitchProvider` |
@@ -55,7 +57,7 @@ How probes behave:
   other probes nor the other detectors. A probe still within its timeout is not started again.
 - A call that ignores cancellation is abandoned at the timeout, and the probe is **not called again until that call
   ends** (it publishes `outcome=still-running` meanwhile): a hanging dependency never piles up connections.
-- Signals carry the tags `origin` (`probe`, `latency-probe`, `database-probe`, `redis-ping`), `outcome`
+- Signals carry the tags `origin` (`probe`, `latency-probe`, `database-probe`, `redis-ping`, `servicebus`, `rabbitmq`), `outcome`
   (`ok`, `failed`, `timeout`, `still-running`) and, on failure, `error` (the exception type) and, for a
   `DbException`, `transient`. Failure messages of a `DbException` keep only the exception type (provider messages
   can name servers and users); the details go to the application log.
@@ -144,6 +146,24 @@ h.AddCondition("catalog-db-stale", c => c
 
 ### Pool exhaustion
 
+A pool that stays full makes every request wait for a connection, then fail with a timeout, often before the database
+itself is in trouble. `Microsoft.Data.SqlClient` reports its pool through **event counters**, not metrics:
+
+```csharp
+h.AddSqlClientPoolSignal(maxPoolSize: 100)        // sqlclient-pool: connections in use / Max Pool Size
+ .AddCondition("sql-pool-full", c => c
+     .ForSource("sqlclient-pool")
+     .WhenSeverityAtLeast(SignalSeverity.Degraded)
+     .SustainedFor(TimeSpan.FromMinutes(1))
+     .Heal(p => p.PauseConsumer("ingest")));         // shed load: stop taking work that needs the database
+```
+
+Clearing the pools does not help here: connections in use are not closed by it. Shed load instead (pause consumers,
+turn on a degraded mode), and look for the cause: slow queries holding connections, or connections not disposed
+(`number-of-reclaimed-connections`). The counter covers every SqlClient pool of the process: with several connection strings, pass the sum of their pool
+sizes. Any other event counter becomes a signal with `AddEventCounterSignal(eventSource, counter, o => ...)`, with a
+`Transform` and thresholds; only the counters are enabled, not the library's tracing events.
+
 Providers that publish pool metrics can be watched with [metric signals](detectors.md#metrics). Npgsql, for
 example, exposes the pending connection requests on its `Npgsql` meter (check the instrument names of your provider
 version):
@@ -183,60 +203,14 @@ client, so they work even when Redis was down at startup.
 
 ## Message brokers
 
-Brokers expose their depth and dead letters through their own clients, so a probe is the most portable way to
-watch them. The snippets below show the idea; they are **not compiled in this repository** (the client libraries
-are not dependencies of Homeostat), so check them against the client version you use.
+Azure Service Bus, RabbitMQ and Kafka have their own packages: backlog, consumers, dead letters and lag as signals,
+and consumers that plans can pause and resume. See [Message brokers](messaging.md). For other brokers, a probe on
+their client is enough:
 
 ```csharp
-// Azure Service Bus (Azure.Messaging.ServiceBus): active and dead-lettered messages.
-h.AddProbe("documents-queue", async (sp, ct) =>
-{
-    var admin = sp.GetRequiredService<ServiceBusAdministrationClient>();
-    var properties = await admin.GetQueueRuntimePropertiesAsync("documents", ct);
-    return properties.Value.ActiveMessageCount;
-}, p => { p.Interval = TimeSpan.FromSeconds(30); p.UnhealthyAbove = 5_000; });
-
-h.AddProbe("documents-dead-letters", async (sp, ct) =>
-    (await sp.GetRequiredService<ServiceBusAdministrationClient>()
-        .GetQueueRuntimePropertiesAsync("documents", ct)).Value.DeadLetterMessageCount);
-
-// RabbitMQ (RabbitMQ.Client 7): ready messages in a queue.
-h.AddProbe("ingest-queue", async (sp, ct) =>
-    await sp.GetRequiredService<IngestChannel>().Channel.MessageCountAsync("ingest", ct));
-
-// Kafka (Confluent.Kafka): consumer lag = high watermark - committed offset, summed over the assignment.
-h.AddProbe("events-lag", (sp, ct) =>
-{
-    var consumer = sp.GetRequiredService<IConsumer<string, string>>();
-    var committed = consumer.Committed(consumer.Assignment, TimeSpan.FromSeconds(2));
-    double lag = 0;
-    foreach (var offset in committed)
-    {
-        var high = consumer.QueryWatermarkOffsets(offset.TopicPartition, TimeSpan.FromSeconds(2)).High;
-        lag += offset.Offset.Value < 0 ? 0 : high.Value - offset.Offset.Value;
-    }
-    return Task.FromResult(lag);
-});
+h.AddProbe("imports-backlog", async (sp, ct) => await sp.GetRequiredService<ImportQueue>().CountAsync(ct),
+    p => { p.Interval = TimeSpan.FromSeconds(30); p.UnhealthyAbove = 5_000; });
 ```
-
-Then heal with the actions you already have:
-
-```csharp
-h.AddCondition("ingest-stuck", c => c
-    .ForSource("ingest-queue")
-    .WhenRisingFasterThan(perMinute: 200, window: TimeSpan.FromMinutes(5))
-    .Heal(p => p
-        .RestartHostedService<IngestConsumer>()                    // a RestartableBackgroundService
-        .Then("pause producers", sp => sp.GetRequiredService<IHomeostatSwitches>().TurnOn("pause-ingest"))));
-
-h.AddCondition("poison-messages", c => c
-    .ForSource("documents-dead-letters")
-    .WhenValueAbove(0)
-    .Heal(p => p.TurnOnSwitch("quarantine-documents")));          // the consumer checks the switch
-```
-
-Native packages for the main brokers (lag and dead-letter signals, pause and resume of consumers) are on the
-[roadmap](ROADMAP.md).
 
 ## Caches
 
@@ -434,5 +408,23 @@ endpoint and the audit log, then turn it off. Combine with dry-run to rehearse w
 
 Homeostat works in Aspire applications as in any ASP.NET Core application: its traces and metrics appear in the
 Aspire dashboard through OpenTelemetry (add the `Homeostat` source and meter, see [Observability](observability.md)),
-and the Redis store can use the connection registered by the Aspire Redis integration. A dedicated hosting
-integration is on the [roadmap](ROADMAP.md).
+and the Redis store can use the connection registered by the Aspire Redis integration.
+
+In the app host, `Homeostat.Aspire.Hosting` puts Homeostat on the resource in the Aspire dashboard: a **Homeostat**
+link to the application's dashboard, and **Pause healing** and **Resume healing** commands, handy while you debug a
+failure that Homeostat would otherwise heal.
+
+```csharp
+// AppHost
+builder.AddProject<Projects.WeatherApi>("weather-api")
+       .WithHomeostat(o =>
+       {
+           o.PauseFor = TimeSpan.FromHours(1);    // Pause healing pauses for an hour (default 30 minutes)
+           // o.Prefix = "/ops/homeostat";        // if the endpoints use another prefix
+       });
+```
+
+The application maps the endpoints as usual (`MapHomeostatStatus`, `MapHomeostatControl`, `MapHomeostatDashboard`).
+The commands call the control endpoints with `X-Requested-With`; when they require a policy, give the commands a token
+with `o.BearerToken = (services, ct) => ...`, or map them with `allowAnonymous: true` in the development environment
+only. Commands are enabled when the resource is running and healthy.

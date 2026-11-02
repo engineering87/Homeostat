@@ -37,6 +37,8 @@ internal sealed class HealingRunner
     // Last known plan state, so triggering signals during a cooldown or a hold do not hit the store each time.
     private readonly ConcurrentDictionary<string, PlanState> _knownState = new(StringComparer.Ordinal);
 
+    private readonly IHomeostatSwitches _switches;
+
     // Plans whose condition cleared, while the reset is being written to the store.
     private readonly ConcurrentDictionary<string, byte> _pendingResets = new(StringComparer.Ordinal);
 
@@ -54,8 +56,10 @@ internal sealed class HealingRunner
         HomeostatApprovals approvals,
         SwitchOwnership ownership,
         TimeProvider timeProvider,
-        ILogger<HealingRunner> logger)
+        ILogger<HealingRunner> logger,
+        IHomeostatSwitches switches)
     {
+        _switches = switches;
         _scopeFactory = scopeFactory;
         _options = options.Value;
         _store = store;
@@ -521,6 +525,10 @@ internal sealed class HealingRunner
                 name, i + 1, planSteps.Count, step.Name);
             RecordAction(name, step.Name, dryRun: false);
 
+            // A switch that was already on without any condition owning it was turned on by a person: the step
+            // must not take it over, or the condition clearing would turn it off against their decision.
+            var turnedOnByHand = step.SwitchToResetOnClear is { } resettable && _switches.IsOn(resettable) && !_ownership.IsOwned(resettable);
+
             var (executed, error) = await TryExecuteAsync(context, step, plan, scope.ServiceProvider, cancellationToken).ConfigureAwait(false);
             context.ActionCompletedAt = _timeProvider.GetUtcNow();
 
@@ -530,10 +538,24 @@ internal sealed class HealingRunner
                 continue;
             }
 
-            if (step.SwitchToResetOnClear is { } switchName)
+            if (step.SwitchToResetOnClear is { } switchName && !turnedOnByHand)
             {
                 // Only switches Homeostat actually turned on are turned off when the condition clears.
                 _ownership.Claim(switchName, name);
+
+                // The condition may have cleared while the step ran (after the engine released its switches): then
+                // nobody would turn this one off.
+                if (tracker.Snapshot().Status != ConditionStatus.Active)
+                {
+                    foreach (var free in _ownership.Release(name))
+                    {
+                        if (_switches.IsOn(free))
+                        {
+                            _switches.TurnOff(free);
+                            _logger.LogInformation("Condition {Condition} cleared while step {Step} ran: switch {Switch} turned off.", name, step.Name, free);
+                        }
+                    }
+                }
             }
 
             var verifierType = plan.VerifierType ?? typeof(ConditionClearedVerifier);

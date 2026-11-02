@@ -21,6 +21,10 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\Homeostat\Homeostat.csproj" />
     <ProjectReference Include="..\..\src\Homeostat.Analyzers\Homeostat.Analyzers.csproj" />
+    <ProjectReference Include="..\..\src\Homeostat.Aspire.Hosting\Homeostat.Aspire.Hosting.csproj" />
+    <ProjectReference Include="..\..\src\Homeostat.Kafka\Homeostat.Kafka.csproj" />
+    <ProjectReference Include="..\..\src\Homeostat.RabbitMQ\Homeostat.RabbitMQ.csproj" />
+    <ProjectReference Include="..\..\src\Homeostat.ServiceBus\Homeostat.ServiceBus.csproj" />
     <ProjectReference Include="..\..\src\Homeostat.AspNetCore\Homeostat.AspNetCore.csproj" />
     <ProjectReference Include="..\..\src\Homeostat.Azure\Homeostat.Azure.csproj" />
     <ProjectReference Include="..\..\src\Homeostat.Caching\Homeostat.Caching.csproj" />

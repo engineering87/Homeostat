@@ -271,6 +271,28 @@ Things to know:
   faulty filter only skips measurements. Keep them cheap: they run for every measurement.
 - The listener starts with the application; measurements recorded before it are not seen.
 
+### Event counters
+
+Some libraries report through **event counters** rather than metrics, for example the connection pool of
+`Microsoft.Data.SqlClient`. `AddEventCounterSignal` turns one into a signal; only the counters are enabled, not the
+library's tracing events:
+
+```csharp
+// Physical connections opened per second: a storm of reconnects after a failover, or a pool that keeps being cleared.
+h.AddEventCounterSignal("Microsoft.Data.SqlClient.EventSource", "hard-connects", o =>
+{
+    o.Source = "sql-reconnects";
+    o.IntervalSeconds = 30;
+    o.DegradedAbove = 5;
+});
+```
+
+Polling counters (a level, such as connections in use) publish their value; incrementing counters (events, such as
+connections opened) publish a **rate per second**, so thresholds hold whatever interval the event source reports at.
+
+`AddSqlClientPoolSignal()` (package `Homeostat.Data`) is the ready-made one for SqlClient pool exhaustion, see
+[Integrations](integrations.md#pool-exhaustion).
+
 ## Writing your own detector
 
 For a value you can fetch with one call, a [probe](integrations.md#probes-any-number-as-a-signal) is shorter:

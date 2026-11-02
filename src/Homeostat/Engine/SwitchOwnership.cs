@@ -23,6 +23,15 @@ internal sealed class SwitchOwnership
         }
     }
 
+    /// <summary>Whether any condition holds the switch.</summary>
+    public bool IsOwned(string switchName)
+    {
+        lock (_gate)
+        {
+            return _owners.ContainsKey(switchName);
+        }
+    }
+
     /// <summary>Releases every claim of the condition; returns the switches that no condition holds any more.</summary>
     public IReadOnlyList<string> Release(string condition)
     {

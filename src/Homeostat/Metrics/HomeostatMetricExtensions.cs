@@ -1,5 +1,6 @@
 using Homeostat.Metrics;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 
 namespace Homeostat;
 
@@ -23,6 +24,47 @@ public static class HomeostatMetricExtensions
         configure(metric);
         builder.Services.AddSingleton(metric.Build());
         builder.Services.AddSignalDetector<MetricSignalDetector>();
+        return builder;
+    }
+
+    /// <summary>
+    /// Publishes a signal for an <c>EventCounter</c>, for libraries that report through event counters rather than
+    /// metrics, for example the connection pool counters of <c>Microsoft.Data.SqlClient</c>.
+    /// Only the counters are enabled, not the library's tracing events.
+    /// </summary>
+    /// <param name="builder">The Homeostat builder.</param>
+    /// <param name="eventSource">Name of the event source, for example <c>"Microsoft.Data.SqlClient.EventSource"</c>.</param>
+    /// <param name="counter">Name of the counter, for example <c>"number-of-active-connections"</c>.</param>
+    /// <param name="configure">Source, interval, transform and thresholds.</param>
+    /// <example>
+    /// <code>
+    /// h.AddEventCounterSignal("Microsoft.Data.SqlClient.EventSource", "number-of-active-connections",
+    ///     o => { o.Source = "sql-pool"; o.Transform = v => v / 100; o.DegradedAbove = 0.8; o.UnhealthyAbove = 0.95; });
+    /// </code>
+    /// </example>
+    public static HomeostatBuilder AddEventCounterSignal(
+        this HomeostatBuilder builder, string eventSource, string counter, Action<EventCounterSignalOptions>? configure = null)
+    {
+        ArgumentNullException.ThrowIfNull(builder);
+        ArgumentException.ThrowIfNullOrWhiteSpace(eventSource);
+        ArgumentException.ThrowIfNullOrWhiteSpace(counter);
+
+        var options = new EventCounterSignalOptions();
+        configure?.Invoke(options);
+        if (options.IntervalSeconds is < 1 or > 3600)
+        {
+            throw new ArgumentOutOfRangeException(nameof(configure), options.IntervalSeconds, "IntervalSeconds must be between 1 and 3600.");
+        }
+
+        if (new[] { options.DegradedAbove, options.UnhealthyAbove, options.DegradedBelow, options.UnhealthyBelow }.Any(t => t is { } v && !double.IsFinite(v))
+            || options.DegradedAbove > options.UnhealthyAbove || options.DegradedBelow < options.UnhealthyBelow)
+        {
+            throw new ArgumentException(
+                $"Counter '{counter}': thresholds must be finite, DegradedAbove at most UnhealthyAbove and DegradedBelow at least UnhealthyBelow.", nameof(configure));
+        }
+
+        builder.Services.AddSingleton(new EventCounterRegistration(eventSource, counter, options.Source ?? $"counter:{eventSource}:{counter}", options));
+        builder.Services.TryAddEnumerable(ServiceDescriptor.Singleton<Microsoft.Extensions.Hosting.IHostedService, EventCounterSignalHost>());
         return builder;
     }
 

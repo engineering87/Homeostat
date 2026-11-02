@@ -10,11 +10,16 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 - Targets .NET 10 (LTS). .NET 8 and .NET 9 reach end of support on November 10, 2026.
 - Dependencies on the current releases: Microsoft.Extensions 10.0.14, Polly.Core 8.9.0, StackExchange.Redis 3.4.29,
+  Azure.Messaging.ServiceBus 7.21.0, RabbitMQ.Client 7.2.2, Confluent.Kafka 2.16.0, Aspire.Hosting 13.6.4,
   Microsoft.FeatureManagement 4.8.0, OpenFeature 2.14.1, System.CommandLine 2.0.14,
   Microsoft.Extensions.TimeProvider.Testing 10.11.0; analyzers on Microsoft.CodeAnalysis.CSharp 5.0.0 (the Roslyn of
   the .NET 10.0.1xx SDK, on purpose); tests on xUnit v3 (VSTest runner, Microsoft Testing Platform off).
 
 ### Fixed
+
+- A switch that a person turned on (dashboard, CLI, code) is no longer taken over by a plan step that turns it on
+  with `turnOffWhenCleared`, so the condition clearing no longer turns it off.
+- A condition that cleared while a switch step was running left the switch on: it is now turned off.
 
 - `AddConditionsFromConfiguration` without any `MapAction` registered its action catalog only when the conditions
   were first resolved, after the host had made the service collection read-only.
@@ -33,6 +38,19 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Added
 
+- Integrations (closing wave 2):
+  - Pausable consumers in the core: `IPausableConsumer`, `IHomeostatConsumers`, `AddPausableConsumer`, the plan step
+    `PauseConsumer(name)` and the switch `consumer:{name}:paused` (also from the dashboard and the CLI).
+  - `Homeostat.ServiceBus`: active and dead-letter counts of queues and subscriptions as signals; pausable
+    `ServiceBusProcessor` and `ServiceBusSessionProcessor`.
+  - `Homeostat.RabbitMQ`: ready messages, consumers and dead letters of a queue as signals (passive declare on a
+    short-lived channel); `PausableRabbitMqConsumer`.
+  - `Homeostat.Kafka`: consumer lag from the client statistics (`SetHomeostatLagSignal`, `KafkaLagReporter`);
+    `KafkaPauseGate`, applied on the consumer's own thread.
+  - Any event counter as a signal (`AddEventCounterSignal`), enabling only the counters; `AddSqlClientPoolSignal`
+    (`Homeostat.Data`) for SqlClient pool exhaustion.
+  - `Homeostat.Aspire.Hosting`: `WithHomeostat()` adds a Homeostat dashboard link and Pause/Resume healing commands to
+    resources in the Aspire dashboard.
 - Closing waves 3 and 5:
   - Seasonal anomalies `WhenSeasonallyHigh` and `WhenSeasonallyLow` with `Seasonality.Daily()` and
     `Seasonality.Weekly()` (time slots, time zone), also from configuration (`SeasonallyHigh`, `SeasonallyLow`). The

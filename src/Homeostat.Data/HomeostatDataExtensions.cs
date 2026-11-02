@@ -62,4 +62,36 @@ public static class HomeostatDataExtensions
             }
         }, options.CopyTo);
     }
+
+    /// <summary>
+    /// Publishes how full the <c>Microsoft.Data.SqlClient</c> connection pool is, from its event counters: the
+    /// connections in use (<c>number-of-active-connections</c>) as a share of <paramref name="maxPoolSize"/>. A pool
+    /// that stays full makes every new request wait, then fail with "timeout expired prior to obtaining a connection
+    /// from the pool", often long before the database itself is in trouble. No reference to SqlClient is needed.
+    /// </summary>
+    /// <param name="builder">The Homeostat builder.</param>
+    /// <param name="maxPoolSize">The <c>Max Pool Size</c> of the connection string; 100 by default.</param>
+    /// <param name="source">Signal source.</param>
+    /// <param name="degradedAbove">Share (0 to 1) from which the signal is Degraded.</param>
+    /// <param name="unhealthyAbove">Share (0 to 1) from which the signal is Unhealthy.</param>
+    /// <remarks>
+    /// The counter covers every SqlClient pool of the process: with several connection strings, set
+    /// <paramref name="maxPoolSize"/> to the sum of their pool sizes. Requires Microsoft.Data.SqlClient 3.0 or later.
+    /// </remarks>
+    public static HomeostatBuilder AddSqlClientPoolSignal(
+        this HomeostatBuilder builder,
+        int maxPoolSize = 100,
+        string source = "sqlclient-pool",
+        double degradedAbove = 0.8,
+        double unhealthyAbove = 0.95)
+    {
+        ArgumentOutOfRangeException.ThrowIfLessThan(maxPoolSize, 1);
+        return builder.AddEventCounterSignal("Microsoft.Data.SqlClient.EventSource", "number-of-active-connections", o =>
+        {
+            o.Source = source;
+            o.Transform = active => active / maxPoolSize;
+            o.DegradedAbove = degradedAbove;
+            o.UnhealthyAbove = unhealthyAbove;
+        });
+    }
 }

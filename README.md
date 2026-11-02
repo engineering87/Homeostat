@@ -157,6 +157,7 @@ app.MapHomeostatControl("operations");                 // pause, resume, approve
 | Probes: queues, lag, any number you can fetch | Predictions: "full in two hours" | Safe restart of crashed or stuck workers | PagerDuty, Opsgenie, Slack and Teams, chaos for game days |
 | Recorded signals, replayed against new rules | Adaptive plans that learn which step works | Kubernetes and Azure actions, self-restart | Coverage reports for game days |
 | Daily and weekly rhythms | Seasonal anomalies: "unusual for a Monday at 10:00" | Approvals from Slack, Teams and the dashboard | Persisted condition history, offline replay from the CLI |
+| Service Bus, RabbitMQ, Kafka: backlog, dead letters, lag | Connection pool exhaustion | Pause and resume message consumers | .NET Aspire dashboard commands |
 
 ## Why Homeostat
 
@@ -220,13 +221,15 @@ dotnet add package Homeostat
 | `Homeostat` | Core engine, runtime detectors, built-in actions, switches, guardrails, approvals, audit log |
 | `Homeostat.AspNetCore` | Status and control endpoints, dashboard with one-click approvals, Slack approvals; alerts from Alertmanager, Grafana and Azure Monitor as signals |
 | `Homeostat.Caching` | Memory cache hit ratio as signals; HybridCache, distributed and memory cache purge actions |
-| `Homeostat.Data` | Database probes for any ADO.NET provider; connection pool reset |
+| `Homeostat.Data` | Database probes for any ADO.NET provider; SqlClient pool exhaustion; connection pool reset |
 | `Homeostat.FeatureManagement` | Feature filter driven by Homeostat switches |
 | `Homeostat.HealthChecks` | Health check results as signals; Homeostat's own health check |
 | `Homeostat.Http` | Failure ratio and latency of `IHttpClientFactory` clients as signals; webhook, PagerDuty, Opsgenie, Slack and Teams notifiers |
 | `Homeostat.OpenFeature` | OpenFeature provider exposing Homeostat switches as flags |
 | `Homeostat.Polly` | Polly v8 circuit breaker state as signals; circuit isolation; chaos enabled by switches |
 | `Homeostat.Redis` | State shared by every instance, plans that run once per cluster; Redis client health signals |
+| `Homeostat.ServiceBus`, `Homeostat.RabbitMQ`, `Homeostat.Kafka` | Backlog, dead letters, consumers and lag as signals; consumers that plans pause and resume |
+| `Homeostat.Aspire.Hosting` | Homeostat link and Pause/Resume healing commands in the Aspire dashboard |
 | `Homeostat.Testing` | Test host with simulated time, fault injection, helpers for unit tests |
 | `Homeostat.Kubernetes` | Restart this pod, rollout restart, scale, cordon; approval by default |
 | `Homeostat.Azure` | Restart App Service and VMs, Front Door failover, any Resource Manager operation; approval by default |

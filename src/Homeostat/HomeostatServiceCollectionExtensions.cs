@@ -51,6 +51,7 @@ public static class HomeostatServiceCollectionExtensions
         services.TryAddSingleton<HomeostatControl>();
         services.TryAddSingleton<IHomeostatControl>(sp => sp.GetRequiredService<HomeostatControl>());
         services.TryAddSingleton<IHomeostatSwitches, HomeostatSwitches>();
+        HomeostatConsumerExtensions.AddConsumerServices(services);
         services.TryAddSingleton<ObserverNotifier>();
         services.TryAddSingleton<SwitchOwnership>();
         services.TryAddSingleton<HomeostatApprovals>();
