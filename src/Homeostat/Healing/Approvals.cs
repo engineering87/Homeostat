@@ -31,13 +31,13 @@ public enum ApprovalStatus
     Expired = 3,
 
     /// <summary>The request was withdrawn: the condition cleared or the application stopped.</summary>
-    Cancelled = 4,
+    Canceled = 4,
 }
 
 /// <summary>Outcome of an approval request.</summary>
 /// <param name="Request">The request.</param>
 /// <param name="Status">How it ended.</param>
-/// <param name="ResolvedBy">Who approved or rejected it, if provided; <c>null</c> when expired or cancelled.</param>
+/// <param name="ResolvedBy">Who approved or rejected it, if provided; <c>null</c> when expired or canceled.</param>
 /// <param name="ResolvedAt">When it ended.</param>
 public sealed record ApprovalResolution(
     PendingApproval Request,

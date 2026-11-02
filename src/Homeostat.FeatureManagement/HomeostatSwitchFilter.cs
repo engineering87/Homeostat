@@ -16,8 +16,8 @@ namespace Homeostat.FeatureManagement;
 /// <example>
 /// <code>
 /// "FeatureManagement": {
-///   "Recommendations": {
-///     "EnabledFor": [ { "Name": "Homeostat.Switch", "Parameters": { "Switch": "shed-recommendations" } } ]
+///   "ForecastMaps": {
+///     "EnabledFor": [ { "Name": "Homeostat.Switch", "Parameters": { "Switch": "shed-forecast-maps" } } ]
 ///   }
 /// }
 /// </code>

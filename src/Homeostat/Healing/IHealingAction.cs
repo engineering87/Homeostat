@@ -1,7 +1,7 @@
 namespace Homeostat.Healing;
 
 /// <summary>
-/// A remediation step. Implementations are resolved from dependency injection in a new scope
+/// A healing step. Implementations are resolved from dependency injection in a new scope
 /// for every execution, so they can take any registered service in their constructor.
 /// </summary>
 /// <remarks>
@@ -10,8 +10,8 @@ namespace Homeostat.Healing;
 /// </remarks>
 public interface IHealingAction
 {
-    /// <summary>Performs the remediation.</summary>
+    /// <summary>Performs the step.</summary>
     /// <param name="context">The condition, the triggering signal and the step's services.</param>
-    /// <param name="cancellationToken">Cancelled when the action times out or the application stops.</param>
+    /// <param name="cancellationToken">Canceled when the action times out or the application stops.</param>
     Task ExecuteAsync(HealingContext context, CancellationToken cancellationToken);
 }

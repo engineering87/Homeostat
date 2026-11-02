@@ -1,9 +1,11 @@
 # Roadmap
 
-Homeostat aims to be the reference self-healing library for .NET. The roadmap is organized in waves; each wave
-ships as previews. It is indicative and changes with feedback: open an issue to discuss priorities.
+Homeostat aims to be the reference self-healing library for .NET. The roadmap is organized in waves. Everything
+checked below ships in 1.0.0, now available as a release candidate (`1.0.0-rc.1`); later waves arrive in minor
+versions under the compatibility rules of [Versioning](versioning.md). The roadmap is indicative and changes with
+feedback: open an issue to discuss priorities.
 
-## Shipped in the first preview
+## Core (1.0)
 
 **Core loop and safety**
 - [x] Signals, conditions (`SustainedFor`, `ClearAfter`, `SuppressedBy`), healing plans with escalation and three-outcome verification
@@ -43,7 +45,7 @@ ships as previews. It is indicative and changes with feedback: open an issue to 
 - [x] Embedded dashboard (`MapHomeostatDashboard`): status, history, one-click approvals, switches, pause
 - [x] Incidents in PagerDuty and Opsgenie (Jira Service Management); Slack notifications with interactive approvals; Microsoft Teams cards
 - [x] `homeostat` command-line tool (`Homeostat.Cli`) and `dotnet new` templates (`Homeostat.Templates`)
-- [x] Roslyn analyzers HOMEO001 to HOMEO005 (unawaited inline actions, conditions without a source, ignored cancellation, anonymous endpoints, unsafe worker restarts)
+- [x] [Build-time analyzers](analyzers.md) (unawaited inline actions, conditions without a source, ignored cancellation, anonymous endpoints, unsafe worker restarts)
 - [x] Grafana dashboard and state gauges; worker service sample
 - [x] Trend and anomaly rules from configuration
 - [x] `RestartableBackgroundService`: safe restarts of stuck or crashed workers, with `AddBackgroundServiceSignals`
@@ -75,6 +77,8 @@ ships as previews. It is indicative and changes with feedback: open an issue to 
 - [x] Trimming and Native AOT compatibility: `IsAotCompatible` libraries, source-generated JSON, a Native AOT smoke test in CI
 - [x] Published benchmarks of the overhead ([performance](performance.md)); per-signal engine work without allocations
 - [x] SBOM and build provenance on every release, optional author signing, actions pinned by commit, OpenSSF Scorecard
+- [x] Source names, status JSON with enums as names, `Canceled` spelling: last breaking adjustments before 1.0
+- [x] Templates built in CI; Native AOT smoke test covering the Slack and Teams endpoints and the PagerDuty and Opsgenie notifiers
 - [ ] Package validation baseline set to the first stable version, once it is published
 - [ ] .NET Foundation application
 

@@ -29,7 +29,7 @@ builder.Services
         // Share of 5xx answers, from ASP.NET Core's own metrics.
         .AddServerErrorRateSignal()
         .AddCondition("api-errors", c => c
-            .ForSource("http-server-errors")
+            .ForSource("http-server:errors")
             .SustainedFor(TimeSpan.FromMinutes(1)))
         // A slow memory leak shows up as a trend long before the memory is full.
         .AddCondition("memory-leak-suspected", c => c

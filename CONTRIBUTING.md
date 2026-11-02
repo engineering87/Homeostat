@@ -67,7 +67,12 @@ additions non-breaking:
 - add parameters as new overloads, not as optional parameters on an existing method;
 - number new enum members explicitly and never reuse a value; outcome enums start at 1, so 0 is never a success.
 
-Conventions: `Task` for extension points that run user code once per action (actions, verifiers, sinks, consumers),
+Signal source names and the JSON written by the endpoints and the stores are part of the contract too: users type
+source names in `ForSource`, and dashboards and scripts read the JSON. Default sources follow
+`{technology}[:{name}][:{metric}]` (`redis`, `npgsql:pool`, `kafka:telemetry:lag`); the process's own runtime detectors use one
+word (`threadpool`, `memory`, `exceptions`), and health checks keep their own name.
+
+Other conventions: `Task` for extension points that run user code once per action (actions, verifiers, sinks, consumers),
 `ValueTask` for members the engine calls often and that usually complete synchronously (stores, detectors,
 coordinators, control queries). Every asynchronous public method takes a `CancellationToken`.
 

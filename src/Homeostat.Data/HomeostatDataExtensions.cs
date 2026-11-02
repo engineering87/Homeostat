@@ -1,5 +1,6 @@
 using System.Data.Common;
 using Homeostat.Data;
+using Homeostat.Metrics;
 using Homeostat.Probes;
 
 namespace Homeostat;
@@ -14,7 +15,7 @@ public static class HomeostatDataExtensions
     /// <see cref="DbException"/>, whether the provider reports it as transient (<c>transient=true</c>).
     /// </summary>
     /// <param name="builder">The Homeostat builder.</param>
-    /// <param name="source">Source of the published signals, for example <c>"catalog-db"</c>.</param>
+    /// <param name="source">Source of the published signals, for example <c>"reports-db"</c>.</param>
     /// <param name="createConnection">
     /// Creates a new, closed connection, which the probe opens and disposes. Do not return a connection owned by
     /// something else, such as the one of an Entity Framework Core <c>DbContext</c>.
@@ -22,7 +23,7 @@ public static class HomeostatDataExtensions
     /// <param name="configure">Changes the query, interval, timeout and thresholds.</param>
     /// <example>
     /// <code>
-    /// h.AddDatabaseProbe("catalog-db", _ => new SqlConnection(connectionString),
+    /// h.AddDatabaseProbe("reports-db", _ => new SqlConnection(connectionString),
     ///     p => { p.DegradedAbove = 200; p.UnhealthyAbove = 2_000; });
     /// </code>
     /// </example>
@@ -81,7 +82,7 @@ public static class HomeostatDataExtensions
     public static HomeostatBuilder AddSqlClientPoolSignal(
         this HomeostatBuilder builder,
         int maxPoolSize = 100,
-        string source = "sqlclient-pool",
+        string source = "sqlclient:pool",
         double degradedAbove = 0.8,
         double unhealthyAbove = 0.95)
     {
@@ -92,6 +93,55 @@ public static class HomeostatDataExtensions
             o.Transform = active => active / maxPoolSize;
             o.DegradedAbove = degradedAbove;
             o.UnhealthyAbove = unhealthyAbove;
+        });
+    }
+
+    /// <summary>
+    /// Publishes how full an Npgsql connection pool is, from Npgsql's own metrics: the connections in use
+    /// (<c>db.client.connection.count</c> with state <c>used</c>, meter <c>Npgsql</c>) as a share of
+    /// <paramref name="maxPoolSize"/>. Like <see cref="AddSqlClientPoolSignal"/>, it warns before requests start
+    /// failing with a pool timeout. No reference to Npgsql is needed.
+    /// </summary>
+    /// <param name="builder">The Homeostat builder.</param>
+    /// <param name="maxPoolSize">The <c>Maximum Pool Size</c> of the connection string; 100 by default.</param>
+    /// <param name="dataSourceName">
+    /// The pool to watch, by the name of its data source (<c>NpgsqlDataSourceBuilder.Name</c>, by default the
+    /// connection string without the password). <c>null</c> adds up every Npgsql pool of the process: then set
+    /// <paramref name="maxPoolSize"/> to the sum of their sizes.
+    /// </param>
+    /// <param name="source">Signal source.</param>
+    /// <param name="degradedAbove">Share (0 to 1) from which the signal is Degraded.</param>
+    /// <param name="unhealthyAbove">Share (0 to 1) from which the signal is Unhealthy.</param>
+    /// <remarks>Requires Npgsql 10 or later, which publishes the OpenTelemetry connection metrics under these names.</remarks>
+    /// <example>
+    /// <code>
+    /// h.AddNpgsqlPoolSignal(maxPoolSize: 50, dataSourceName: "reports")
+    ///  .AddCondition("reports-pool-full", c => c.ForSource("npgsql:pool").SustainedFor(TimeSpan.FromMinutes(1))
+    ///      .Heal(p => p.TurnOnSwitch("defer-heavy-reports", turnOffWhenCleared: true)));   // shed load that holds connections
+    /// </code>
+    /// </example>
+    public static HomeostatBuilder AddNpgsqlPoolSignal(
+        this HomeostatBuilder builder,
+        int maxPoolSize = 100,
+        string? dataSourceName = null,
+        string source = "npgsql:pool",
+        double degradedAbove = 0.8,
+        double unhealthyAbove = 0.95)
+    {
+        ArgumentOutOfRangeException.ThrowIfLessThan(maxPoolSize, 1);
+        return builder.AddMetricSignal("db.client.connection.count", m =>
+        {
+            m.FromMeter("Npgsql")
+                .Source(source)
+                .Where("db.client.connection.state", "used")
+                .Statistic(MetricStatistic.Last)
+                .Scale(1.0 / maxPoolSize)
+                .DegradedAbove(degradedAbove)
+                .UnhealthyAbove(unhealthyAbove);
+            if (dataSourceName is not null)
+            {
+                m.Where("db.client.connection.pool.name", dataSourceName);
+            }
         });
     }
 }

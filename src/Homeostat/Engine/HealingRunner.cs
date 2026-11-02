@@ -325,7 +325,7 @@ internal sealed class HealingRunner
         catch (Exception) when (cancellationToken.IsCancellationRequested)
         {
             // Anything raised while the host is stopping is a consequence of the shutdown.
-            outcome = HealingRunOutcome.Cancelled;
+            outcome = HealingRunOutcome.Canceled;
         }
         catch (Exception ex)
         {
@@ -354,7 +354,7 @@ internal sealed class HealingRunner
         var result = new HealingRunResult(name, outcome, steps.ToArray(), startedAt, completedAt);
 
         // Persist before notifying, so a test or an operator who sees the run also sees its cooldown. Use a fresh
-        // token: the outcome of a run cancelled by the shutdown is still worth recording.
+        // token: the outcome of a run canceled by the shutdown is still worth recording.
         using (var persistCts = new CancellationTokenSource(TimeSpan.FromSeconds(10)))
         {
             var failed = outcome is HealingRunOutcome.NotHealed or HealingRunOutcome.Inconclusive or HealingRunOutcome.Failed;

@@ -18,12 +18,12 @@ public sealed record ConditionSnapshot(
     Signal? LastSignal)
 {
     /// <summary>
-    /// When clearing signals started, while an active condition waits for <see cref="ConditionDefinition.ClearAfter"/>.
+    /// When clearing signals started, while an active condition waits for <see cref="ConditionBuilder.ClearAfter"/>.
     /// </summary>
     public DateTimeOffset? ClearingSince { get; init; }
 
     /// <summary>
-    /// The condition that currently suppresses this one (one of <see cref="ConditionDefinition.SuppressedBy"/> that is
+    /// The condition that currently suppresses this one (one of the conditions listed with <see cref="ConditionBuilder.SuppressedBy"/> that is
     /// pending or active), if any. Filled in the snapshots returned by <see cref="IHomeostatControl.GetConditions"/> and
     /// passed to observers.
     /// </summary>

@@ -7,7 +7,7 @@ namespace Homeostat.Detectors;
 /// <summary>Settings for the memory pressure detector.</summary>
 public sealed class MemoryPressureDetectorOptions
 {
-    /// <summary>Signal source name.</summary>
+    /// <summary>Signal source name. Defaults to <c>"memory"</c>.</summary>
     public string Source { get; set; } = "memory";
 
     /// <summary>Memory load (0 to 1) at or above which the signal is <see cref="SignalSeverity.Degraded"/>.</summary>

@@ -16,9 +16,30 @@ namespace Homeostat;
 public static class HomeostatServiceCollectionExtensions
 {
     /// <summary>
-    /// Adds Homeostat and its background engine. Safe to call more than once:
-    /// core services are registered only the first time.
+    /// Adds Homeostat and its background engine. Safe to call more than once: core services are registered only the
+    /// first time, and every call can add conditions, detectors and integrations.
     /// </summary>
+    /// <param name="services">The application's services.</param>
+    /// <param name="configure">Adds conditions, healing plans, detectors, stores and integrations; optional.</param>
+    /// <returns>The builder, to keep configuring Homeostat.</returns>
+    /// <remarks>
+    /// Homeostat starts in dry-run: it detects, decides and logs every step it would take, but runs none until
+    /// <see cref="HomeostatOptions.DryRun"/> is set to <c>false</c>. Options are validated when the host starts.
+    /// </remarks>
+    /// <example>
+    /// <code>
+    /// builder.Services.AddHealthChecks().AddCheck&lt;WeatherFeedHealthCheck&gt;("weather-feed");
+    /// builder.Services.AddHomeostat(h => h
+    ///     .Configure(o => o.DryRun = false)             // after reviewing the dry-run log
+    ///     .AddHealthCheckSignals()                      // Homeostat.HealthChecks
+    ///     .AddCondition("weather-feed-down", c => c
+    ///         .ForSource("weather-feed")
+    ///         .SustainedFor(TimeSpan.FromSeconds(30))
+    ///         .Heal(p => p
+    ///             .With&lt;RenewFeedClientAction&gt;()
+    ///             .Then&lt;SwitchToBackupProviderAction&gt;().RequireApproval())));
+    /// </code>
+    /// </example>
     public static HomeostatBuilder AddHomeostat(this IServiceCollection services, Action<HomeostatBuilder>? configure = null)
     {
         ArgumentNullException.ThrowIfNull(services);

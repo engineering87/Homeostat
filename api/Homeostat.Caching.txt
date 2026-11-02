@@ -5,7 +5,7 @@ namespace Homeostat
     public static Homeostat.Healing.HealingPlanBuilder RemoveDistributedCacheKeys(this Homeostat.Healing.HealingPlanBuilder plan, params string[] keys)
     public static Homeostat.Healing.HealingPlanBuilder RemoveHybridCacheKeys(this Homeostat.Healing.HealingPlanBuilder plan, params string[] keys)
   public static class HomeostatCachingExtensions
-    public static Homeostat.HomeostatBuilder AddMemoryCacheSignals(this Homeostat.HomeostatBuilder builder, string source = "memory-cache", System.Action<Homeostat.Caching.MemoryCacheSignalOptions>? configure = null, System.Func<System.IServiceProvider, Microsoft.Extensions.Caching.Memory.IMemoryCache>? cache = null)
+    public static Homeostat.HomeostatBuilder AddMemoryCacheSignals(this Homeostat.HomeostatBuilder builder, string source = "cache:memory", System.Action<Homeostat.Caching.MemoryCacheSignalOptions>? configure = null, System.Func<System.IServiceProvider, Microsoft.Extensions.Caching.Memory.IMemoryCache>? cache = null)
 namespace Homeostat.Caching
   public sealed class MemoryCacheSignalOptions
     public MemoryCacheSignalOptions()

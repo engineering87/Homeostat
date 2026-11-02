@@ -15,10 +15,10 @@ public class FeatureFlagTests
     {
         var configuration = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
         {
-            ["FeatureManagement:Recommendations:EnabledFor:0:Name"] = "Homeostat.Switch",
-            ["FeatureManagement:Recommendations:EnabledFor:0:Parameters:Switch"] = "shed-recommendations",
+            ["FeatureManagement:ForecastMaps:EnabledFor:0:Name"] = "Homeostat.Switch",
+            ["FeatureManagement:ForecastMaps:EnabledFor:0:Parameters:Switch"] = "shed-forecast-maps",
             ["FeatureManagement:DegradedBanner:EnabledFor:0:Name"] = "Homeostat.Switch",
-            ["FeatureManagement:DegradedBanner:EnabledFor:0:Parameters:Switch"] = "shed-recommendations",
+            ["FeatureManagement:DegradedBanner:EnabledFor:0:Parameters:Switch"] = "shed-forecast-maps",
             ["FeatureManagement:DegradedBanner:EnabledFor:0:Parameters:EnabledWhen"] = "On",
             ["FeatureManagement:Broken:EnabledFor:0:Name"] = "Homeostat.Switch",
         }).Build();
@@ -37,15 +37,15 @@ public class FeatureFlagTests
         var features = services.GetRequiredService<IFeatureManager>();
         var switches = services.GetRequiredService<IHomeostatSwitches>();
 
-        Assert.True(await features.IsEnabledAsync("Recommendations"));
+        Assert.True(await features.IsEnabledAsync("ForecastMaps"));
         Assert.False(await features.IsEnabledAsync("DegradedBanner"));
 
-        switches.TurnOn("shed-recommendations");
-        Assert.False(await features.IsEnabledAsync("Recommendations"));
+        switches.TurnOn("shed-forecast-maps");
+        Assert.False(await features.IsEnabledAsync("ForecastMaps"));
         Assert.True(await features.IsEnabledAsync("DegradedBanner"));
 
-        switches.TurnOff("shed-recommendations");
-        Assert.True(await features.IsEnabledAsync("Recommendations"));
+        switches.TurnOff("shed-forecast-maps");
+        Assert.True(await features.IsEnabledAsync("ForecastMaps"));
     }
 
     [Fact]
@@ -102,11 +102,11 @@ public class FeatureFlagTests
         var client = Api.Instance.GetClient(domain);
         client.AddHandler(ProviderEventTypes.ProviderConfigurationChanged, payload => changed.TrySetResult(payload));
 
-        Assert.False(await client.GetBooleanValueAsync("shed-recommendations", false));
-        switches.TurnOn("shed-recommendations");
-        Assert.True(await client.GetBooleanValueAsync("shed-recommendations", false));
+        Assert.False(await client.GetBooleanValueAsync("shed-forecast-maps", false));
+        switches.TurnOn("shed-forecast-maps");
+        Assert.True(await client.GetBooleanValueAsync("shed-forecast-maps", false));
 
         var payload = await changed.Task.WaitAsync(TimeSpan.FromSeconds(10));
-        Assert.Equal(["shed-recommendations"], payload!.FlagsChanged!);
+        Assert.Equal(["shed-forecast-maps"], payload!.FlagsChanged!);
     }
 }

@@ -20,7 +20,7 @@ public sealed class RabbitMqQueueSignalOptions
 
     /// <summary>
     /// Thresholds of the consumer count. By default a queue without consumers is Unhealthy (<c>UnhealthyBelow = 1</c>):
-    /// when this application is the consumer, its consumers died or were cancelled by the broker. Set it to <c>null</c>
+    /// when this application is the consumer, its consumers died or were canceled by the broker. Set it to <c>null</c>
     /// when consumers are expected to be absent, for example while they are paused.
     /// </summary>
     public ProbeOptions Consumers { get; } = new() { UnhealthyBelow = 1 };

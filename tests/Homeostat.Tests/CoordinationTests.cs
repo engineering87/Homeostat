@@ -316,7 +316,7 @@ public class CoordinationTests
         await host.WaitForApprovalAsync("feed-down");
         await host.DisposeAsync();
 
-        Assert.Equal(ApprovalStatus.Cancelled, Assert.Single(observer.Resolved).Status);
+        Assert.Equal(ApprovalStatus.Canceled, Assert.Single(observer.Resolved).Status);
     }
 
     [Fact]

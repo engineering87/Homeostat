@@ -38,12 +38,41 @@ Guards (`RestartLimits`, shared with `RestartPod`):
   processes: after that the step fails and a person has to look. Keep the store persistent (`UseFileStore` on a volume
   that survives the restart, or `UseRedis`): the in-memory store starts empty in the new process, and so would the
   count, the cooldown and the history.
-- The step **ends the run**: put it last, steps after it never run. The run is recorded as cancelled by the shutdown it
+- The step **ends the run**: put it last, steps after it never run. The run is recorded as canceled by the shutdown it
   caused; the restart is logged as a critical message before the application stops.
 - The plan state is per instance (`InstanceId`, the machine name by default). A container restarted in place keeps its
   name and its cooldown; a new pod has a new name, which is why the restart count is per application.
 
+Change the limits with `RestartLimits` (`MinimumUptime`, `MaxRestarts`, `Window`; `RestartLimits.Default` is 10 minutes,
+3 restarts per hour):
+
+```csharp
+.RestartApplication(limits: new RestartLimits(TimeSpan.FromMinutes(30), MaxRestarts: 2, Window: TimeSpan.FromHours(6)))
+```
+
+### Your own restart action
+
+An action that restarts the application in another way (a platform API, a supervisor) should apply the same guards:
+call `RestartGuard.EnsureAllowedAsync` first. It throws `InvalidOperationException` (the step fails, and the plan
+escalates or stops) when the instance has been up for less than `MinimumUptime` or the application already
+restarted `MaxRestarts` times within the window; otherwise it counts this restart in the store.
+
+```csharp
+public sealed class RecycleWorkerProcessAction(SupervisorClient supervisor) : IHealingAction
+{
+    public async Task ExecuteAsync(HealingContext context, CancellationToken cancellationToken)
+    {
+        await RestartGuard.EnsureAllowedAsync(context, RestartLimits.Default, cancellationToken);
+        await supervisor.RecycleAsync(cancellationToken);   // your code
+    }
+}
+```
+
 ## Kubernetes
+
+```bash
+dotnet add package Homeostat.Kubernetes --prerelease
+```
 
 ```csharp
 builder.Services.AddHomeostat(h => h
@@ -84,6 +113,22 @@ env:
     valueFrom: { fieldRef: { fieldPath: spec.nodeName } }
 ```
 
+Outside a cluster (for example from a development machine), set `ApiServer`, `Namespace`, `PodName` or `NodeName` as
+needed, and `AccessToken` instead of the token file.
+
+| `KubernetesOptions` | Default | Meaning |
+|---|---|---|
+| `ApiServer` | `https://{KUBERNETES_SERVICE_HOST}:{KUBERNETES_SERVICE_PORT}` (port 443 when not set) | API server address |
+| `TokenPath` | `/var/run/secrets/kubernetes.io/serviceaccount/token` | Bearer token file, read again every minute |
+| `AccessToken` | none | Returns the bearer token instead of reading `TokenPath` |
+| `CertificateAuthorityPath` | `/var/run/secrets/kubernetes.io/serviceaccount/ca.crt` | CA (PEM) that signs the API server certificate, besides the system trust store |
+| `Namespace` | the service account `namespace` file | Namespace of the application |
+| `PodName` | `POD_NAME`, then `HOSTNAME` | Name of this pod |
+| `NodeName` | `NODE_NAME` | Name of the node running this pod |
+| `Timeout` | 30 seconds | Timeout of one API request |
+
+`KubernetesOptions.ServiceAccountDirectory` is the directory of the default files.
+
 ### Permissions
 
 Grant only what the actions you use need:
@@ -112,7 +157,8 @@ subjects: [{ kind: ServiceAccount, name: weather-api, namespace: weather }]
 roleRef: { kind: Role, name: homeostat, apiGroup: rbac.authorization.k8s.io }
 ```
 
-A refused call fails the step with the Kubernetes message and a hint about the missing permission.
+A refused call fails the step with a `KubernetesApiException`, which carries the `StatusCode` and the Kubernetes
+message, with a hint about the missing permission.
 
 Know what these permissions allow if the application itself is compromised:
 
@@ -124,6 +170,10 @@ Know what these permissions allow if the application itself is compromised:
   ValidatingAdmissionPolicy) that lets this service account change only `spec.unschedulable`.
 
 ## Azure
+
+```bash
+dotnet add package Homeostat.Azure --prerelease
+```
 
 ```csharp
 var credential = new DefaultAzureCredential();       // Azure.Identity: managed identity in Azure
@@ -148,9 +198,16 @@ Homeostat does not depend on Azure.Identity: `AccessToken` takes the token from 
 caches and refreshes it. Resource ids are checked against the exact resource type (an App Service site or slot, a
 virtual machine, a Front Door origin), and `AzureResourceManager` actions must be plain path segments such as
 `/restart`, so a mistyped id or action cannot reach another endpoint. The optional `body` is a `JsonNode`, for example
-`new JsonObject { ["properties"] = new JsonObject { ["enabledState"] = "Disabled" } }`, so it serializes without reflection. For sovereign clouds set `ResourceManager`. Long
+`new JsonObject { ["properties"] = new JsonObject { ["enabledState"] = "Disabled" } }`, so it serializes without reflection. Long
 operations answer `202 Accepted`: the step succeeds when Azure accepts the request, and Homeostat's verification checks
-whether the condition clears.
+whether the condition clears. An error answer fails the step with a `ResourceManagerException`, which carries the
+`StatusCode` and the Resource Manager error.
+
+| `AzureOptions` | Default | Meaning |
+|---|---|---|
+| `AccessToken` | required | Returns a Resource Manager token; called for every request, so let the credential cache it |
+| `ResourceManager` | `AzureOptions.PublicCloud` (`https://management.azure.com/`) | Endpoint; change it for sovereign clouds |
+| `Timeout` | 60 seconds | Timeout of one request |
 
 Azure Key Vault secrets loaded with the configuration provider are refreshed with the built-in
 `ReloadConfiguration()` action, for example after a rotation that broke a connection.

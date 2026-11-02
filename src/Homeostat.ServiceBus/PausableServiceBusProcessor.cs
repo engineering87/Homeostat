@@ -36,7 +36,12 @@ public sealed class PausableServiceBusProcessor : IPausableConsumer
     /// <inheritdoc />
     public string Name { get; }
 
-    /// <summary>Stops processing: waits for the messages being handled.</summary>
+    /// <summary>Stops processing (<c>StopProcessingAsync</c>): no new message is received.</summary>
+    /// <remarks>
+    /// Stopping cancels the cancellation token passed to the message handlers and waits for them to return. Messages
+    /// whose handler gives up on that token are abandoned and delivered again later (their delivery count grows), so
+    /// handlers should complete or abandon promptly when the token is canceled.
+    /// </remarks>
     /// <param name="cancellationToken">Cancellation token.</param>
     public Task PauseAsync(CancellationToken cancellationToken) => _stop(cancellationToken);
 

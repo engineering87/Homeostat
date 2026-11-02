@@ -54,7 +54,9 @@ Use both.
 
 That is the goal of the defaults: dry-run on, budget, cooldown, timeouts, one run at a time, kill
 switch, and no escalation without evidence. Start in dry-run, review the decisions, then enable
-actions one plan at a time. The project is in preview, so evaluate it carefully before relying on it.
+actions one plan at a time, and review the [security guide](security.md). The current version is a release
+candidate for 1.0: the public API changes before 1.0.0 only if a problem found in the release candidate requires
+it, and from 1.0.0 it follows semantic versioning (see [Versioning](versioning.md)).
 
 ### What happens with several instances of my application?
 
@@ -83,8 +85,9 @@ to export traces and metrics.
 
 ### Which .NET versions are supported?
 
-.NET 10, the current long-term support release. .NET 8 and .NET 9 reach end of support on
-November 10, 2026, so Homeostat does not target them; new .NET versions are added as they are released.
+.NET 10, a long-term support release. .NET 8 and .NET 9 reach end of support on November 10, 2026, so Homeostat
+does not target them. See [Platforms](platforms.md) for operating systems, client library versions and Native AOT,
+and [Versioning](versioning.md) for how new .NET versions are adopted.
 
 ### Where does the name come from?
 

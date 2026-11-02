@@ -14,7 +14,7 @@ public static class HomeostatProbeExtensions
     /// </summary>
     /// <param name="builder">The Homeostat builder.</param>
     /// <param name="source">Source of the published signals; conditions select it with <c>ForSource</c>.</param>
-    /// <param name="measure">Returns the current value. It runs in its own service scope and receives a token cancelled at the timeout.</param>
+    /// <param name="measure">Returns the current value. It runs in its own service scope and receives a token canceled at the timeout.</param>
     /// <param name="configure">Changes interval, timeout and thresholds.</param>
     /// <example>
     /// <code>

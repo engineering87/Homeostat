@@ -316,7 +316,7 @@ public class DistributedTests
         host.Approvals.Approve(request.Id);
 
         var run = await host.WaitForRunAsync("feed-down");
-        Assert.Equal(HealingRunOutcome.Cancelled, run.Outcome);
+        Assert.Equal(HealingRunOutcome.Canceled, run.Outcome);
         Assert.Empty(run.Steps);
     }
 

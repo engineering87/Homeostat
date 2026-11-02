@@ -11,7 +11,7 @@ using MongoDB.Driver.Core.Servers;
 
 namespace Homeostat;
 
-/// <summary>MongoDB signals.</summary>
+/// <summary>MongoDB signals: ping round trip, primary availability, connection pool and replication lag.</summary>
 public static class HomeostatMongoExtensions
 {
     /// <summary>
@@ -28,7 +28,7 @@ public static class HomeostatMongoExtensions
     /// The event-based signals need the client to be created with <see cref="AddHomeostatSignals"/> on its settings.
     /// </summary>
     /// <param name="builder">The Homeostat builder.</param>
-    /// <param name="name">Name of the deployment in the signal sources.</param>
+    /// <param name="name">Name of the deployment in the signal sources, <c>mongodb:{name}:...</c>. Defaults to <c>"default"</c>.</param>
     /// <param name="configure">Thresholds, interval, replication lag and client.</param>
     /// <example>
     /// <code>
@@ -41,7 +41,7 @@ public static class HomeostatMongoExtensions
     /// builder.Services.AddHomeostat(h => h.AddMongoSignals("archive", o => o.Ping.DegradedAbove = 100));
     /// </code>
     /// </example>
-    public static HomeostatBuilder AddMongoSignals(this HomeostatBuilder builder, string name = "mongodb", Action<MongoSignalOptions>? configure = null)
+    public static HomeostatBuilder AddMongoSignals(this HomeostatBuilder builder, string name = "default", Action<MongoSignalOptions>? configure = null)
     {
         ArgumentNullException.ThrowIfNull(builder);
         ArgumentException.ThrowIfNullOrWhiteSpace(name);
@@ -97,8 +97,8 @@ public static class HomeostatMongoExtensions
     /// </remarks>
     /// <param name="settings">The client settings.</param>
     /// <param name="services">The application's services.</param>
-    /// <param name="name">Name used in <c>AddMongoSignals</c>.</param>
-    public static MongoClientSettings AddHomeostatSignals(this MongoClientSettings settings, IServiceProvider services, string name = "mongodb")
+    /// <param name="name">Name used in <c>AddMongoSignals</c>. Defaults to <c>"default"</c>.</param>
+    public static MongoClientSettings AddHomeostatSignals(this MongoClientSettings settings, IServiceProvider services, string name = "default")
     {
         ArgumentNullException.ThrowIfNull(settings);
         ArgumentNullException.ThrowIfNull(services);

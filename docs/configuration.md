@@ -110,7 +110,7 @@ At startup, by contrast, an invalid configuration fails fast with the path of th
 
 ```text
 Configuration 'Homeostat:Conditions:weather-feed-down:Plan:Steps:0': unknown action 'renew-feed'.
-Known actions: switch:<name>, reload-configuration, renew-feed-client, switch-to-backup. Map action classes with MapAction<T>(name).
+Known actions: switch:<name>, reload-configuration, renew-feed-client, switch-to-backup, switch-to-primary. Map action classes with MapAction<T>(name).
 ```
 
 ```json
@@ -119,7 +119,7 @@ Known actions: switch:<name>, reload-configuration, renew-feed-client, switch-to
   "RisingFasterThan": { "PerMinute": 0.005, "Window": "15m" }
 },
 "latency-anomaly": {
-  "Source": "http-server-latency",
+  "Source": "http-server:latency",
   "AnomalouslyHigh": { "ZScore": 4, "Window": "1h", "MinimumHistory": 60 },
   "SustainedFor": "2m"
 }
@@ -127,15 +127,27 @@ Known actions: switch:<name>, reload-configuration, renew-feed-client, switch-to
 
 ## Global options
 
-`HomeostatOptions` is a plain options class, so it binds like any other:
+`HomeostatOptions` is a plain options class, so it binds like any other. Keep the options in `Homeostat:Options`,
+next to `Homeostat:Conditions`: it is also where `homeostat replay` and `HomeostatReplay` look for them.
 
 ```csharp
 builder.Services.Configure<HomeostatOptions>(builder.Configuration.GetSection("Homeostat:Options"));
 ```
 
 ```json
-"Options": { "DryRun": false, "MaxActionsPerWindow": 5, "DefaultCooldown": "00:10:00" }
+{
+  "Homeostat": {
+    "Options": { "DryRun": false, "MaxActionsPerWindow": 5, "DefaultCooldown": "00:10:00" },
+    "Conditions": { }
+  }
+}
 ```
 
 (`Configure` with a section comes from `Microsoft.Extensions.Configuration.Binder`, included in ASP.NET Core
 applications. Option values use the `hh:mm:ss` format.)
+
+The `dotnet new` templates read a single key instead, `Homeostat:DryRun`, with
+`.Configure(o => o.DryRun = builder.Configuration.GetValue("Homeostat:DryRun", true))`. When you start binding the
+whole `Homeostat:Options` section, move the setting to `Homeostat:Options:DryRun` and remove that line, so there is
+one place that decides dry-run. Both kinds of configuration run in registration order: the one registered last
+wins.

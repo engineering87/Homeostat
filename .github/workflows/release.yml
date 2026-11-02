@@ -49,7 +49,7 @@ jobs:
         run: |
           version="${GITHUB_REF_NAME#v}"
           if ! [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
-            echo "Tag $GITHUB_REF_NAME is not a semantic version (expected v1.2.3 or v1.2.3-preview.1)." >&2
+            echo "Tag $GITHUB_REF_NAME is not a semantic version (expected v1.2.3 or v1.2.3-rc.1)." >&2
             exit 1
           fi
           echo "VERSION=$version" >> "$GITHUB_ENV"

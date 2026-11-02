@@ -28,7 +28,7 @@ Both use the same flat event, `HomeostatEvent`:
 | `StepCompleted` | A step finished (not in dry-run) |
 | `RunCompleted` | A run ended, whatever the outcome |
 | `ApprovalRequested` | A step waits for approval |
-| `ApprovalResolved` | The request was approved, rejected, expired or withdrawn (`outcome` = `Approved`, `Rejected`, `Expired`, `Cancelled`) |
+| `ApprovalResolved` | The request was approved, rejected, expired or withdrawn (`outcome` = `Approved`, `Rejected`, `Expired`, `Canceled`) |
 
 ## Audit log
 
@@ -53,7 +53,7 @@ Every event becomes one line of JSON; null fields are omitted:
 
 ## Webhook notifier
 
-Part of `Homeostat.Http`:
+Part of `Homeostat.Http` (`dotnet add package Homeostat.Http --prerelease`), like the incident and chat notifiers below:
 
 ```csharp
 .AddWebhookNotifications(o =>
@@ -108,7 +108,8 @@ builder.Services.AddHttpClient(WebhookOptions.HttpClientName)
 ```
 
 The URL is validated at startup: it must be absolute. One webhook is supported per application; for
-several destinations, point it to a small relay or write your own observer.
+several destinations, point it to a small relay or write your own observer. Put secrets in `Headers` (an
+`Authorization` header, as above), never in the URL: URLs end up in proxy and access logs. See [Security](security.md).
 
 ## Incidents: PagerDuty and Opsgenie
 
@@ -135,8 +136,8 @@ accounts set `Url` to `https://events.eu.pagerduty.com/v2/enqueue`.
 
 Opsgenie: priority `P2` when healing gave up, `P3` otherwise, tags `homeostat` plus yours. The default endpoint is
 **Jira Service Management Operations** (`OpsgenieOptions.JiraServiceManagement`), where Atlassian is moving Opsgenie;
-standalone Opsgenie (`OpsgenieOptions.Opsgenie`, `OpsgenieOptions.OpsgenieEu`) is supported by Atlassian until
-5 April 2027. The key is sent as `Authorization: GenieKey {key}`; change `AuthorizationScheme` if your integration
+standalone Opsgenie (`OpsgenieOptions.Opsgenie`, `OpsgenieOptions.OpsgenieEu`) is still supported, but Atlassian has
+announced its end of support (April 2027): prefer Jira Service Management for new setups. The key is sent as `Authorization: GenieKey {key}`; change `AuthorizationScheme` if your integration
 expects another scheme.
 
 ## Chat: Slack and Microsoft Teams
@@ -181,7 +182,7 @@ approval requested and resolved); change `Events` to send fewer.
 
 - Events are queued in memory (up to 1000; the oldest are dropped if the sink falls behind).
 - When the application stops, sinks keep accepting events until every other hosted service has stopped, so
-  runs cancelled by the shutdown are recorded too; then they deliver what is queued within the host's shutdown
+  runs canceled by the shutdown are recorded too; then they deliver what is queued within the host's shutdown
   timeout. During shutdown the webhook makes a single short attempt per event, to leave time to the others.
 - Nothing is persisted across restarts: for a durable trail, ship the audit file with your log pipeline.
 

@@ -71,7 +71,7 @@ fails closed and does not start runs.
 | `DefaultActionTimeout` | 30 s | Each action (`.ActionTimeout(...)` per plan) |
 | `DefaultVerificationTimeout` | 1 min | Each verification (`.VerificationTimeout(...)` per plan) |
 
-Cancellation is cooperative: when the timeout expires, the action's `CancellationToken` is cancelled,
+Cancellation is cooperative: when the timeout expires, the action's `CancellationToken` is canceled,
 and the step fails if the action then throws. An action that ignores the token keeps the run waiting,
 and if it eventually completes normally it is treated as successful.
 
@@ -109,7 +109,12 @@ Recurring periods during which Homeostat behaves as paused, without anybody havi
 
 Windows may cross midnight and follow daylight saving time in their time zone (UTC by default). During a window,
 `IsPaused` is `true` and `PauseReason` names the window; the status endpoint and the Homeostat health check show
-it too.
+it too. Without `On(...)` the window opens every day; the duration must be more than zero and less than a week.
+`MaintenanceWindow.IsActive(now)` tells whether the window is open at a given time, and `Name`, `Start`, `Duration`,
+`Days` and `TimeZone` describe it.
+
+For a one-off deployment, prefer a timed pause (`PauseUntil`, or `POST /homeostat/pause?for=...`): it ends by itself
+even if the deployment script never reaches its last step. See [Pause during deployments](recipes.md#pause-during-deployments).
 
 ## Approval
 
@@ -134,6 +139,9 @@ inconclusive verification, an error otherwise):
 - an approval request expires.
 
 These logs are good candidates for alerts (see [Observability](observability.md)).
+
+For a checklist of the settings to review before production (endpoint policies, signatures, platform permissions),
+see [Security](security.md).
 
 ## All options
 

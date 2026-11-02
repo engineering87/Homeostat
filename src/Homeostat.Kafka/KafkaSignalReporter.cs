@@ -22,7 +22,7 @@ public sealed class KafkaSignalReporter
     private readonly TimeProvider _timeProvider;
     private int _lastBrokerSeverity;
 
-    /// <summary>Creates a reporter.</summary>
+    /// <summary>Creates a reporter that turns Kafka client statistics, passed to <see cref="Report"/>, into signals. Use it when the client already has a statistics handler of yours.</summary>
     /// <param name="publisher">Where signals go (from the services).</param>
     /// <param name="name">Client name, used in the default source <c>kafka:{name}</c>.</param>
     /// <param name="options">Thresholds and source.</param>

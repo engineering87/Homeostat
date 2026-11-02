@@ -14,7 +14,7 @@ namespace Homeostat.Notifications;
 /// <remarks>
 /// The queue holds up to 1000 events; when the sink falls behind, the oldest are dropped. When the application
 /// stops, the sink keeps accepting events until every other hosted service has stopped (so the outcome of runs
-/// cancelled by the shutdown is recorded), then delivers what is queued within the host's shutdown timeout.
+/// canceled by the shutdown is recorded), then delivers what is queued within the host's shutdown timeout.
 /// </remarks>
 public abstract class HomeostatEventSink : BackgroundService, IHealingObserver, IHostedLifecycleService
 {
@@ -54,7 +54,7 @@ public abstract class HomeostatEventSink : BackgroundService, IHealingObserver, 
 
     /// <summary>Delivers one event. Exceptions are logged and the event is dropped.</summary>
     /// <param name="homeostatEvent">The event.</param>
-    /// <param name="cancellationToken">Cancelled when the host's shutdown timeout expires.</param>
+    /// <param name="cancellationToken">Canceled when the host's shutdown timeout expires.</param>
     protected abstract Task WriteAsync(HomeostatEvent homeostatEvent, CancellationToken cancellationToken);
 
     /// <inheritdoc />

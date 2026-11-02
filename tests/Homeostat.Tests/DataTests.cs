@@ -14,7 +14,7 @@ public class DataTests
     public async Task Database_probe_opens_runs_the_query_and_disposes_the_connection()
     {
         var log = new List<string>();
-        var (services, detector) = ProbeTests.Build(h => h.AddDatabaseProbe("catalog-db", _ => new FakeConnection(log), p =>
+        var (services, detector) = ProbeTests.Build(h => h.AddDatabaseProbe("reports-db", _ => new FakeConnection(log), p =>
         {
             p.CommandText = "SELECT 1 FROM DUAL";
             p.Timeout = TimeSpan.FromSeconds(3);
@@ -35,7 +35,7 @@ public class DataTests
     public async Task Database_probe_reports_transient_failures()
     {
         var log = new List<string>();
-        var (services, detector) = ProbeTests.Build(h => h.AddDatabaseProbe("catalog-db", _ => new FakeConnection(log) { FailOpen = true }));
+        var (services, detector) = ProbeTests.Build(h => h.AddDatabaseProbe("reports-db", _ => new FakeConnection(log) { FailOpen = true }));
         await using var _ = services;
         var signals = new CollectingPublisher();
 
@@ -51,7 +51,7 @@ public class DataTests
     public async Task Database_probe_without_a_query_only_opens_the_connection()
     {
         var log = new List<string>();
-        var (services, detector) = ProbeTests.Build(h => h.AddDatabaseProbe("catalog-db", _ => new FakeConnection(log), p => p.CommandText = null));
+        var (services, detector) = ProbeTests.Build(h => h.AddDatabaseProbe("reports-db", _ => new FakeConnection(log), p => p.CommandText = null));
         await using var _ = services;
 
         await detector.DetectAsync(new CollectingPublisher(), CancellationToken.None);
@@ -65,12 +65,12 @@ public class DataTests
         FakeConnection.Cleared = 0;
         AsyncPoolConnection.Cleared = 0;
         await using var host = await HomeostatTestHost.StartAsync(h => h
-            .AddCondition("db-stale", c => c.ForSource("catalog-db").Heal(p => p
+            .AddCondition("db-stale", c => c.ForSource("reports-db").Heal(p => p
                 .ClearConnectionPools<FakeConnection>()
                 .ClearConnectionPools<AsyncPoolConnection>()
                 .VerifyWith<NotHealedOnce>())));
 
-        host.Publish("catalog-db", SignalSeverity.Unhealthy);
+        host.Publish("reports-db", SignalSeverity.Unhealthy);
         var run = await host.WaitForRunAsync("db-stale");
 
         Assert.Equal(HealingRunOutcome.Healed, run.Outcome);

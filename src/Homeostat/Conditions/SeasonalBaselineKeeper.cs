@@ -79,7 +79,7 @@ internal sealed class SeasonalBaselineKeeper : IHostedService, IAsyncDisposable
             }
         }
 
-        // The final save gets its own short deadline: the shutdown token may already be cancelled.
+        // The final save gets its own short deadline: the shutdown token may already be canceled.
         using var limit = new CancellationTokenSource(StoreWait);
         await SyncAsync(limit.Token).ConfigureAwait(false);
     }

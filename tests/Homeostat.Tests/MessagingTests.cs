@@ -205,7 +205,7 @@ public class MessagingTests
         services.AddHomeostat(h => h.AddSqlClientPoolSignal(maxPoolSize: 200));
 
         var registration = Assert.Single(services.Select(d => d.ImplementationInstance).OfType<EventCounterRegistration>());
-        Assert.Equal(("Microsoft.Data.SqlClient.EventSource", "number-of-active-connections", "sqlclient-pool"),
+        Assert.Equal(("Microsoft.Data.SqlClient.EventSource", "number-of-active-connections", "sqlclient:pool"),
             (registration.EventSource, registration.Counter, registration.Source));
         Assert.Equal(0.5, registration.Options.Transform!(100));
         Assert.Equal(SignalSeverity.Unhealthy, registration.Options.SeverityOf(0.96));

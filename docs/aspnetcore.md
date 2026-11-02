@@ -4,7 +4,7 @@
 endpoints to pause, resume, answer approval requests and flip switches.
 
 ```bash
-dotnet add package Homeostat.AspNetCore
+dotnet add package Homeostat.AspNetCore --prerelease
 ```
 
 ```csharp
@@ -56,7 +56,7 @@ endpoint conventions apply (rate limiting, OpenAPI tags, CORS).
       "stepName": "SwitchToBackupProviderAction",
       "requestedAt": "2030-01-01T10:00:52+00:00",
       "expiresAt": "2030-01-01T10:15:52+00:00",
-      "triggeringSignal": { "source": "weather-feed", "severity": 2, "timestamp": "2030-01-01T10:00:30+00:00", "message": "Weather feed is not responding.", "tags": null }
+      "triggeringSignal": { "source": "weather-feed", "severity": "Unhealthy", "timestamp": "2030-01-01T10:00:30+00:00", "value": null, "message": "Weather feed is not responding.", "tags": null }
     }
   ],
   "recentRuns": [
@@ -71,6 +71,10 @@ endpoint conventions apply (rate limiting, OpenAPI tags, CORS).
   ]
 }
 ```
+
+Enums are written as names (`"Unhealthy"`, `"Healed"`), never as numbers, and property names in camel case. The
+shape of this document, and of the history and coverage documents below, is part of the public contract: fields
+are added in minor versions, never renamed or removed before a major version (see [Versioning](versioning.md)).
 
 If the store cannot be read, the endpoint still answers: `budget` is `null`, `recentRuns` is empty and
 `storeError` says why. Times are those of the application's `TimeProvider`. Conditions and switches are those of the instance that
@@ -119,6 +123,7 @@ Security notes:
   refused with `403`. A page on another site cannot add those headers, so users signed in with cookies, Windows
   authentication, Basic or client certificates are protected. The dashboard and the `homeostat` CLI send the header;
   with curl, add `-H "X-Requested-With: curl"`.
+- The [security guide](security.md) collects these rules with the other hardening steps.
 
 ## Dashboard
 

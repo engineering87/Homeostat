@@ -95,7 +95,7 @@ internal sealed class MemoryCacheSignalDetector : ISignalDetector
 
         var tags = new Dictionary<string, string>(StringComparer.Ordinal)
         {
-            ["origin"] = "memory-cache",
+            ["origin"] = "cache:memory",
             ["hits"] = hits.ToString(CultureInfo.InvariantCulture),
             ["misses"] = misses.ToString(CultureInfo.InvariantCulture),
             ["entries"] = statistics.CurrentEntryCount.ToString(CultureInfo.InvariantCulture),

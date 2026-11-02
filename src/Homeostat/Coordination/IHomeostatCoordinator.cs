@@ -21,7 +21,7 @@ public interface IHomeostatCoordinator
 public interface IHomeostatLease : IAsyncDisposable
 {
     /// <summary>
-    /// Cancelled when the lease may have been lost (it could not be renewed in time), so another holder may already
+    /// Canceled when the lease may have been lost (it could not be renewed in time), so another holder may already
     /// have it. Homeostat stops the run before its next step when this happens.
     /// </summary>
     CancellationToken Lost { get; }

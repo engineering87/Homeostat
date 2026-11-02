@@ -27,7 +27,7 @@ public sealed class KafkaPauseGate : IPausableConsumer
     private readonly HashSet<TopicPartition> _paused = [];
     private volatile bool _pauseRequested;
 
-    /// <summary>Creates a gate.</summary>
+    /// <summary>Creates a gate with no pause requested. To share it through the services, use <c>AddKafkaPauseGate</c>.</summary>
     /// <param name="name">Consumer name, used by <c>PauseConsumer(name)</c>.</param>
     public KafkaPauseGate(string name)
     {
@@ -41,7 +41,7 @@ public sealed class KafkaPauseGate : IPausableConsumer
     /// <summary>Whether a pause is requested (it takes effect at the next <see cref="Apply{TKey, TValue}"/>).</summary>
     public bool IsPauseRequested => _pauseRequested;
 
-    /// <summary>Requests a pause.</summary>
+    /// <summary>Requests a pause: the next <see cref="Apply{TKey, TValue}"/> pauses the assigned partitions. Returns at once.</summary>
     /// <param name="cancellationToken">Not used.</param>
     public Task PauseAsync(CancellationToken cancellationToken)
     {
@@ -49,7 +49,7 @@ public sealed class KafkaPauseGate : IPausableConsumer
         return Task.CompletedTask;
     }
 
-    /// <summary>Requests a resume.</summary>
+    /// <summary>Requests a resume: the next <see cref="Apply{TKey, TValue}"/> resumes the partitions it paused. Returns at once.</summary>
     /// <param name="cancellationToken">Not used.</param>
     public Task ResumeAsync(CancellationToken cancellationToken)
     {

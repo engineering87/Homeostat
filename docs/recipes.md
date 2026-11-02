@@ -13,6 +13,7 @@ Ready-to-adapt solutions for common scenarios. Methods marked *(your code)* stan
 - [Pause during deployments](#pause-during-deployments)
 - [Observe before acting](#observe-before-acting)
 - [Unit test an action](#unit-test-an-action)
+- [More complete examples](#more-complete-examples)
 
 ---
 
@@ -185,16 +186,36 @@ See [Custom verifiers](healing-plans.md#custom-verifiers) for a complete example
 **Problem:** during a rolling deployment, health checks fail on purpose and you do not want
 Homeostat to react.
 
+From the pipeline, pause **with a time limit**, so healing comes back even if the pipeline fails before its last
+step. With the [`homeostat` tool](tools.md), which calls the control endpoints of [Homeostat.AspNetCore](aspnetcore.md):
+
+```bash
+homeostat pause --for 20m            # resumes by itself after 20 minutes
+./deploy.sh
+homeostat resume                     # resume early when the deployment went well
+```
+
+From code, for example a deployment hook inside the application, use `PauseUntil` rather than `Pause()`, for the
+same reason:
+
 ```csharp
-public sealed class DeploymentWindow(IHomeostatControl control)
+public sealed class DeploymentHook(IHomeostatControl control, TimeProvider time)
 {
-    public void Begin() => control.Pause();    // call from your deployment hook
+    public void Begin() => control.PauseUntil(time.GetUtcNow().AddMinutes(20));   // never left paused by mistake
     public void End()   => control.Resume();
 }
 ```
 
-Or call the control endpoints of [Homeostat.AspNetCore](aspnetcore.md) from your pipeline, most simply with the
-[`homeostat` tool](tools.md): `homeostat pause --for 20m` before the deployment, `homeostat resume` after it.
+When deployments happen at fixed times, declare a [maintenance window](guardrails.md#maintenance-windows) instead:
+nobody has to remember to pause.
+
+```csharp
+.AddMaintenanceWindow("weekly-release", w => w
+    .Daily(new TimeOnly(22, 0), TimeSpan.FromHours(1))
+    .On(DayOfWeek.Wednesday))
+```
+
+Keep plain `Pause()` for incidents that people handle by hand, and resume when they are done.
 
 ---
 
@@ -234,3 +255,12 @@ public async Task Renew_unsticks_the_client()
 ```
 
 To test the whole loop (condition, plan, verification) use `HomeostatTestHost`: see [Testing](testing.md).
+
+---
+
+## More complete examples
+
+- [`samples/Homeostat.Samples.WeatherFeed`](../samples/Homeostat.Samples.WeatherFeed): an ASP.NET Core application
+  with a health check, an escalating plan, approvals and the endpoints.
+- [`samples/Homeostat.Samples.Worker`](../samples/Homeostat.Samples.Worker): a worker service without ASP.NET Core,
+  with a restartable background service.

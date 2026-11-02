@@ -11,7 +11,7 @@ view (databases, Redis, message brokers, caches, external monitoring) and which 
 | Redis client health | `Homeostat.Redis` | `AddRedisSignals` |
 | MongoDB: ping, primary availability, pool exhaustion, replication lag | `Homeostat.MongoDB` | `AddMongoSignals`, `AddHomeostatSignals` on the client settings |
 | Message brokers: backlog, dead letters, lag; pause and resume consumers | `Homeostat.ServiceBus`, `Homeostat.RabbitMQ`, `Homeostat.Kafka`, `Homeostat.Artemis` | [Message brokers](messaging.md) |
-| Libraries that report through event counters (SqlClient pool) | `Homeostat`, `Homeostat.Data` | `AddEventCounterSignal`, `AddSqlClientPoolSignal` |
+| Connection pool exhaustion (SqlClient, Npgsql) and other event counters | `Homeostat`, `Homeostat.Data` | `AddSqlClientPoolSignal`, `AddNpgsqlPoolSignal`, `AddEventCounterSignal` |
 | .NET Aspire dashboard: link and Pause/Resume commands | `Homeostat.Aspire.Hosting` | `WithHomeostat` |
 | Cache hit ratio; purge and compaction | `Homeostat.Caching` | `AddMemoryCacheSignals`, `PurgeHybridCacheTags`, `RemoveDistributedCacheKeys`, `CompactMemoryCache` |
 | Alerts from Prometheus Alertmanager, Grafana, Azure Monitor | `Homeostat.AspNetCore` | `MapHomeostatAlerts` |
@@ -20,7 +20,9 @@ view (databases, Redis, message brokers, caches, external monitoring) and which 
 
 All snippets assume `builder.Services.AddHomeostat(h => ...)`. Conditions select signals with `ForSource`; see
 [Conditions](conditions.md). By default a condition triggers on `Unhealthy` signals: add
-`.WhenSeverityAtLeast(SignalSeverity.Degraded)` to act on `Degraded` ones too.
+`.WhenSeverityAtLeast(SignalSeverity.Degraded)` to act on `Degraded` ones too. Each package is installed with
+`dotnet add package <Package> --prerelease` while the current version is a release candidate; the
+[package index](packages.md) lists them all.
 
 ## Probes: any number as a signal
 
@@ -51,6 +53,7 @@ h.AddLatencyProbe("search-index",
 | `DegradedAbove`, `UnhealthyAbove` | none | Upper thresholds |
 | `DegradedBelow`, `UnhealthyBelow` | none | Lower thresholds (free disk space, consumers online) |
 | `FailureSeverity` | `Unhealthy` | Severity when the probe throws or times out |
+| `Origin` | `probe`, `latency-probe` | Value of the `origin` tag; integration packages set their own (`database-probe`, `redis-ping`, ...) |
 
 How probes behave:
 
@@ -76,14 +79,18 @@ h.AddCondition("backlog-growing", c => c
 
 ## Databases
 
+```bash
+dotnet add package Homeostat.Data --prerelease
+```
+
 `Homeostat.Data` works with any ADO.NET provider: SqlClient, Npgsql, MySqlConnector, Microsoft.Data.Sqlite,
-Oracle.
+Oracle. It references no provider: you bring the one you already use.
 
 ### Connectivity and latency
 
 ```csharp
-h.AddDatabaseProbe("catalog-db",
-    _ => new SqlConnection(builder.Configuration.GetConnectionString("Catalog")),
+h.AddDatabaseProbe("reports-db",
+    _ => new SqlConnection(builder.Configuration.GetConnectionString("Reports")),
     p =>
     {
         p.DegradedAbove = 200;        // ms to open (from the pool) and run SELECT 1
@@ -92,20 +99,49 @@ h.AddDatabaseProbe("catalog-db",
     });
 ```
 
-The factory must return a **new** connection: the probe opens and disposes it. With Entity Framework Core, build a
-connection from the context's connection string, or probe the context itself:
+The factory must return a **new**, closed connection: the probe opens and disposes it. Never return a connection
+owned by something else, such as the one of an Entity Framework Core `DbContext`.
+
+| Setting | Default | Meaning |
+|---|---|---|
+| `CommandText` | `SELECT 1` | Query run after opening; `null` only opens the connection |
+| Other settings | as for [probes](#probes-any-number-as-a-signal) | `Interval`, `Timeout` (also the command timeout), thresholds in milliseconds, `FailureSeverity`, `Origin` (`database-probe`) |
+
+### Entity Framework Core
+
+No extra package is needed: probe the database of a `DbContext` with `AddDatabaseProbe`, using a new connection of
+the same provider and connection string as the context. The factory runs in the probe's own scope, so a scoped
+`DbContext` is fine:
 
 ```csharp
-// A new connection with the same connection string as the DbContext.
-h.AddDatabaseProbe("catalog-db",
-    sp => new SqlConnection(sp.GetRequiredService<CatalogDbContext>().Database.GetConnectionString()));
+using System.Data.Common;
+using Microsoft.EntityFrameworkCore;
 
-// Or ask EF Core (the probe gets its own scope, so a scoped DbContext is fine).
-h.AddLatencyProbe("catalog-db", async (sp, ct) =>
+h.AddDatabaseProbe("reports-db", sp =>
 {
-    if (!await sp.GetRequiredService<CatalogDbContext>().Database.CanConnectAsync(ct))
+    var database = sp.GetRequiredService<ReportsDbContext>().Database;
+    var connection = DbProviderFactories.GetFactory(database.GetDbConnection())!.CreateConnection()!;   // same provider
+    connection.ConnectionString = database.GetConnectionString();                                        // same database
+    return connection;                                                                                   // new and closed: the probe opens and disposes it
+}, p => p.DegradedAbove = 200);
+```
+
+- `GetDbConnection()` is only used to find the provider: the probe never opens or disposes the context's own
+  connection, which EF Core manages.
+- Configure the context with a connection string (`UseSqlServer(connectionString)`, `UseNpgsql(connectionString)`),
+  so `GetConnectionString()` returns it with its credentials. With Npgsql and an `NpgsqlDataSource`, return
+  `sp.GetRequiredService<NpgsqlDataSource>().CreateConnection()` instead.
+- `ClearConnectionPools<SqlConnection>()` (or the connection type of your provider) works for EF Core contexts too:
+  they use the provider's pool.
+
+To ask EF Core itself whether it can connect (for example with a custom execution strategy), use a latency probe:
+
+```csharp
+h.AddLatencyProbe("reports-db", async (sp, ct) =>
+{
+    if (!await sp.GetRequiredService<ReportsDbContext>().Database.CanConnectAsync(ct))
     {
-        throw new InvalidOperationException("The catalog database is not reachable.");
+        throw new InvalidOperationException("The reports database is not reachable.");
     }
 });
 ```
@@ -118,13 +154,13 @@ throttling, failover in progress, a dropped connection. Do **not** filter transi
 time instead, and use the tag in logs, the audit trail and notifications:
 
 ```csharp
-h.AddCondition("catalog-db-down", c => c
-    .ForSource("catalog-db")
+h.AddCondition("reports-db-down", c => c
+    .ForSource("reports-db")
     .SustainedFor(TimeSpan.FromMinutes(1))          // a blip clears before this
-    .Heal(p => p.TurnOnSwitch("catalog-read-only", turnOffWhenCleared: true)));
+    .Heal(p => p.TurnOnSwitch("reports-read-only", turnOffWhenCleared: true)));
 
-h.AddCondition("catalog-db-flapping", c => c
-    .ForSource("catalog-db")
+h.AddCondition("reports-db-flapping", c => c
+    .ForSource("reports-db")
     .Occurrences(5, within: TimeSpan.FromMinutes(10))   // intermittent failures
     .Heal(p => p.ClearConnectionPools<SqlConnection>()));
 ```
@@ -136,12 +172,12 @@ request pays a timeout before the pool notices. `ClearConnectionPools<TConnectio
 (through its static `ClearAllPools`), and new connections are opened on demand:
 
 ```csharp
-h.AddCondition("catalog-db-stale", c => c
-    .ForSource("catalog-db")
+h.AddCondition("reports-db-stale", c => c
+    .ForSource("reports-db")
     .SustainedFor(TimeSpan.FromSeconds(30))
     .Heal(p => p
         .ClearConnectionPools<SqlConnection>()                       // cheap, try first
-        .Then("switch to read replica", sp => sp.GetRequiredService<CatalogRouting>().UseReplica())
+        .Then("switch to read replica", sp => sp.GetRequiredService<ReportsRouting>().UseReplica())
         .RequireApproval()));
 ```
 
@@ -151,9 +187,9 @@ A pool that stays full makes every request wait for a connection, then fail with
 itself is in trouble. `Microsoft.Data.SqlClient` reports its pool through **event counters**, not metrics:
 
 ```csharp
-h.AddSqlClientPoolSignal(maxPoolSize: 100)        // sqlclient-pool: connections in use / Max Pool Size
+h.AddSqlClientPoolSignal(maxPoolSize: 100)        // sqlclient:pool: connections in use / Max Pool Size
  .AddCondition("sql-pool-full", c => c
-     .ForSource("sqlclient-pool")
+     .ForSource("sqlclient:pool")
      .WhenSeverityAtLeast(SignalSeverity.Degraded)
      .SustainedFor(TimeSpan.FromMinutes(1))
      .Heal(p => p.PauseConsumer("ingest")));         // shed load: stop taking work that needs the database
@@ -165,19 +201,34 @@ turn on a degraded mode), and look for the cause: slow queries holding connectio
 sizes. Any other event counter becomes a signal with `AddEventCounterSignal(eventSource, counter, o => ...)`, with a
 `Transform` and thresholds; only the counters are enabled, not the library's tracing events.
 
-Providers that publish pool metrics can be watched with [metric signals](detectors.md#metrics). Npgsql, for
-example, exposes the pending connection requests on its `Npgsql` meter (check the instrument names of your provider
-version):
+Npgsql publishes its pool through **metrics** (Npgsql 10 or later). `AddNpgsqlPoolSignal` reads the connections in
+use (`db.client.connection.count` with state `used`, meter `Npgsql`) as a share of the pool size; it needs no
+reference to Npgsql:
 
 ```csharp
-h.AddMetricSignal("db.client.connections.pending_requests", m => m
-    .FromMeter("Npgsql")
-    .Source("catalog-db-pool")
-    .Statistic(MetricStatistic.Last)
-    .UnhealthyAbove(20));
+h.AddNpgsqlPoolSignal(maxPoolSize: 50, dataSourceName: "reports")   // npgsql:pool; Degraded ≥ 0.8, Unhealthy ≥ 0.95
+ .AddCondition("reports-pool-full", c => c
+     .ForSource("npgsql:pool")
+     .WhenSeverityAtLeast(SignalSeverity.Degraded)
+     .SustainedFor(TimeSpan.FromMinutes(1))
+     .Heal(p => p.PauseConsumer("ingest")));
 ```
 
+| Parameter | Default | Meaning |
+|---|---|---|
+| `maxPoolSize` | 100 | `Maximum Pool Size` of the connection string |
+| `dataSourceName` | all pools | Name of the data source (`NpgsqlDataSourceBuilder.Name`, by default the connection string without the password); `null` adds up every Npgsql pool of the process: then pass the sum of their sizes |
+| `source` | `npgsql:pool` | Signal source |
+| `degradedAbove`, `unhealthyAbove` | 0.8, 0.95 | Thresholds on the share in use |
+
+Providers that publish other pool metrics can be watched with [metric signals](detectors.md#metrics), using
+`Scale(1.0 / poolSize)` to turn a count into a share.
+
 ## MongoDB
+
+```bash
+dotnet add package Homeostat.MongoDB --prerelease
+```
 
 `Homeostat.MongoDB` watches a deployment through the driver (MongoDB.Driver 3): a ping, and the driver's own events,
 which know at once when the primary is lost or the connection pool runs dry.
@@ -205,7 +256,7 @@ builder.Services.AddHomeostat(h => h
 
 | Signal | Value | Unhealthy when |
 |---|---|---|
-| `mongodb:{name}:ping` | round trip of `ping`, ms | the ping fails or times out (thresholds with `o.Ping`) |
+| `mongodb:{name}:ping` (`{name}` is `default` unless given) | round trip of `ping`, ms | the ping fails or times out (thresholds with `o.Ping`) |
 | `mongodb:{name}:primary` | servers connected | no writable server (primary, mongos, standalone) is connected; published at once when it changes, then every `Interval` |
 | `mongodb:{name}:pool` | connection checkouts that timed out in the `Interval` (30 seconds by default) | more than `PoolTimeoutsUnhealthyAbove` (0: any) |
 | `mongodb:{name}:replication-lag` | seconds between the freshest data member and the furthest secondary or recovering member | above `o.Lag` thresholds (opt-in) |
@@ -215,14 +266,30 @@ builder.Services.AddHomeostat(h => h
   probes are published. Nothing is published before the driver has heard from a server, so the start-up of the
   application is not reported as a lost primary.
 - Register the client as a **singleton**, as MongoDB recommends. Give each deployment its own name: two clients of
-  different deployments under one name would mix their states (the worst one wins).
+  different deployments under one name would mix their states (the worst one wins). The probes use the `IMongoClient`
+  registered in the services; with several clients, select one with `o.Client = sp => ...` (for example a keyed
+  service).
 - Replication lag: a single-node replica set reports 0; during an election the lag is measured against the freshest
   member; members that fell behind (`RECOVERING`) count, since that is when the lag matters. Leave out delayed or hidden
   members, which lag on purpose, with `o.LagExcludedMembers.Add("db-3:27017")`.
 - The driver fails over by itself: the useful healing is to **degrade** while there is no primary (pause consumers,
   serve reads from secondaries or a cache) and to shed load when the pool is exhausted.
 
+| `MongoSignalOptions` | Default | Meaning |
+|---|---|---|
+| `Client` | the registered `IMongoClient` | Returns the client the probes use |
+| `Interval` | 30 seconds | How often the probes run and the event-based signals are published |
+| `Ping` | no thresholds | Thresholds of the ping round trip, in milliseconds |
+| `PoolTimeoutsUnhealthyAbove` | 0 | Checkout timeouts per interval above which `pool` is Unhealthy |
+| `ReplicationLag` | `false` | Publishes `replication-lag` (needs `replSetGetStatus`, for example the `clusterMonitor` role) |
+| `Lag` | no thresholds | Thresholds of the replication lag, in seconds |
+| `LagExcludedMembers` | empty | Members (`host:port`) left out of the lag, such as delayed or hidden ones |
+
 ## Redis
+
+```bash
+dotnet add package Homeostat.Redis --prerelease
+```
 
 `AddRedisSignals` watches the `IConnectionMultiplexer` registered in the container (the one used by `UseRedis`, or
 your caching one): a periodic `PING`, whose round trip in milliseconds is the value, plus an immediate signal when
@@ -247,6 +314,12 @@ StackExchange.Redis reconnects by itself, so Homeostat does not tear the multipl
 (`UseRedis(connectionString)` sets it for you). Connection events are subscribed the first time the probe reaches the
 client, so they work even when Redis was down at startup.
 
+`RedisSignalOptions` has the [probe settings](#probes-any-number-as-a-signal) (thresholds in milliseconds of `PING`
+round trip, `Interval`, `Timeout`, `FailureSeverity`, `Origin`, by default `redis-ping`) and
+`PublishConnectionEvents` (default `true`): set it to `false` to rely on the periodic ping alone. The default source
+is `redis`. The Redis store and coordinator (`UseRedis`) are described in
+[Persistence and clusters](persistence-and-clusters.md).
+
 ## Message brokers
 
 Azure Service Bus, RabbitMQ, Kafka and ActiveMQ Artemis have their own packages: backlog, consumers, dead letters and lag as signals,
@@ -260,6 +333,10 @@ h.AddProbe("imports-backlog", async (sp, ct) => await sp.GetRequiredService<Impo
 
 ## Caches
 
+```bash
+dotnet add package Homeostat.Caching --prerelease
+```
+
 ### Hit ratio
 
 ```csharp
@@ -267,9 +344,17 @@ builder.Services.AddMemoryCache(o => o.TrackStatistics = true);   // required
 h.AddMemoryCacheSignals("lookup-cache", o =>
 {
     o.DegradedBelow = 0.6;      // hit ratio over the last detection interval
-    o.MinimumLookups = 20;      // no signal for quieter intervals
+    o.UnhealthyBelow = 0.2;
+    o.MinimumLookups = 20;      // no signal for quieter intervals (the default)
 });
 ```
+
+| Parameter or option | Default | Meaning |
+|---|---|---|
+| `source` | `cache:memory` | Signal source |
+| `cache` | the registered `IMemoryCache` | Selects another cache: `cache: sp => sp.GetRequiredService<LookupCache>().Inner` |
+| `DegradedBelow`, `UnhealthyBelow` | none | Hit ratio (0 to 1) below which the signal is `Degraded` or `Unhealthy`; without thresholds every interval is `Healthy` and the value carries the ratio |
+| `MinimumLookups` | 20 | Hits plus misses needed in an interval to publish the ratio |
 
 The first interval is a baseline. A falling hit ratio often explains a latency spike on the dependency behind the
 cache, so it is a good `SuppressedBy` cause or a composite input.
@@ -297,6 +382,10 @@ h.AddMemoryPressureDetector()
 
 Your monitoring already detects many problems; `MapHomeostatAlerts` lets Homeostat **heal** them. Each alert name
 becomes a source, `alert:{name}`: the prefix keeps alerts from impersonating the signals of detectors and probes.
+
+```bash
+dotnet add package Homeostat.AspNetCore --prerelease
+```
 
 ```csharp
 app.MapHomeostatAlerts(configure: o => o.Token = builder.Configuration["Homeostat:AlertToken"]);
@@ -337,6 +426,22 @@ action group webhooks cannot set headers (the URL may then appear in access logs
 webhooks when you can). With a token and no policy, the endpoints allow anonymous access past a global fallback
 policy. Bodies are limited to 1 MiB, 500 alerts per request and 1000 tracked sources.
 
+| `AlertIngestionOptions` | Default | Meaning |
+|---|---|---|
+| `Token` | none | Shared secret sent as `Authorization: Bearer {token}` (or `?token=` for Azure Monitor); at least 16 characters, no white space |
+| `SourceLabel` | `alertname` | Label whose value becomes the source (Alertmanager, Grafana); alerts without it are skipped |
+| `SourcePrefix` | `alert:` | Prefix of every source |
+| `SeverityLabel` | `severity` | Label read for the severity (Alertmanager, Grafana) |
+| `UnhealthySeverities` | `critical`, `error`, `page`, `high`, `major`, `disaster`, `fatal` | Label values (case-insensitive) mapped to `Unhealthy`; add or remove values to match your rules |
+| `DefaultSeverity` | `Degraded` | Severity of other firing alerts and of alerts without the label; `Degraded` or `Unhealthy` |
+| `GrafanaValueKey` | none | Grafana query whose value becomes the signal value, for example `"B"` |
+| `FiringTimeToLive` | 12 hours | Time after which a firing series that is not notified again counts as resolved |
+| `MaxTrackedSources` | 1000 | Distinct sources tracked; alerts for further sources are skipped |
+| `MaxRequestBodySize` | 1 MiB | Largest body accepted, in bytes (at least 1024) |
+| `MaxAlertsPerRequest` | 500 | Alerts accepted per request; the rest are skipped |
+
+Each endpoint answers with the number of alerts `accepted` and `skipped` (`AlertIngestionResult`).
+
 ```yaml
 # Alertmanager
 receivers:
@@ -372,26 +477,34 @@ instead of adding `IsOn` checks.
 
 ### Microsoft.FeatureManagement
 
+```bash
+dotnet add package Homeostat.FeatureManagement --prerelease
+```
+
 ```csharp
 builder.Services.AddFeatureManagement().AddHomeostatSwitchFilter();
 ```
 
 ```json
 "FeatureManagement": {
-  "Recommendations": {
-    "EnabledFor": [ { "Name": "Homeostat.Switch", "Parameters": { "Switch": "shed-recommendations" } } ]
+  "ForecastMaps": {
+    "EnabledFor": [ { "Name": "Homeostat.Switch", "Parameters": { "Switch": "shed-forecast-maps" } } ]
   },
   "DegradedBanner": {
-    "EnabledFor": [ { "Name": "Homeostat.Switch", "Parameters": { "Switch": "shed-recommendations", "EnabledWhen": "On" } } ]
+    "EnabledFor": [ { "Name": "Homeostat.Switch", "Parameters": { "Switch": "shed-forecast-maps", "EnabledWhen": "On" } } ]
   }
 }
 ```
 
-`Recommendations` is enabled while the switch is off; a plan with
-`.TurnOnSwitch("shed-recommendations", turnOffWhenCleared: true)` turns it off and brings it back when the
+`ForecastMaps` is enabled while the switch is off; a plan with
+`.TurnOnSwitch("shed-forecast-maps", turnOffWhenCleared: true)` turns it off and brings it back when the
 condition clears. Use `"RequirementType": "All"` to combine the filter with a rollout filter.
 
 ### OpenFeature
+
+```bash
+dotnet add package Homeostat.OpenFeature --prerelease
+```
 
 ```csharp
 await Api.Instance.SetProviderAsync(new HomeostatSwitchProvider(app.Services.GetRequiredService<IHomeostatSwitches>()));
@@ -407,6 +520,10 @@ in a multi-provider next to your main flag service. Without a prefix every key i
 events.
 
 ## Polly: circuit isolation and game days
+
+```bash
+dotnet add package Homeostat.Polly --prerelease
+```
 
 ### Isolate a circuit from a plan
 
@@ -456,6 +573,10 @@ Homeostat works in Aspire applications as in any ASP.NET Core application: its t
 Aspire dashboard through OpenTelemetry (add the `Homeostat` source and meter, see [Observability](observability.md)),
 and the Redis store can use the connection registered by the Aspire Redis integration.
 
+```bash
+dotnet add package Homeostat.Aspire.Hosting --prerelease    # in the app host project
+```
+
 In the app host, `Homeostat.Aspire.Hosting` puts Homeostat on the resource in the Aspire dashboard: a **Homeostat**
 link to the application's dashboard, and **Pause healing** and **Resume healing** commands, handy while you debug a
 failure that Homeostat would otherwise heal.
@@ -474,3 +595,12 @@ The application maps the endpoints as usual (`MapHomeostatStatus`, `MapHomeostat
 The commands call the control endpoints with `X-Requested-With`; when they require a policy, give the commands a token
 with `o.BearerToken = (services, ct) => ...`, or map them with `allowAnonymous: true` in the development environment
 only. Commands are enabled when the resource is running and healthy.
+
+| `HomeostatResourceOptions` | Default | Meaning |
+|---|---|---|
+| `Prefix` | `/homeostat` | Route prefix of the Homeostat endpoints in the application |
+| `DashboardLink` | `true` | Adds the **Homeostat** link to the dashboard (`{prefix}/dashboard`, needs `MapHomeostatDashboard`) |
+| `Commands` | `true` | Adds the **Pause healing** and **Resume healing** commands (need `MapHomeostatControl`) |
+| `PauseFor` | 30 minutes | How long **Pause healing** pauses; `null` pauses until resumed |
+| `EndpointName` | the HTTPS endpoint, else the HTTP one | Endpoint of the resource to link and call |
+| `BearerToken` | none | Returns a bearer token for the control endpoints when their policy needs one |

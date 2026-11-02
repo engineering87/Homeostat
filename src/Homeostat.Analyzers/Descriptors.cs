@@ -24,7 +24,7 @@ internal static class Descriptors
     public static readonly DiagnosticDescriptor CancellationIgnored = new(
         "HOMEO003",
         "Healing action ignores its cancellation token",
-        "The action awaits work without using '{0}', so the action timeout and application shutdown cannot stop it; pass the token on, or name it '_' if the work cannot be cancelled",
+        "The action awaits work without using '{0}', so the action timeout and application shutdown cannot stop it; pass the token on, or name it '_' if the work cannot be canceled",
         Category, DiagnosticSeverity.Warning, isEnabledByDefault: true,
         helpLinkUri: HelpBase + "homeo003");
 

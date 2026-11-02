@@ -15,7 +15,7 @@ namespace Homeostat
     public Homeostat.HomeostatBuilder Configure(System.Action<Homeostat.HomeostatOptions> configure)
     public Homeostat.HomeostatBuilder UseCoordinator(System.Func<System.IServiceProvider, Homeostat.Coordination.IHomeostatCoordinator> factory)
     public Homeostat.HomeostatBuilder UseCoordinator<TCoordinator>() where TCoordinator : class, Homeostat.Coordination.IHomeostatCoordinator
-    public Homeostat.HomeostatBuilder UseFileStore(string path)
+    public Homeostat.HomeostatBuilder UseFileStore(string path, System.Action<Homeostat.Persistence.FileStoreOptions>? configure = null)
     public Homeostat.HomeostatBuilder UseStore(System.Func<System.IServiceProvider, Homeostat.Persistence.IHomeostatStore> factory)
     public Homeostat.HomeostatBuilder UseStore<TStore>() where TStore : class, Homeostat.Persistence.IHomeostatStore
   public static class HomeostatConfigurationExtensions
@@ -23,6 +23,7 @@ namespace Homeostat
     public static Homeostat.HomeostatBuilder MapAction<TAction>(this Homeostat.HomeostatBuilder builder, string name) where TAction : class, Homeostat.Healing.IHealingAction
   public static class HomeostatConsumerExtensions
     public static Homeostat.HomeostatBuilder AddPausableConsumer(this Homeostat.HomeostatBuilder builder, System.Func<System.IServiceProvider, Homeostat.Consumers.IPausableConsumer> consumer)
+    public static Homeostat.HomeostatBuilder AddPauseGate(this Homeostat.HomeostatBuilder builder, string name)
     public static Homeostat.Healing.HealingPlanBuilder PauseConsumer(this Homeostat.Healing.HealingPlanBuilder plan, string consumer, bool resumeWhenCleared = true)
   public static class HomeostatDetectorServiceCollectionExtensions
     public static Microsoft.Extensions.DependencyInjection.IServiceCollection AddSignalDetector<TDetector>(this Microsoft.Extensions.DependencyInjection.IServiceCollection services) where TDetector : class, Homeostat.Detectors.ISignalDetector
@@ -31,8 +32,8 @@ namespace Homeostat
   public static class HomeostatMetricExtensions
     public static Homeostat.HomeostatBuilder AddEventCounterSignal(this Homeostat.HomeostatBuilder builder, string eventSource, string counter, System.Action<Homeostat.Metrics.EventCounterSignalOptions>? configure = null)
     public static Homeostat.HomeostatBuilder AddMetricSignal(this Homeostat.HomeostatBuilder builder, string instrument, System.Action<Homeostat.Metrics.MetricSignalBuilder> configure)
-    public static Homeostat.HomeostatBuilder AddServerErrorRateSignal(this Homeostat.HomeostatBuilder builder, string source = "http-server-errors", double degradedAbove = 0.01, double unhealthyAbove = 0.05, int minimumRequests = 20)
-    public static Homeostat.HomeostatBuilder AddServerLatencySignal(this Homeostat.HomeostatBuilder builder, string source = "http-server-latency", double degradedAboveSeconds = 0.5, double unhealthyAboveSeconds = 2, int minimumRequests = 20)
+    public static Homeostat.HomeostatBuilder AddServerErrorRateSignal(this Homeostat.HomeostatBuilder builder, string source = "http-server:errors", double degradedAbove = 0.01, double unhealthyAbove = 0.05, int minimumRequests = 20)
+    public static Homeostat.HomeostatBuilder AddServerLatencySignal(this Homeostat.HomeostatBuilder builder, string source = "http-server:latency", double degradedAboveSeconds = 0.5, double unhealthyAboveSeconds = 2, int minimumRequests = 20)
   public sealed class HomeostatOptions
     public HomeostatOptions()
     public System.TimeSpan ActionBudgetWindow { get; set; }
@@ -280,7 +281,7 @@ namespace Homeostat.Healing
     Approved = 1
     Rejected = 2
     Expired = 3
-    Cancelled = 4
+    Canceled = 4
   public sealed class ConditionClearedVerifier : Homeostat.Healing.IHealingVerifier
     public ConditionClearedVerifier(System.TimeProvider timeProvider, Microsoft.Extensions.Options.IOptions<Homeostat.HomeostatOptions> options)
     public System.Threading.Tasks.Task<Homeostat.Healing.VerificationOutcome> VerifyAsync(Homeostat.Healing.HealingContext context, System.TimeSpan timeout, System.Threading.CancellationToken cancellationToken)
@@ -326,7 +327,7 @@ namespace Homeostat.Healing
     NotApproved = 7
     Suppressed = 8
     ConditionCleared = 9
-    Cancelled = 10
+    Canceled = 10
     Failed = 11
   public sealed record HealingRunResult
     public HealingRunResult(string ConditionName, Homeostat.Healing.HealingRunOutcome Outcome, System.Collections.Generic.IReadOnlyList<Homeostat.Healing.HealingStepResult> Steps, System.DateTimeOffset StartedAt, System.DateTimeOffset CompletedAt)
@@ -416,6 +417,7 @@ namespace Homeostat.Metrics
     public Homeostat.Metrics.MetricSignalBuilder FromMeter(string meterName)
     public Homeostat.Metrics.MetricSignalBuilder MinimumCount(int count)
     public Homeostat.Metrics.MetricSignalBuilder RatioOf(System.Func<double, System.Collections.Generic.IReadOnlyDictionary<string, object?>, bool> match)
+    public Homeostat.Metrics.MetricSignalBuilder Scale(double factor)
     public Homeostat.Metrics.MetricSignalBuilder Source(string source)
     public Homeostat.Metrics.MetricSignalBuilder Statistic(Homeostat.Metrics.MetricStatistic statistic)
     public Homeostat.Metrics.MetricSignalBuilder UnhealthyAbove(double value)
@@ -507,7 +509,11 @@ namespace Homeostat.Persistence
     Reset = 2
   public sealed class FileHomeostatStore : Homeostat.Persistence.InMemoryHomeostatStore
     public FileHomeostatStore(string path)
+    public FileHomeostatStore(string path, Homeostat.Persistence.FileStoreOptions options)
     public string Path { get; }
+  public sealed class FileStoreOptions
+    public FileStoreOptions()
+    public System.TimeSpan PlanStateRetention { get; set; }
   public sealed record HealingRunRecord
     public HealingRunRecord()
     public System.DateTimeOffset CompletedAt { get; init; }

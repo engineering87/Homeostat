@@ -22,7 +22,7 @@ public sealed class PauseGate : IPausableConsumer
     private readonly object _gate = new();
     private TaskCompletionSource? _resumed;
 
-    /// <summary>Creates a gate, open.</summary>
+    /// <summary>Creates an open gate. To share it through the services, use <c>AddPauseGate</c>.</summary>
     /// <param name="name">Consumer name, used by <c>PauseConsumer(name)</c>.</param>
     public PauseGate(string name)
     {
@@ -45,7 +45,7 @@ public sealed class PauseGate : IPausableConsumer
         }
     }
 
-    /// <summary>Completes at once when the gate is open, otherwise when it opens (or the token is cancelled).</summary>
+    /// <summary>Completes at once when the gate is open, otherwise when it opens (or the token is canceled).</summary>
     /// <param name="cancellationToken">Cancellation token, for example the worker's stopping token.</param>
     public Task WaitWhilePausedAsync(CancellationToken cancellationToken = default)
     {

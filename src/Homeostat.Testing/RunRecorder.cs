@@ -42,7 +42,7 @@ internal sealed class RunRecorder : IHealingObserver
 
     /// <summary>
     /// Returns the oldest run of the condition not returned yet, or waits for the next one.
-    /// A cancelled wait is withdrawn, so it does not consume a later run.
+    /// A canceled wait is withdrawn, so it does not consume a later run.
     /// </summary>
     public async Task<HealingRunResult> NextAsync(string condition, CancellationToken cancellationToken)
     {

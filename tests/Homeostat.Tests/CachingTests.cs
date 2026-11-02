@@ -58,7 +58,7 @@ public class CachingTests
         Assert.Equal(
             [SignalSeverity.Healthy, SignalSeverity.Degraded, SignalSeverity.Unhealthy],
             signals.Signals.Select(s => s.Severity));
-        Assert.Equal("memory-cache", signals.Signals[0].Tags!["origin"]);
+        Assert.Equal("cache:memory", signals.Signals[0].Tags!["origin"]);
         Assert.Equal("9", signals.Signals[0].Tags!["hits"]);
     }
 

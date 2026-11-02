@@ -4,7 +4,7 @@ Self-healing logic is code, and it deserves tests. The `Homeostat.Testing` packa
 **whole healing scenarios** in milliseconds, with simulated time, and unit test your actions in isolation.
 
 ```bash
-dotnet add package Homeostat.Testing
+dotnet add package Homeostat.Testing --prerelease
 ```
 
 ## Scenario tests with `HomeostatTestHost`
@@ -49,7 +49,7 @@ Assert.Equal(HealingRunOutcome.Healed, run.Outcome);
 
 | Property | Content |
 |---|---|
-| `Outcome` | `Healed`, `NotHealed`, `Inconclusive`, `DryRun`, `BudgetExhausted`, `Paused`, `NotApproved`, `Suppressed`, `ConditionCleared`, `Cancelled`, `Failed` |
+| `Outcome` | `Healed`, `NotHealed`, `Inconclusive`, `DryRun`, `BudgetExhausted`, `Paused`, `NotApproved`, `Suppressed`, `ConditionCleared`, `Canceled`, `Failed` |
 | `Steps` | One `HealingStepResult` per executed step: `Name`, `Succeeded`, `Verification`, `Error` |
 | `StartedAt`, `CompletedAt` | Simulated times |
 
@@ -63,14 +63,17 @@ Assert.Collection(run.Steps,
 
 | Member | Purpose |
 |---|---|
-| `StartAsync(configure, services, options)` | Build and start a host |
-| `Publish(source, severity, message)` | Publish a signal stamped with simulated time |
-| `WaitForRunAsync(condition)` | Wait for the next completed run of a condition; each run is returned once |
-| `WaitForConditionAsync(condition, status)` | Wait until a condition reaches a status |
-| `WaitForApprovalAsync(condition)` | Wait until a step of the condition asks for approval; returns the request |
+| `StartAsync(configure, services, options, cancellationToken)` | Build and start a host; all but `configure` are optional |
+| `Publish(source, severity, message)` | Publish a signal stamped with simulated time; for a value or tags, use `Signals.TryPublish(new Signal(...) { Value = ... })` with `Time.GetUtcNow()` |
+| `WaitForRunAsync(condition, timeout, cancellationToken)` | Wait for the next completed run of a condition; each run is returned once |
+| `WaitForConditionAsync(condition, status, timeout, cancellationToken)` | Wait until a condition reaches a status |
+| `WaitForApprovalAsync(condition, timeout, cancellationToken)` | Wait until a step of the condition asks for approval; returns the request |
 | `CompletedRuns` | All runs completed so far |
 | `Control`, `Switches`, `Approvals`, `Signals`, `Services` | The real Homeostat services |
 | `Time` | The `FakeTimeProvider`, to advance time manually |
+
+`timeout` is real time, and defaults to `DefaultTimeout` of the host options; the waiting methods throw
+`TimeoutException` when it elapses, and `OperationCanceledException` when `cancellationToken` is canceled.
 
 ### Host options
 
@@ -120,6 +123,8 @@ fault.Activate();     // the dependency "goes down"
 fault.Deactivate();   // and comes back
 ```
 
+`fault.IsActive` tells whether the fault is on, for assertions or for fakes that share the switch.
+
 Add the fault handler after `AddHomeostatSignals()`: an outer fault handler would answer before the
 Homeostat handler sees the request.
 
@@ -155,5 +160,14 @@ collects signals, then assert on them. To test a detector end to end, register i
 
 `HomeostatReplay` runs recorded signals (`RecordSignals`) through the conditions and plans you pass in, in dry-run on
 simulated time, and reports what would have happened: a regression test on real traffic for a new threshold or plan.
-See [Learning and foresight](intelligence.md#recording-and-replay).
+
+| Method | Signals from | Conditions from |
+|---|---|---|
+| `RunAsync(signals, configure, cancellationToken)` | A sequence of `RecordedSignal` | Code: `h => h.AddCondition(...)` |
+| `RunAsync(signals, conditions, options, cancellationToken)` | A sequence of `RecordedSignal` | An `IConfiguration` section, with optional `HomeostatOptions` |
+| `RunFilesAsync(paths, configure, cancellationToken)` | Recording files, merged in time order | Code |
+| `RunFilesAsync(paths, conditions, options, cancellationToken)` | Recording files | An `IConfiguration` section |
+
+All return a `ReplayReport` (`From`, `To`, `Signals`, `Events`, `Conditions`, `Runs`, and `ToText()`). See
+[Learning and foresight](intelligence.md#recording-and-replay).
 

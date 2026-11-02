@@ -1,7 +1,7 @@
 namespace Homeostat
   public static class HomeostatMongoExtensions
-    public static MongoDB.Driver.MongoClientSettings AddHomeostatSignals(this MongoDB.Driver.MongoClientSettings settings, System.IServiceProvider services, string name = "mongodb")
-    public static Homeostat.HomeostatBuilder AddMongoSignals(this Homeostat.HomeostatBuilder builder, string name = "mongodb", System.Action<Homeostat.MongoDB.MongoSignalOptions>? configure = null)
+    public static MongoDB.Driver.MongoClientSettings AddHomeostatSignals(this MongoDB.Driver.MongoClientSettings settings, System.IServiceProvider services, string name = "default")
+    public static Homeostat.HomeostatBuilder AddMongoSignals(this Homeostat.HomeostatBuilder builder, string name = "default", System.Action<Homeostat.MongoDB.MongoSignalOptions>? configure = null)
 namespace Homeostat.MongoDB
   public sealed class MongoSignalOptions
     public MongoSignalOptions()

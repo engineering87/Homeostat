@@ -26,6 +26,7 @@ namespace Homeostat.Http
     public string? Source { get; set; }
     public double UnhealthyFailureRatio { get; set; }
     public System.TimeSpan? UnhealthyLatency { get; set; }
+    public static bool IsGrpcFailure(System.Net.Http.HttpResponseMessage response)
   public abstract class IncidentOptions
     protected IncidentOptions()
     public int MaxAttempts { get; set; }

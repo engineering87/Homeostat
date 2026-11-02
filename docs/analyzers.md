@@ -56,9 +56,9 @@ public async Task ExecuteAsync(HealingContext context, CancellationToken cancell
     => await client.RenewAsync(cancellationToken);                             // fixed
 ```
 
-The token is cancelled at the action timeout and when the application stops. An action that awaits work without it
+The token is canceled at the action timeout and when the application stops. An action that awaits work without it
 keeps running after its timeout, holding a concurrency slot and delaying shutdown. If the work really cannot be
-cancelled, name the parameter `_` (or `_cancellationToken`) to say so. The rule applies to `IHealingAction`
+canceled, name the parameter `_` (or `_cancellationToken`) to say so. The rule applies to `IHealingAction`
 implementations and to inline actions with a `(context, cancellationToken)` lambda, when the body awaits something or
 returns a task (`(ctx, ct) => client.RenewAsync()`).
 

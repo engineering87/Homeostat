@@ -186,7 +186,7 @@ public class MetricSignalTests
             duration.Record(0.05, new KeyValuePair<string, object?>("http.response.status_code", i % 10 == 0 ? 503 : 200));
         }
 
-        var signal = Assert.Single(await DetectAsync(detector), s => s.Source == "http-server-errors");
+        var signal = Assert.Single(await DetectAsync(detector), s => s.Source == "http-server:errors");
         Assert.InRange(signal.Value!.Value, 0.09, 0.11);
         Assert.Equal(SignalSeverity.Unhealthy, signal.Severity);
     }

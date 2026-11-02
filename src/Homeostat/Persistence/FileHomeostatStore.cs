@@ -14,11 +14,22 @@ public sealed class FileHomeostatStore : InMemoryHomeostatStore
 
     private readonly string _path;
 
-    /// <summary>Opens the store, loading the file if it exists.</summary>
+    /// <summary>Opens the store, loading the file if it exists, with the default <see cref="FileStoreOptions"/>.</summary>
     /// <param name="path">File path; the directory is created if needed.</param>
     public FileHomeostatStore(string path)
+        : this(path, new FileStoreOptions())
+    {
+    }
+
+    /// <summary>Opens the store, loading the file if it exists.</summary>
+    /// <param name="path">File path; the directory is created if needed.</param>
+    /// <param name="options">Retention settings.</param>
+    /// <exception cref="ArgumentOutOfRangeException"><see cref="FileStoreOptions.PlanStateRetention"/> is not positive.</exception>
+    public FileHomeostatStore(string path, FileStoreOptions options)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
+        ArgumentNullException.ThrowIfNull(options);
+        ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(options.PlanStateRetention, TimeSpan.Zero, nameof(options));
         _path = System.IO.Path.GetFullPath(path);
 
         if (File.Exists(_path))
@@ -38,7 +49,7 @@ public sealed class FileHomeostatStore : InMemoryHomeostatStore
             if (document is not null)
             {
                 // Forget plans that have not run for a long time (renamed conditions, old instance names).
-                var cutoff = DateTimeOffset.UtcNow - Retention;
+                var cutoff = DateTimeOffset.UtcNow - options.PlanStateRetention;
                 var plans = (document.Plans ?? [])
                     .Where(p => p.Value.Held || p.Value.LastRunEndedAt is null || p.Value.LastRunEndedAt >= cutoff)
                     .ToDictionary(p => p.Key, p => p.Value, StringComparer.Ordinal);
@@ -50,9 +61,6 @@ public sealed class FileHomeostatStore : InMemoryHomeostatStore
             }
         }
     }
-
-    /// <summary>Plans that did not run for this long are forgotten when the file is loaded.</summary>
-    internal static TimeSpan Retention { get; } = TimeSpan.FromDays(30);
 
     /// <summary>Full path of the file.</summary>
     public string Path => _path;

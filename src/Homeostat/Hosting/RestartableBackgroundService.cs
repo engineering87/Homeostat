@@ -59,8 +59,8 @@ public abstract class RestartableBackgroundService : BackgroundService
     /// <summary>How many times the service has been restarted.</summary>
     public int Restarts => Volatile.Read(ref _restarts);
 
-    /// <summary>The work loop. Honor <paramref name="stoppingToken"/>: it is cancelled on restart and on shutdown.</summary>
-    /// <param name="stoppingToken">Cancelled when the service is restarted or the application stops.</param>
+    /// <summary>The work loop. Honor <paramref name="stoppingToken"/>: it is canceled on restart and on shutdown.</summary>
+    /// <param name="stoppingToken">Canceled when the service is restarted or the application stops.</param>
     protected abstract Task RunAsync(CancellationToken stoppingToken);
 
     /// <summary>Called when <see cref="RunAsync"/> throws; the service then waits to be restarted.</summary>

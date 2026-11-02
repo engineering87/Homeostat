@@ -32,7 +32,7 @@ public enum HealingRunOutcome
     ConditionCleared = 9,
 
     /// <summary>The application stopped during the run.</summary>
-    Cancelled = 10,
+    Canceled = 10,
 
     /// <summary>An unexpected error interrupted the run.</summary>
     Failed = 11,

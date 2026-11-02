@@ -6,11 +6,26 @@ Homeostat watches signals from your application (health checks, metrics, your ow
 when a problem persists, runs a guarded remediation plan and **verifies** the outcome: healed (stop),
 not healed (escalate to the next step) or inconclusive (stop and leave it to a human).
 
+## Install
+
+```bash
+dotnet add package Homeostat --prerelease
+dotnet add package Homeostat.HealthChecks --prerelease   # health checks as signals, used below
+```
+
+The current version is a release candidate (`1.0.0-rc.1`): `--prerelease` is needed until 1.0.0 is published.
+
 ## Quick look
 
 ```csharp
+using Homeostat;
+using Microsoft.Extensions.Diagnostics.HealthChecks;
+
+var builder = WebApplication.CreateBuilder(args);
+
+builder.Services.AddSingleton<WeatherFeedClient>();                      // your client
 builder.Services.AddHealthChecks()
-    .AddCheck<WeatherFeedHealthCheck>("weather-feed");
+    .AddCheck("weather-feed", () => HealthCheckResult.Healthy());       // your health check: the signal source
 
 builder.Services
     .AddHomeostat(h => h
@@ -18,10 +33,23 @@ builder.Services
             .ForSource("weather-feed")
             .SustainedFor(TimeSpan.FromSeconds(30))
             .Heal(p => p
-                .With<RenewFeedClientAction>()
-                .Then<SwitchToBackupProviderAction>())))
-    .AddHealthCheckSignals();
+                .With("renew-client", sp => sp.GetRequiredService<WeatherFeedClient>().Renew())   // step 1
+                .Then("switch-to-backup", sp => sp.GetRequiredService<WeatherFeedClient>().UseBackup())
+                .RequireApproval())))                                                         // step 2, after a person's yes
+    .AddHealthCheckSignals(period: TimeSpan.FromSeconds(10));                                 // Homeostat.HealthChecks
+
+var app = builder.Build();
+app.Run();
+
+public sealed class WeatherFeedClient
+{
+    public void Renew() { /* recreate the connection */ }
+    public void UseBackup() { /* switch to the secondary provider */ }
+}
 ```
+
+Homeostat starts in **dry-run**: it logs what it would do (`[dry-run] Condition weather-feed-down: step 1/2 would
+execute renew-client.`) and does nothing. When the decisions look right, add `.Configure(o => o.DryRun = false)`.
 
 ## Safe by default
 
@@ -49,10 +77,10 @@ builder.Services
 - `Homeostat`: core engine, runtime detectors, built-in actions, approvals, audit log.
 - `Homeostat.AspNetCore`: status, history, coverage and control endpoints, dashboard with one-click approvals, Slack and Teams approvals; alerts from Alertmanager, Grafana and Azure Monitor as signals.
 - `Homeostat.HealthChecks`: health check results as signals; Homeostat's own health check.
-- `Homeostat.Http`: HTTP client failures and latency as signals; webhook, PagerDuty, Opsgenie, Slack and Microsoft Teams notifiers.
+- `Homeostat.Http`: HTTP and gRPC client failures and latency as signals; webhook, PagerDuty, Opsgenie, Slack and Microsoft Teams notifiers.
 - `Homeostat.Polly`: Polly v8 circuit breaker state as signals; circuit isolation; chaos enabled by switches.
 - `Homeostat.Redis`: shared state and coordination across instances; Redis client health signals.
-- `Homeostat.Data`: database probes for any ADO.NET provider; SqlClient pool exhaustion; connection pool reset.
+- `Homeostat.Data`: database probes for any ADO.NET provider; SqlClient and Npgsql pool exhaustion; connection pool reset.
 - `Homeostat.ServiceBus`, `Homeostat.RabbitMQ`, `Homeostat.Kafka`, `Homeostat.Artemis`: backlog, dead letters, consumers, lag and broker connections as signals; consumers that plans pause and resume.
 - `Homeostat.MongoDB`: ping, primary availability, connection pool exhaustion and replication lag as signals.
 - `Homeostat.Aspire.Hosting`: Homeostat link and Pause/Resume healing commands in the Aspire dashboard.
@@ -62,12 +90,16 @@ builder.Services
 - `Homeostat.Kubernetes` and `Homeostat.Azure`: platform actions (pods, deployments, nodes, App Service, VMs, Front Door), with approval by default.
 - `Homeostat.Cli`: the `homeostat` command-line tool. `Homeostat.Templates`: `dotnet new` templates.
 
-The core package includes Roslyn analyzers (HOMEO001 to HOMEO005).
+The core package includes [build-time analyzers](https://github.com/engineering87/Homeostat/blob/main/docs/analyzers.md)
+that catch mistakes that compile but misbehave at runtime. The [package index](https://github.com/engineering87/Homeostat/blob/main/docs/packages.md)
+lists every package with its install command.
 
 ## Learn more
 
 - [Documentation](https://github.com/engineering87/Homeostat/tree/main/docs)
 - [Getting started in 5 minutes](https://github.com/engineering87/Homeostat/blob/main/docs/getting-started.md)
 - [Source code and samples](https://github.com/engineering87/Homeostat)
+- [Versioning and support](https://github.com/engineering87/Homeostat/blob/main/docs/versioning.md): semantic versioning
+  from 1.0.0; this release candidate changes only if a problem found in it requires it.
 
-Preview release: the API may change before 1.0. MIT licensed.
+MIT licensed.

@@ -80,7 +80,7 @@ public static class HomeostatMetricExtensions
     /// <param name="minimumRequests">Minimum requests per interval.</param>
     public static HomeostatBuilder AddServerErrorRateSignal(
         this HomeostatBuilder builder,
-        string source = "http-server-errors",
+        string source = "http-server:errors",
         double degradedAbove = 0.01,
         double unhealthyAbove = 0.05,
         int minimumRequests = 20)
@@ -103,7 +103,7 @@ public static class HomeostatMetricExtensions
     /// <param name="minimumRequests">Minimum requests per interval.</param>
     public static HomeostatBuilder AddServerLatencySignal(
         this HomeostatBuilder builder,
-        string source = "http-server-latency",
+        string source = "http-server:latency",
         double degradedAboveSeconds = 0.5,
         double unhealthyAboveSeconds = 2,
         int minimumRequests = 20)

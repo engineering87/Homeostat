@@ -29,6 +29,7 @@ public sealed class MetricSignalBuilder
     private double? _degradedBelow;
     private double? _unhealthyBelow;
     private int _minimumCount = 1;
+    private double _scale = 1;
 
     internal MetricSignalBuilder(string instrument) => Instrument = instrument;
 
@@ -124,6 +125,22 @@ public sealed class MetricSignalBuilder
         return this;
     }
 
+    /// <summary>
+    /// Multiplies the statistic before it is compared with the thresholds and published, for example
+    /// <c>Scale(1.0 / maxPoolSize)</c> to turn a count into a share. Defaults to 1.
+    /// </summary>
+    /// <param name="factor">A finite number other than zero.</param>
+    public MetricSignalBuilder Scale(double factor)
+    {
+        if (!double.IsFinite(factor) || factor == 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(factor), "The factor must be a finite number other than zero.");
+        }
+
+        _scale = factor;
+        return this;
+    }
+
     /// <summary>No signal is published for an interval with fewer measurements (default 1).</summary>
     /// <param name="count">Minimum number of measurements.</param>
     public MetricSignalBuilder MinimumCount(int count)
@@ -147,7 +164,7 @@ public sealed class MetricSignalBuilder
 
         return new MetricWatch(
             Instrument, _meter, _source ?? $"metric:{Instrument}", _statistic, _filters.ToArray(), _ratioMatch,
-            _degradedAbove, _unhealthyAbove, _degradedBelow, _unhealthyBelow, _minimumCount);
+            _degradedAbove, _unhealthyAbove, _degradedBelow, _unhealthyBelow, _minimumCount, _scale);
     }
 
     internal static string? Text(object? value) => value switch

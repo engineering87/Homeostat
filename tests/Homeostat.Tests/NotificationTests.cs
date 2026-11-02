@@ -43,7 +43,7 @@ public class NotificationTests
     }
 
     [Fact]
-    public async Task Audit_log_records_runs_cancelled_by_the_shutdown()
+    public async Task Audit_log_records_runs_canceled_by_the_shutdown()
     {
         var directory = Path.Combine(Path.GetTempPath(), "homeostat-tests", Guid.NewGuid().ToString("N"));
         var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -68,7 +68,7 @@ public class NotificationTests
             .Select(l => JsonDocument.Parse(l).RootElement)
             .Select(e => (Kind: e.GetProperty("kind").GetString(), Outcome: e.TryGetProperty("outcome", out var o) ? o.GetString() : null))
             .ToList();
-        Assert.Contains(("RunCompleted", "Cancelled"), kinds);
+        Assert.Contains(("RunCompleted", "Canceled"), kinds);
 
         Directory.Delete(directory, recursive: true);
     }

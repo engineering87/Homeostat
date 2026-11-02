@@ -33,8 +33,10 @@ internal sealed class MetricWatch
         double? unhealthyAbove,
         double? degradedBelow,
         double? unhealthyBelow,
-        int minimumCount)
+        int minimumCount,
+        double scale = 1)
     {
+        Scale = scale;
         Instrument = instrument;
         Meter = meter;
         Source = source;
@@ -49,6 +51,9 @@ internal sealed class MetricWatch
     }
 
     public string Instrument { get; }
+
+    /// <summary>Factor applied to the statistic before it is compared and published.</summary>
+    public double Scale { get; }
 
     public string? Meter { get; }
 
@@ -209,7 +214,7 @@ internal sealed class MetricWatch
             },
             MetricStatistic.Ratio => (double)matches / count,
             _ => sum / count,
-        };
+        } * Scale;
 
         var severity = SignalSeverity.Healthy;
         if (UnhealthyAbove is { } ua && value >= ua || UnhealthyBelow is { } ub && value <= ub)

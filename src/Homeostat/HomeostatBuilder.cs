@@ -17,7 +17,10 @@ public sealed class HomeostatBuilder
     /// <summary>The service collection, to register the services your actions need.</summary>
     public IServiceCollection Services { get; }
 
-    /// <summary>Changes global settings and guardrails.</summary>
+    /// <summary>Changes global settings and guardrails, such as dry-run, the action budget and default timeouts.</summary>
+    /// <param name="configure">Changes the <see cref="HomeostatOptions"/>; can be called several times.</param>
+    /// <returns>This builder.</returns>
+    /// <example><code>h.Configure(o => { o.DryRun = false; o.MaxActionsPerWindow = 5; })</code></example>
     public HomeostatBuilder Configure(Action<HomeostatOptions> configure)
     {
         ArgumentNullException.ThrowIfNull(configure);
@@ -25,7 +28,24 @@ public sealed class HomeostatBuilder
         return this;
     }
 
-    /// <summary>Registers a condition and, optionally, the plan that heals it.</summary>
+    /// <summary>
+    /// Registers a condition (when a problem is real: which signals, which rule, for how long) and, optionally, the
+    /// healing plan that runs while it is active.
+    /// </summary>
+    /// <param name="name">Unique name of the condition, used in logs, metrics, endpoints and the store.</param>
+    /// <param name="configure">Selects the signals, sets the rules and, with <see cref="ConditionBuilder.Heal"/>, the plan.</param>
+    /// <returns>This builder.</returns>
+    /// <exception cref="InvalidOperationException">The condition has neither a source nor a clear rule, or its rules conflict.</exception>
+    /// <example>
+    /// <code>
+    /// h.AddCondition("reports-db-slow", c => c
+    ///     .ForSource("reports-db")
+    ///     .WhenValueAbove(0.5)                         // seconds, from a probe
+    ///     .SustainedFor(TimeSpan.FromMinutes(2))
+    ///     .ClearAfter(TimeSpan.FromMinutes(1))
+    ///     .Heal(p => p.ClearConnectionPools&lt;NpgsqlConnection&gt;()));
+    /// </code>
+    /// </example>
     public HomeostatBuilder AddCondition(string name, Action<ConditionBuilder> configure)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(name);
@@ -62,10 +82,15 @@ public sealed class HomeostatBuilder
     /// restarts. For several instances, use a shared store such as <c>Homeostat.Redis</c>.
     /// </summary>
     /// <param name="path">File path, for example <c>"data/homeostat.json"</c>.</param>
-    public HomeostatBuilder UseFileStore(string path)
+    /// <param name="configure">Changes the retention settings; optional.</param>
+    /// <example><code>h.UseFileStore("data/homeostat.json", o => o.PlanStateRetention = TimeSpan.FromDays(7))</code></example>
+    public HomeostatBuilder UseFileStore(string path, Action<FileStoreOptions>? configure = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
-        return UseStore(_ => new FileHomeostatStore(path));
+        var options = new FileStoreOptions();
+        configure?.Invoke(options);
+        ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(options.PlanStateRetention, TimeSpan.Zero, nameof(configure));
+        return UseStore(_ => new FileHomeostatStore(path, options));
     }
 
     /// <summary>Uses a custom <see cref="IHomeostatCoordinator"/> (registered as a singleton).</summary>
@@ -148,7 +173,12 @@ public sealed class HomeostatBuilder
     /// </example>
     public HomeostatBuilder AddBackgroundServiceSignals() => AddDetector<BackgroundServiceSignalDetector>();
 
-    /// <summary>Registers a custom <see cref="ISignalDetector"/>.</summary>
+    /// <summary>
+    /// Registers a custom <see cref="ISignalDetector"/> (a singleton): the engine calls it at every
+    /// <see cref="HomeostatOptions.DetectionInterval"/> and it publishes the signals it measures.
+    /// </summary>
+    /// <typeparam name="TDetector">The detector type, created from the services.</typeparam>
+    /// <returns>This builder.</returns>
     public HomeostatBuilder AddDetector<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] TDetector>()
         where TDetector : class, ISignalDetector
     {
@@ -163,6 +193,8 @@ public sealed class HomeostatBuilder
     /// from the container (registered as a singleton unless you registered it yourself), so you can also inject it
     /// elsewhere. Registering the same type twice has no effect.
     /// </summary>
+    /// <typeparam name="TObserver">The observer type.</typeparam>
+    /// <returns>This builder.</returns>
     public HomeostatBuilder AddObserver<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] TObserver>()
         where TObserver : class, IHealingObserver
     {

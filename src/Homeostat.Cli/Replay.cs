@@ -73,7 +73,7 @@ internal static class Replay
         }
         catch (OperationCanceledException)
         {
-            throw new CliException("Replay cancelled.");
+            throw new CliException("Replay canceled.");
         }
     }
 

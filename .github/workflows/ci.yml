@@ -72,3 +72,36 @@ jobs:
 
       - name: Run
         run: ./aot/Homeostat.AotSmoke
+
+  templates:
+    # Installs the templates from the packages of this commit, creates a project from each one and builds it against
+    # the packages of this commit: a template that no longer compiles fails here, not on a user's machine.
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Pack
+        run: dotnet pack Homeostat.slnx --configuration Release --output "$RUNNER_TEMP/packages"
+
+      - name: Create and build each template
+        run: |
+          version=$(ls "$RUNNER_TEMP/packages"/Homeostat.Templates.*.nupkg | sed -E 's/.*Homeostat\.Templates\.(.*)\.nupkg/\1/')
+          dotnet new install "$RUNNER_TEMP/packages/Homeostat.Templates.$version.nupkg"
+          for template in homeostat-webapi homeostat-worker; do
+            project="$RUNNER_TEMP/$template"
+            dotnet new "$template" --name SmokeApp --output "$project"
+            cat > "$project/nuget.config" <<XML
+          <configuration>
+            <packageSources>
+              <clear />
+              <add key="local" value="$RUNNER_TEMP/packages" />
+              <add key="nuget.org" value="https://api.nuget.org/v3/index.json" />
+            </packageSources>
+          </configuration>
+          XML
+            dotnet build "$project" --configuration Release -warnaserror -p:NuGetAudit=false
+          done

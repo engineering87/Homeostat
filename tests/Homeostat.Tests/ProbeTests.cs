@@ -71,14 +71,14 @@ public class ProbeTests
     public async Task Failing_probe_publishes_the_failure_severity_without_a_value()
     {
         var (services, detector) = Build(h => h
-            .AddProbe("ledger-db", (_, _) => throw new FakeDbException(transient: true))
+            .AddProbe("archive-db", (_, _) => throw new FakeDbException(transient: true))
             .AddProbe("not-a-number", (_, _) => Task.FromResult(double.NaN), p => p.FailureSeverity = SignalSeverity.Degraded));
         await using var _ = services;
         var signals = new CollectingPublisher();
 
         await detector.DetectAsync(signals, CancellationToken.None);
 
-        var failed = signals.Signals.Single(s => s.Source == "ledger-db");
+        var failed = signals.Signals.Single(s => s.Source == "archive-db");
         Assert.Equal(SignalSeverity.Unhealthy, failed.Severity);
         Assert.Null(failed.Value);
         Assert.Equal("failed", failed.Tags!["outcome"]);
@@ -226,12 +226,12 @@ public class ProbeTests
     }
 
     [Fact]
-    public async Task Abandoned_call_is_cancelled_and_cancellation_errors_count_as_timeouts()
+    public async Task Abandoned_call_is_canceled_and_cancellation_errors_count_as_timeouts()
     {
-        var cancelled = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var (services, detector) = Build(h => h.AddProbe("ledger-db", async (_, ct) =>
+        var canceled = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var (services, detector) = Build(h => h.AddProbe("archive-db", async (_, ct) =>
         {
-            ct.Register(() => cancelled.TrySetResult());
+            ct.Register(() => canceled.TrySetResult());
             try
             {
                 await Task.Delay(Timeout.Infinite, ct);
@@ -249,14 +249,14 @@ public class ProbeTests
 
         await detector.DetectAsync(signals, CancellationToken.None);
 
-        await cancelled.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        await canceled.Task.WaitAsync(TimeSpan.FromSeconds(5));
         Assert.Equal("timeout", signals.Signals.Single().Tags!["outcome"]);
     }
 
     [Fact]
     public async Task Database_failure_messages_do_not_carry_provider_details()
     {
-        var (services, detector) = Build(h => h.AddProbe("ledger-db", (_, _) => throw new FakeDbException(transient: false)));
+        var (services, detector) = Build(h => h.AddProbe("archive-db", (_, _) => throw new FakeDbException(transient: false)));
         await using var _ = services;
         var signals = new CollectingPublisher();
 

@@ -70,7 +70,7 @@ serves every user, purging a cache that is expensive to rebuild. Mark them, and 
    **held**: it does not run again, not even after the cooldown, until the condition clears. A person has taken
    over. **Expired**: the run stops with `NotApproved`; after the cooldown, a new triggering signal starts the
    plan again from the first step.
-5. **Condition cleared while waiting**: the request is withdrawn (`ApprovalStatus.Cancelled`) and the run ends
+5. **Condition cleared while waiting**: the request is withdrawn (`ApprovalStatus.Canceled`) and the run ends
    with `ConditionCleared`. Requests are also withdrawn when the application stops.
 
 Things to know:
@@ -184,7 +184,9 @@ public sealed class FeedProbeVerifier(WeatherFeedClient client) : IHealingVerifi
 The verifier applies to every step of the plan and is resolved from the same scope as the action.
 Homeostat does not enforce `VerificationTimeout` on custom verifiers: it is passed as `timeout`, and the
 verifier must honor it, as the example does. If a verifier throws, the error is logged, the step is reported
-with verification `Inconclusive` and the exception in `Error`, and the run stops without escalating.
+with verification `Inconclusive` and the exception in `Error`, and the run stops without escalating. A verifier that
+returns a value outside `VerificationOutcome` (for example `default(VerificationOutcome)`) is treated the same way:
+the value is logged as an error and the step counts as `Inconclusive`.
 Verifiers are easy to unit test with `HealingContextFactory` from [Homeostat.Testing](testing.md).
 
 ## Cooldown backoff
@@ -237,7 +239,7 @@ by the cluster. It needs a distributed coordinator and store, such as `Homeostat
 | `NotApproved` | A step requiring approval was rejected or expired |
 | `Suppressed` | A cause listed in `SuppressedBy` became active during the run |
 | `ConditionCleared` | The condition cleared before the next step started |
-| `Cancelled` | The application stopped during the run |
+| `Canceled` | The application stopped during the run |
 | `Failed` | An unexpected error interrupted the run |
 
 ## Plan settings
@@ -250,4 +252,6 @@ by the cluster. It needs a distributed coordinator and store, such as `Homeostat
 | `RequireApproval(t?)` | `DefaultApprovalTimeout` = 15 min | The previous step waits for a person's approval |
 | `UndoWith<T>()`, `UndoWith(name, action)` | none | Compensates the previous step when it does not heal |
 | `CooldownBackoff(multiplier, max)` | no backoff | Grows the cooldown after runs that do not heal |
+| `VerifyWith<T>()` | `ConditionClearedVerifier` | [Verifier](#custom-verifiers) used after every step of the plan |
+| `Adaptive(minimumAttempts)` | declared order; `minimumAttempts` = 5 | Orders steps by measured success before each run ([Adaptive plans](intelligence.md#adaptive-plans)) |
 | `OncePerCluster()` | every instance | One instance at a time, shared cooldown |

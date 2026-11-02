@@ -25,7 +25,7 @@ public sealed record RestartLimits(TimeSpan MinimumUptime, int MaxRestarts, Time
 
 /// <summary>
 /// The checks every action that restarts the application performs first. A restart ends the healing run (the run is
-/// recorded as cancelled by the shutdown), and a new process starts with a fresh view: without these limits a plan
+/// recorded as canceled by the shutdown), and a new process starts with a fresh view: without these limits a plan
 /// could restart the application in a loop.
 /// </summary>
 public static class RestartGuard
@@ -38,7 +38,7 @@ public static class RestartGuard
     /// </summary>
     /// <param name="context">The healing context of the restarting step.</param>
     /// <param name="limits">The limits to enforce.</param>
-    /// <param name="cancellationToken">Cancelled at the action timeout.</param>
+    /// <param name="cancellationToken">Canceled at the action timeout.</param>
     /// <exception cref="InvalidOperationException">The restart is not allowed now.</exception>
     public static async Task EnsureAllowedAsync(HealingContext context, RestartLimits limits, CancellationToken cancellationToken)
     {

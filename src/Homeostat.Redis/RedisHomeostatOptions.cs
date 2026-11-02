@@ -5,7 +5,7 @@ public sealed class RedisHomeostatOptions
 {
     /// <summary>
     /// Prefix of every key. Instances that share the prefix share cooldowns, budget, history and leases; use one
-    /// prefix per application (and environment).
+    /// prefix per application (and environment). Defaults to <c>"homeostat:"</c>.
     /// </summary>
     public string KeyPrefix { get; set; } = "homeostat:";
 
@@ -14,7 +14,7 @@ public sealed class RedisHomeostatOptions
     /// </summary>
     public bool ShareBudget { get; set; } = true;
 
-    /// <summary>How long plan state is kept after its last change; refreshed at every run.</summary>
+    /// <summary>How long plan state is kept after its last change; refreshed at every run. Defaults to 7 days.</summary>
     public TimeSpan PlanStateRetention { get; set; } = TimeSpan.FromDays(7);
 
     /// <summary>

@@ -14,12 +14,12 @@ public sealed class KubernetesOptions
     /// <summary>API server address. Defaults to <c>https://{KUBERNETES_SERVICE_HOST}:{KUBERNETES_SERVICE_PORT}</c>.</summary>
     public Uri? ApiServer { get; set; }
 
-    /// <summary>File with the bearer token; read again every minute, as projected tokens rotate.</summary>
+    /// <summary>File with the bearer token; read again every minute, as projected tokens rotate. Defaults to the service account token mounted in the pod.</summary>
     public string TokenPath { get; set; } = ServiceAccountDirectory + "/token";
 
     /// <summary>
     /// CA certificate (PEM) that signs the API server certificate. The connection is trusted only through this CA or the
-    /// system trust store; certificate validation is never disabled.
+    /// system trust store; certificate validation is never disabled. Defaults to the service account CA mounted in the pod.
     /// </summary>
     public string CertificateAuthorityPath { get; set; } = ServiceAccountDirectory + "/ca.crt";
 

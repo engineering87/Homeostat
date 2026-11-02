@@ -8,16 +8,21 @@ and needs to be recreated.
 let Homeostat act.
 
 > Prefer to run something first? The complete code is in
-> [`samples/Homeostat.Samples.WeatherFeed`](../samples/Homeostat.Samples.WeatherFeed). Or start a new project with
-> everything set up: `dotnet new install Homeostat.Templates`, then `dotnet new homeostat-webapi` or
+> [`samples/Homeostat.Samples.WeatherFeed`](../samples/Homeostat.Samples.WeatherFeed); for a worker service without
+> ASP.NET Core, see [`samples/Homeostat.Samples.Worker`](../samples/Homeostat.Samples.Worker). Or start a new project
+> with everything set up: `dotnet new install Homeostat.Templates`, then `dotnet new homeostat-webapi` or
 > `dotnet new homeostat-worker` (see [Tools](tools.md)).
 
 ## 1. Install
 
 ```bash
-dotnet add package Homeostat
-dotnet add package Homeostat.HealthChecks
+dotnet add package Homeostat --prerelease
+dotnet add package Homeostat.HealthChecks --prerelease
 ```
+
+`--prerelease` is needed while the current version is a release candidate (`1.0.0-rc.1`); drop it once 1.0.0 is
+published. See [Versioning](versioning.md). The examples below need `using Homeostat;` (and
+`using Homeostat.Healing;` for `IHealingAction`).
 
 ## 2. Have a health check
 
@@ -131,14 +136,22 @@ action fails (throws or times out):
 
 ## 8. See what it is doing (optional)
 
-With the `Homeostat.AspNetCore` package, one line gives you a status page:
+With the `Homeostat.AspNetCore` package (`dotnet add package Homeostat.AspNetCore --prerelease`), one line gives you
+a status page:
 
 ```csharp
+// Who may see Homeostat's state: here, users with the "operations" role.
+builder.Services.AddAuthorization(o => o.AddPolicy("operations", p => p.RequireRole("operations")));
+
+var app = builder.Build();
+app.UseAuthorization();
 app.MapHomeostatStatus("operations");   // GET /homeostat/status: conditions, runs, approvals, budget
 ```
 
-`"operations"` is the name of an authorization policy of your application: the endpoint reveals internal
-details, so Homeostat asks for one (for a local experiment, `MapHomeostatStatus(allowAnonymous: true)`). The control endpoints (pause, resume, approvals) and the
+`"operations"` is the name of an [authorization policy](https://learn.microsoft.com/aspnet/core/security/authorization/policies)
+of your application, defined above; the application also needs authentication (JWT bearer, cookies, ...) so that
+users have roles. The endpoint reveals internal details, so Homeostat asks for a policy (for a local experiment,
+`MapHomeostatStatus(allowAnonymous: true)`). The control endpoints (pause, resume, approvals) and the
 dashboard (`MapHomeostatDashboard`, a page with one-click approvals) are described in
 [ASP.NET Core endpoints](aspnetcore.md); the `homeostat` command-line tool in [Tools](tools.md).
 
@@ -149,4 +162,5 @@ dashboard (`MapHomeostatDashboard`, a page with one-click approvals) are describ
 - [Healing plans](healing-plans.md#human-in-the-loop-requireapproval): let a person approve risky steps.
 - [Notifications and audit](notifications.md): tell the team, keep a record.
 - [Recipes](recipes.md): more scenarios, ready to adapt.
+- [Security](security.md): before turning dry-run off in production.
 - [FAQ & troubleshooting](faq.md): if something did not happen the way you expected.

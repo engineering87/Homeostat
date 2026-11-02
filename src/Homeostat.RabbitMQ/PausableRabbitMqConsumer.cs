@@ -127,8 +127,8 @@ public sealed class PausableRabbitMqConsumer : IPausableConsumer
         }
     }
 
-    /// <summary>The broker cancelled the subscription (queue deleted, node failure): resuming must subscribe again.</summary>
-    private void OnCancelledByBroker(string consumerTag)
+    /// <summary>The broker canceled the subscription (queue deleted, node failure): resuming must subscribe again.</summary>
+    private void OnCanceledByBroker(string consumerTag)
     {
         // Tags are compared by value: the broker's string is never the instance we stored.
         if (Volatile.Read(ref _consumerTag) is { } current && string.Equals(current, consumerTag, StringComparison.Ordinal))
@@ -144,7 +144,7 @@ public sealed class PausableRabbitMqConsumer : IPausableConsumer
 
         public async Task HandleBasicCancelAsync(string consumerTag, CancellationToken cancellationToken = default)
         {
-            owner.OnCancelledByBroker(consumerTag);
+            owner.OnCanceledByBroker(consumerTag);
             await inner.HandleBasicCancelAsync(consumerTag, cancellationToken).ConfigureAwait(false);
         }
 

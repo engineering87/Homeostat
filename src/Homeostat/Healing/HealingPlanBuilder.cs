@@ -8,10 +8,20 @@ using Microsoft.Extensions.Logging;
 
 namespace Homeostat.Healing;
 
-/// <summary>Fluent builder for a <see cref="HealingPlan"/>.</summary>
+/// <summary>
+/// Describes the healing plan of a condition, received by <see cref="Conditions.ConditionBuilder.Heal"/>: the steps,
+/// tried in order, and how each one is verified, paced and guarded.
+/// </summary>
 /// <remarks>
-/// <c>With</c> and <c>Then</c> are interchangeable: they both append a step. Use <c>With</c> for the first
-/// step and <c>Then</c> for escalation steps to make the plan read naturally.
+/// <para>
+/// A run tries the first step and verifies it. Healed: the run stops. Not healed, failed or timed out: the next step
+/// runs (escalation). Inconclusive: the run stops without escalating, because acting blindly could make things worse.
+/// </para>
+/// <para>
+/// <c>With</c> and <c>Then</c> are interchangeable: both append a step, and every step after the first is an
+/// escalation step. Use <c>With</c> for the first step and <c>Then</c> for the next ones so the plan reads naturally.
+/// Settings such as <see cref="RequireApproval"/> apply to the step just added.
+/// </para>
 /// </remarks>
 public sealed class HealingPlanBuilder
 {
@@ -30,7 +40,13 @@ public sealed class HealingPlanBuilder
 
     // ---------------------------------------------------------------- class-based actions
 
-    /// <summary>Appends an action class. Registers <typeparamref name="TAction"/> as transient if not already registered.</summary>
+    /// <summary>
+    /// Appends a step that runs an action class, resolved from the services for each run (registered as transient
+    /// unless you registered it yourself). The step is named after the type.
+    /// </summary>
+    /// <typeparam name="TAction">The action.</typeparam>
+    /// <returns>This builder.</returns>
+    /// <example><code>p.With&lt;RenewFeedClientAction&gt;().Then&lt;SwitchToBackupProviderAction&gt;()</code></example>
     public HealingPlanBuilder With<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] TAction>()
         where TAction : class, IHealingAction
     {
@@ -38,7 +54,12 @@ public sealed class HealingPlanBuilder
         return AddStep(typeof(TAction).Name, static sp => sp.GetRequiredService<TAction>());
     }
 
-    /// <summary>Escalation step: runs only if the previous action failed (threw or timed out) or was verified as <see cref="VerificationOutcome.NotHealed"/>.</summary>
+    /// <summary>
+    /// Same as <see cref="With{TAction}"/>, for readability: appends an escalation step, which runs only if the
+    /// previous one failed (threw or timed out) or was verified as <see cref="VerificationOutcome.NotHealed"/>.
+    /// </summary>
+    /// <typeparam name="TAction">The action.</typeparam>
+    /// <returns>This builder.</returns>
     public HealingPlanBuilder Then<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] TAction>()
         where TAction : class, IHealingAction
         => With<TAction>();
@@ -215,7 +236,12 @@ public sealed class HealingPlanBuilder
 
     // ---------------------------------------------------------------- verification and pacing
 
-    /// <summary>Use a custom verifier instead of waiting for the condition to clear.</summary>
+    /// <summary>
+    /// Verifies the steps with a custom <see cref="IHealingVerifier"/> instead of waiting for the condition to clear,
+    /// for example a direct check of the dependency. A verifier that throws or returns an undefined value counts as
+    /// <see cref="VerificationOutcome.Inconclusive"/>.
+    /// </summary>
+    /// <typeparam name="TVerifier">The verifier, resolved from the services (registered as transient if needed).</typeparam>
     public HealingPlanBuilder VerifyWith<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] TVerifier>()
         where TVerifier : class, IHealingVerifier
     {
@@ -238,7 +264,10 @@ public sealed class HealingPlanBuilder
         return this;
     }
 
-    /// <summary>Minimum time between the end of a run and the start of the next run of this plan.</summary>
+    /// <summary>
+    /// Minimum time between the end of a run and the start of the next run of this plan (default
+    /// <see cref="HomeostatOptions.DefaultCooldown"/>).
+    /// </summary>
     public HealingPlanBuilder Cooldown(TimeSpan cooldown)
     {
         if (cooldown < TimeSpan.Zero)

@@ -102,7 +102,7 @@ internal sealed class HomeostatEngine : BackgroundService
         _channel.Complete();
         await base.StopAsync(cancellationToken).ConfigureAwait(false);
 
-        // Runs observe the stopping token, so they finish quickly; do not outlive the host's shutdown timeout.
+        // Runs observe the stopping token, so they finish quickly; the wait is bounded by the host's shutdown token.
         await Task.WhenAny(_runner.WhenIdleAsync(), Task.Delay(Timeout.Infinite, cancellationToken)).ConfigureAwait(false);
     }
 

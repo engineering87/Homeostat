@@ -40,7 +40,7 @@ internal sealed class HomeostatApprovals : IHomeostatApprovals
         {
             if (entry.Request.ConditionName == condition && _pending.TryRemove(id, out var removed))
             {
-                removed.Decision.TrySetResult((ApprovalStatus.Cancelled, null));
+                removed.Decision.TrySetResult((ApprovalStatus.Canceled, null));
             }
         }
     }
@@ -50,7 +50,7 @@ internal sealed class HomeostatApprovals : IHomeostatApprovals
     {
         if (_pending.TryRemove(id, out var entry))
         {
-            entry.Decision.TrySetResult((ApprovalStatus.Cancelled, null));
+            entry.Decision.TrySetResult((ApprovalStatus.Canceled, null));
         }
     }
 

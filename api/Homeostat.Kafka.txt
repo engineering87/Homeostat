@@ -1,5 +1,6 @@
 namespace Homeostat
   public static class HomeostatKafkaExtensions
+    public static Homeostat.HomeostatBuilder AddKafkaPauseGate(this Homeostat.HomeostatBuilder builder, string name)
     public static Confluent.Kafka.ConsumerBuilder<TKey, TValue> SetHomeostatSignals<TKey, TValue>(this Confluent.Kafka.ConsumerBuilder<TKey, TValue> builder, System.IServiceProvider services, string name, System.Action<Homeostat.Kafka.KafkaSignalOptions>? configure = null)
     public static Confluent.Kafka.ProducerBuilder<TKey, TValue> SetHomeostatSignals<TKey, TValue>(this Confluent.Kafka.ProducerBuilder<TKey, TValue> builder, System.IServiceProvider services, string name, System.Action<Homeostat.Kafka.KafkaSignalOptions>? configure = null)
 namespace Homeostat.Kafka

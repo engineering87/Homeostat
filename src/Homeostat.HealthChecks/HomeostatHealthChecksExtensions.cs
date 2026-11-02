@@ -10,13 +10,25 @@ public static class HomeostatHealthChecksExtensions
 {
     /// <summary>
     /// Turns every registered health check into a signal source: the health check name becomes
-    /// the signal source, and Healthy / Degraded / Unhealthy map to the same severities.
+    /// the signal source, and Healthy / Degraded / Unhealthy map to the same severities. The checks run on the
+    /// framework's health check publisher, in the background, whether or not a health endpoint is called.
     /// </summary>
     /// <param name="builder">The Homeostat builder.</param>
     /// <param name="period">
     /// How often health checks run (at least one second). When <c>null</c>, the framework default applies (30 seconds).
-    /// Keep it shorter than the <c>SustainedFor</c> of your conditions.
+    /// Keep it shorter than the <c>SustainedFor</c> of your conditions. This sets
+    /// <see cref="HealthCheckPublisherOptions.Period"/>, which is shared by every <see cref="IHealthCheckPublisher"/> of
+    /// the application: other publishers run at the same pace.
     /// </param>
+    /// <exception cref="ArgumentOutOfRangeException"><paramref name="period"/> is shorter than one second.</exception>
+    /// <example>
+    /// <code>
+    /// builder.Services.AddHealthChecks().AddCheck&lt;WeatherFeedHealthCheck&gt;("weather-feed");
+    /// builder.Services.AddHomeostat(h => h
+    ///     .AddHealthCheckSignals(period: TimeSpan.FromSeconds(10))
+    ///     .AddCondition("weather-feed-down", c => c.ForSource("weather-feed").SustainedFor(TimeSpan.FromMinutes(1))));
+    /// </code>
+    /// </example>
     public static HomeostatBuilder AddHealthCheckSignals(this HomeostatBuilder builder, TimeSpan? period = null)
     {
         ArgumentNullException.ThrowIfNull(builder);

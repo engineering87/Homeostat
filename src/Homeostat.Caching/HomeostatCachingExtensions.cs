@@ -13,7 +13,7 @@ public static class HomeostatCachingExtensions
     /// A falling hit ratio often explains a latency spike on the dependency behind the cache.
     /// </summary>
     /// <param name="builder">The Homeostat builder.</param>
-    /// <param name="source">Source of the published signals. Defaults to <c>"memory-cache"</c>.</param>
+    /// <param name="source">Source of the published signals. Defaults to <c>"cache:memory"</c>.</param>
     /// <param name="configure">Changes thresholds and the minimum number of lookups.</param>
     /// <param name="cache">Selects the cache; defaults to the <see cref="IMemoryCache"/> registered in the container.</param>
     /// <example>
@@ -24,7 +24,7 @@ public static class HomeostatCachingExtensions
     /// </example>
     public static HomeostatBuilder AddMemoryCacheSignals(
         this HomeostatBuilder builder,
-        string source = "memory-cache",
+        string source = "cache:memory",
         Action<MemoryCacheSignalOptions>? configure = null,
         Func<IServiceProvider, IMemoryCache>? cache = null)
     {

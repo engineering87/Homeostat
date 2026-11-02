@@ -5,7 +5,7 @@ using RabbitMQ.Client;
 
 namespace Homeostat;
 
-/// <summary>RabbitMQ signals.</summary>
+/// <summary>RabbitMQ queue signals: messages ready, consumers and dead letters, read from the management of the broker.</summary>
 public static class HomeostatRabbitMqExtensions
 {
     /// <summary>

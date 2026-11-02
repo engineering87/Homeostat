@@ -4,9 +4,9 @@ Homeostat is built on four ideas. Once they click, the whole API reads naturally
 
 ```mermaid
 flowchart LR
-    A["📡 Signal<br/><sub>an observation</sub>"] --> B["🩺 Condition<br/><sub>a problem that persists</sub>"]
-    B --> C["🛠️ Healing plan<br/><sub>what to try, in order</sub>"]
-    C --> D["✅ Verification<br/><sub>did it work?</sub>"]
+    A["Signal<br/><sub>an observation</sub>"] --> B["Condition<br/><sub>a problem that persists</sub>"]
+    B --> C["Healing plan<br/><sub>what to try, in order</sub>"]
+    C --> D["Verification<br/><sub>did it work?</sub>"]
 ```
 
 The name comes from *homeostasis*: the ability of a living system to bring itself back to a stable
@@ -21,6 +21,7 @@ A **signal** is a single observation about one part of your application:
 | `Source` | `"weather-feed"` |
 | `Severity` | `Healthy`, `Degraded` or `Unhealthy` |
 | `Timestamp` | when it was observed |
+| `Value` | optional measurement, such as a latency in milliseconds or a queue length |
 | `Message`, `Tags` | optional details |
 
 Signals say nothing about what to do. They come from health checks, from built-in detectors (thread
@@ -57,9 +58,9 @@ After each action, Homeostat checks the outcome instead of assuming success:
 
 | Outcome | Meaning | What happens next |
 |---|---|---|
-| ✅ `Healed` | The condition cleared | The run stops successfully |
-| ❌ `NotHealed` | Fresh signals still show the problem | Escalate to the next step |
-| ❔ `Inconclusive` | No evidence either way | Stop, log, let a human decide |
+| `Healed` | The condition cleared | The run stops successfully |
+| `NotHealed` | Fresh signals still show the problem | Escalate to the next step |
+| `Inconclusive` | No evidence either way | Stop, log, let a human decide |
 
 A stopped run is not final: if the condition is still active when the cooldown ends, the next
 triggering signal starts a new run from step 1.

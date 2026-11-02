@@ -8,7 +8,7 @@ namespace Homeostat.Detectors;
 /// <summary>Settings for the thread pool starvation detector.</summary>
 public sealed class ThreadPoolDetectorOptions
 {
-    /// <summary>Signal source name.</summary>
+    /// <summary>Signal source name. Defaults to <c>"threadpool"</c>.</summary>
     public string Source { get; set; } = "threadpool";
 
     /// <summary>Queue latency at or above which the signal is <see cref="SignalSeverity.Degraded"/>.</summary>

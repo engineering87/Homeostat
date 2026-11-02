@@ -17,8 +17,10 @@ internal sealed class SignalSeries(TimeSpan window)
     private int _start;
 
     // Running sums for the mean, the deviation and the regression line: y is the value minus _shift, x the minutes
-    // since _origin. Both offsets are points of the series, so the sums stay small; an exact recomputation, every few
-    // thousand points or when the origin falls a window behind, removes the rounding drift of additions and subtractions.
+    // since _origin. The shift starts as the first value and becomes the window's mean at each exact recomputation, and
+    // the origin is the first point of the window then, so the sums stay small. The exact recomputation (every few
+    // thousand points, when the origin falls a window behind, or when an outlier leaves) removes the rounding drift of
+    // additions and subtractions.
     private double _shift;
     private DateTimeOffset _origin;
     private double _sum;
@@ -180,7 +182,7 @@ internal sealed class SignalSeries(TimeSpan window)
     /// <summary>Least-squares line of the points from <paramref name="first"/> to <paramref name="end"/> (excluded).</summary>
     private (double Slope, double Intercept)? Fit(int first, int end)
     {
-        // Centred on the first point, so large values keep their precision.
+        // Centered on the first point, so large values keep their precision.
         var (origin, offset) = _points[first];
         double n = end - first, sumX = 0, sumY = 0, sumXY = 0, sumXX = 0;
         for (var i = first; i < end; i++)

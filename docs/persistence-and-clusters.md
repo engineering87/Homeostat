@@ -30,17 +30,37 @@ within a few detection intervals, which is what you want after a restart. The hi
 // One instance, state in a file (written atomically after every change)
 .AddHomeostat(h => h.UseFileStore("data/homeostat.json"))
 
-// Several instances
+// Several instances (dotnet add package Homeostat.Redis --prerelease)
 builder.Services.AddSingleton<IConnectionMultiplexer>(_ => ConnectionMultiplexer.Connect("redis:6379"));
 builder.Services.AddHomeostat(h => h.UseRedis(o => o.KeyPrefix = "weather-api:homeostat:"));
 ```
 
+### File store
+
 The file store writes atomically (temporary file, flushed, then renamed). A file that cannot be read is renamed
-to `*.corrupt` and the store starts empty, and plans that have not run for 30 days are forgotten on load.
+to `*.corrupt` and the store starts empty. Use a path that survives a restart (a volume, in a container) and that only
+the application's user can write.
+
+```csharp
+.AddHomeostat(h => h.UseFileStore("data/homeostat.json", o => o.PlanStateRetention = TimeSpan.FromDays(90)))
+```
+
+| `FileStoreOptions` | Default | Meaning |
+|---|---|---|
+| `PlanStateRetention` | 30 days | How long the cooldown and backoff state of a plan that no longer runs is kept. Older entries (renamed conditions, former instance names) are dropped when the file is loaded, so the file does not grow forever. Held plans, and plans that never completed a run, are always kept |
+
+### Redis store
 
 `UseRedis` uses the `IConnectionMultiplexer` already registered in your container; `UseRedis("redis:6379")`
 creates one. Instances with the same `KeyPrefix` share their state: use one prefix per application and
-environment.
+environment. `UseRedis` also registers the Redis coordinator, so `OncePerCluster()` plans coordinate every instance.
+
+| `RedisHomeostatOptions` | Default | Meaning |
+|---|---|---|
+| `KeyPrefix` | `homeostat:` | Prefix of every key; instances that share it share cooldowns, budget, history and leases |
+| `ShareBudget` | `true` | One action budget for every instance; `false` counts it per instance |
+| `PlanStateRetention` | 7 days | How long plan state is kept after its last change; refreshed at every run |
+| `DocumentRetention` | 90 days | How long documents (such as seasonal baselines) are kept after their last update |
 
 ### When the store fails
 
@@ -82,7 +102,7 @@ A cluster plan:
 3. keeps the lease alive while the run lasts (renewed at a third of `ClusterLeaseDuration`, default 1 minute), and
    releases it at the end. If the instance dies, the lease expires and another instance can take over;
 4. **stops before its next step if the lease may have been lost** (it could not be renewed for a whole lease
-   duration, for example during a long Redis outage or severe thread pool starvation). The run ends `Cancelled`.
+   duration, for example during a long Redis outage or severe thread pool starvation). The run ends `Canceled`.
 
 When the condition clears, only the instance that ran the plan last resets the shared hold and backoff: one
 instance that recovers does not lift a rejection that concerns the whole cluster.
@@ -92,6 +112,40 @@ actions idempotent, and keep `ClusterLeaseDuration` well above the time a single
 
 With the default in-process coordinator, "cluster" means the process: use `UseRedis` (or your own coordinator)
 for real coordination.
+
+### Writing your own coordinator
+
+To coordinate through something you already run (a database, a lock service), implement `IHomeostatCoordinator` and
+register it with `UseCoordinator<T>()` (a singleton) or `UseCoordinator(sp => ...)`. Pair it with a store that every
+instance shares, since cluster plans read and write their state there.
+
+```csharp
+public sealed class DatabaseLeaseCoordinator(LeaseTable leases) : IHomeostatCoordinator
+{
+    public async ValueTask<IHomeostatLease?> TryAcquireAsync(string resource, TimeSpan duration, CancellationToken cancellationToken = default)
+    {
+        var token = Guid.NewGuid().ToString("N");
+        return await leases.TryInsertAsync(resource, token, duration, cancellationToken)   // your code: insert if absent or expired
+            ? new DatabaseLease(leases, resource, token, duration)
+            : null;                                                                       // held elsewhere: the run is skipped
+    }
+}
+```
+
+```csharp
+.AddHomeostat(h => h.UseStore<DatabaseStore>().UseCoordinator<DatabaseLeaseCoordinator>())
+```
+
+The contract:
+
+- `TryAcquireAsync` returns `null` when another holder has the lease, and never waits for it.
+- The returned `IHomeostatLease` keeps the lease alive until it is disposed: renew it in the background (Homeostat's
+  coordinators renew at a third of `duration`), and release it in `DisposeAsync`. A holder that dies must let the
+  lease expire after `duration`.
+- `IHomeostatLease.Lost` is a `CancellationToken` canceled when the lease may have been lost (it could not be renewed
+  in time). Homeostat then stops the run before its next step, with outcome `Canceled`.
+- Renewal and release must check that the lease is still yours (compare the token), so a late instance does not
+  extend or delete the lease of the next holder.
 
 ### Instance identity
 

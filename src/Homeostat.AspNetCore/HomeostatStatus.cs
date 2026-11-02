@@ -42,7 +42,7 @@ public sealed record BudgetStatus(int Used, int Limit, int Remaining, double Win
 /// <param name="PendingSince">Start of the current episode.</param>
 /// <param name="ActiveSince">When it became active.</param>
 /// <param name="ClearingSince">When recovery started, while waiting for <c>ClearAfter</c>.</param>
-/// <param name="SuppressedBy">Active condition suppressing this one.</param>
+/// <param name="SuppressedBy">Pending or active condition suppressing this one, if any.</param>
 /// <param name="LastSignalAt">Latest relevant signal time.</param>
 /// <param name="LastSeverity">Latest relevant signal severity.</param>
 /// <param name="LastMessage">Latest relevant signal message.</param>

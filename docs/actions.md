@@ -67,6 +67,16 @@ h.AddBackgroundServiceSignals()                        // source: service:{type 
      .Heal(p => p.RestartHostedService<ForecastPoller>()));
 ```
 
+| Member | Purpose |
+|---|---|
+| `RunAsync(stoppingToken)` | The work loop you write. The token is canceled on restart and on shutdown: honor it |
+| `IsRunning` | `RunAsync` is running |
+| `IsIdle` | The service is started but its run ended by itself (threw or returned): it waits to be restarted. `false` before the first run, during a restart and while stopping |
+| `LastError` | The exception that ended the latest run, or `null` |
+| `Restarts` | How many times the service has been restarted |
+| `RestartAsync(cancellationToken)` | Cancels the current run and waits until a new one has started; also restarts an idle service. Throws `InvalidOperationException` when the service is not started or is stopping. This is what `RestartHostedService<T>()` calls, and you can call it from your own code |
+| `OnRunFaulted(exception)` | Override to react when `RunAsync` throws (log, count, publish a signal); the service then waits to be restarted |
+
 ### `ReloadConfiguration()`
 
 ```csharp
@@ -127,6 +137,24 @@ switches.TurnOff("serve-cached-forecast");
 ```
 
 `IHomeostatSwitches.GetActive()` lists the switches that are on, handy for a status page.
+
+To react when a switch changes instead of reading it on every call, subscribe to `Changed`:
+
+```csharp
+switches.Changed += (_, e) =>
+{
+    if (e.Name == "serve-cached-forecast")
+    {
+        logger.LogInformation("Cached forecast mode is now {State}.", e.IsOn ? "on" : "off");
+    }
+};
+```
+
+`SwitchChangedEventArgs` carries the switch `Name` and `IsOn`. The event is raised after a switch is turned on or
+off, not when a call leaves it unchanged. Handlers run synchronously on the thread that changed the switch, so keep
+them quick; an exception thrown by a handler is logged and does not reach the caller. Under concurrent changes,
+events for the same switch can arrive out of order: read `IsOn(name)` in the handler when the current state matters.
+The [feature flag integrations](integrations.md#feature-flags) use this event.
 
 ## Inline actions
 

@@ -7,7 +7,7 @@ public sealed class ReferenceDataClient
 {
     private volatile bool _healthy = true;
 
-    public IReadOnlyList<string> CachedRegions { get; } = ["north", "centre", "south", "islands"];
+    public IReadOnlyList<string> CachedRegions { get; } = ["north", "central", "south", "coast"];
 
     public Task<IReadOnlyList<string>> GetRegionsAsync(CancellationToken cancellationToken)
         => _healthy ? Task.FromResult(CachedRegions) : throw new HttpRequestException("The reference data provider is not responding.");

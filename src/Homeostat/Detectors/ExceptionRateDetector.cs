@@ -8,7 +8,7 @@ namespace Homeostat.Detectors;
 /// <summary>Settings for the exception rate detector.</summary>
 public sealed class ExceptionRateDetectorOptions
 {
-    /// <summary>Signal source name.</summary>
+    /// <summary>Signal source name. Defaults to <c>"exceptions"</c>.</summary>
     public string Source { get; set; } = "exceptions";
 
     /// <summary>Exceptions per second at or above which the signal is <see cref="SignalSeverity.Degraded"/>.</summary>

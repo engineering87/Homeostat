@@ -118,9 +118,9 @@ public class MoreIntegrationTests
 
         await gate.PauseAsync(CancellationToken.None);
         using var cts = new CancellationTokenSource();
-        var cancelled = gate.WaitWhilePausedAsync(cts.Token);
+        var canceled = gate.WaitWhilePausedAsync(cts.Token);
         await cts.CancelAsync();
-        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => cancelled);
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => canceled);
     }
 
     // ---------------------------------------------------------------- MongoDB

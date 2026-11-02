@@ -34,6 +34,7 @@ built-in sinks `Homeostat.Notifications.AuditLogSink` and `Homeostat.Http.Webhoo
 | Warning | `Condition {Condition}: Homeostat was paused, stopping before step {Step}.` | Paused during a run |
 | Warning | `Condition {Condition}: suppressed by {Cause}, stopping before step {Step}.` | Cause activated during a run |
 | Error | `Condition {Condition}: verification after {Action} threw an exception.` | A verifier failed; the step is inconclusive |
+| Error | `Condition {Condition}: the verifier after {Action} returned {Value}, which is not a VerificationOutcome; treated as Inconclusive.` | A verifier returned an undefined value |
 | Error | `Healing run for condition {Condition} failed unexpectedly.` | Unexpected error |
 | Information | `Condition {Condition}: cleared before step {Step}; nothing more to do.` | Run ended with `ConditionCleared` |
 | Error | `Condition {Condition} failed to evaluate a signal from {Source}.` | A trigger or clear predicate threw |
@@ -54,7 +55,7 @@ built-in sinks `Homeostat.Notifications.AuditLogSink` and `Homeostat.Http.Webhoo
 | Error | `The Homeostat configuration is not valid; keeping the previous conditions.` | Configuration change rejected |
 | Warning | `The Homeostat lease {Lease} was lost; another instance may take over.` | Redis lease taken over during a run |
 | Warning | `The Homeostat lease {Lease} could not be renewed in time; another instance may take over.` | Redis unreachable for a whole lease duration |
-| Warning | `Condition {Condition}: the cluster lease was lost during the run, which was stopped.` | Run ended `Cancelled` |
+| Warning | `Condition {Condition}: the cluster lease was lost during the run, which was stopped.` | Run ended `Canceled` |
 | Information | `Condition {Condition} was removed from configuration: switch {Switch} turned off.` | Configuration change |
 | Warning | `{Sink} could not deliver a {Kind} event for condition {Condition}.` | Audit log or webhook failed |
 | Warning | `{Sink} stopped before delivering all queued events.` | Shutdown timeout reached |
@@ -86,6 +87,7 @@ Each run produces an activity named `homeostat.heal` with these tags:
 |---|---|
 | `homeostat.condition` | `weather-feed-down` |
 | `homeostat.signal.source` | `weather-feed` |
+| `homeostat.instance` | `weather-api-7d9f8` (`HomeostatOptions.InstanceId`) |
 | `homeostat.outcome` | `Healed` |
 
 ### Metrics
@@ -98,7 +100,7 @@ Each run produces an activity named `homeostat.heal` with these tags:
 | `homeostat.healing.duration` | Histogram (seconds) | `condition`, `outcome` |
 
 Run outcomes: `Healed`, `NotHealed`, `Inconclusive`, `DryRun`, `BudgetExhausted`, `Paused`, `NotApproved`,
-`Suppressed`, `ConditionCleared`, `Cancelled`.
+`Suppressed`, `ConditionCleared`, `Canceled`, `Failed` (see [Run outcomes](healing-plans.md#run-outcomes)).
 
 Gauges describe the current state of each instance:
 

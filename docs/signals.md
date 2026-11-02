@@ -6,10 +6,14 @@ choosing good signals is the first step to useful self-healing.
 ```csharp
 public sealed record Signal(string Source, SignalSeverity Severity, DateTimeOffset Timestamp)
 {
+    public double? Value { get; init; }      // a measurement, for value, trend and anomaly rules
     public string? Message { get; init; }
     public IReadOnlyDictionary<string, string>? Tags { get; init; }
 }
 ```
+
+`Value` is optional. Detectors and probes fill it (a latency, a ratio, a queue length); conditions read it with
+`WhenValueAbove`, trends, projections and anomalies (see [Conditions](conditions.md#values-trends-and-anomalies)).
 
 ## Severities
 
@@ -27,7 +31,8 @@ Severities are ordered (`Healthy < Degraded < Unhealthy`), so conditions can use
 
 ## Health checks as signals
 
-With the `Homeostat.HealthChecks` package, every registered health check becomes a signal source:
+With the `Homeostat.HealthChecks` package (`dotnet add package Homeostat.HealthChecks --prerelease`), every
+registered health check becomes a signal source:
 
 ```csharp
 builder.Services.AddHealthChecks()
@@ -51,7 +56,26 @@ Notes:
   health check publisher.
 - Without `period`, the framework default applies: every **30 seconds**, after an initial delay of
   5 seconds.
+- `period` sets `HealthCheckPublisherOptions.Period`, which is shared by **every** `IHealthCheckPublisher` of the
+  application: other publishers (for example one that pushes results to a monitoring service) run at the same
+  period. Configure `HealthCheckPublisherOptions` yourself instead if they must differ; the last configuration wins.
 - Keep the period **shorter than the `SustainedFor`** of your conditions (see [Conditions](conditions.md)).
+
+## Naming sources
+
+A source names one component that you would fix independently. Built-in sources follow one convention, and your own
+sources are easier to read in the dashboard and in alerts when they follow it too:
+
+| Kind | Pattern | Examples |
+|---|---|---|
+| Integrations with a technology | `{technology}[:{name}][:{metric}]` | `redis`, `http:forecast`, `cache:memory`, `sqlclient:pool`, `npgsql:pool`, `http-server:errors`, `http-server:latency`, `rabbitmq:thumbnails:dead-letter`, `mongodb:archive:primary`, `alert:DiskAlmostFull` |
+| The process's own runtime detectors | a bare name | `threadpool`, `memory`, `exceptions` |
+| Health checks | the health check name | `weather-feed` |
+| Your probes and signals | your choice; a bare name or the pattern above | `ingest-backlog`, `reports-db` |
+
+Sources are case-sensitive. Every built-in default can be changed (a `source` parameter or a `Source` option), and
+the default names are part of the public contract: they change only in a major version (see
+[Versioning](versioning.md)).
 
 ## Publishing your own signals
 
@@ -77,11 +101,12 @@ public sealed class ThumbnailWorker(ISignalPublisher signals) : BackgroundServic
 }
 ```
 
-The short overload stamps the signal with the current time. To add tags, create the record yourself:
+The short overload stamps the signal with the current time. To add a value or tags, create the record yourself:
 
 ```csharp
 signals.TryPublish(new Signal("thumbnail-queue", SignalSeverity.Degraded, timeProvider.GetUtcNow())
 {
+    Value = pending,
     Message = "backlog growing",
     Tags = new Dictionary<string, string> { ["pending"] = pending.ToString() },
 });

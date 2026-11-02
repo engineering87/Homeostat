@@ -35,9 +35,9 @@ public sealed class WebhookOptions
     /// </summary>
     public Func<HomeostatEvent, object> CreatePayload { get; set; } = static e => e;
 
-    /// <summary>Maximum time for one delivery attempt.</summary>
+    /// <summary>Maximum time for one delivery attempt. Defaults to 10 seconds.</summary>
     public TimeSpan Timeout { get; set; } = TimeSpan.FromSeconds(10);
 
-    /// <summary>Attempts per event, including the first; failed deliveries are retried after a short delay.</summary>
+    /// <summary>Attempts per event, including the first; failed deliveries are retried after a short delay. Defaults to 3.</summary>
     public int MaxAttempts { get; set; } = 3;
 }

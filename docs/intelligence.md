@@ -1,6 +1,6 @@
 # Learning and foresight
 
-Four features that make Homeostat act earlier, learn from what worked, and show what it would do and what it has
+Five features that make Homeostat act earlier, learn from what worked, and show what it would do and what it has
 exercised.
 
 | Feature | API | Package |
@@ -76,7 +76,7 @@ Record the signals Homeostat receives:
 h.RecordSignals(o =>
 {
     o.Path = "/var/log/weather-api/signals-{instance}-{date}.jsonl";   // one file per instance and UTC day
-    o.RetentionDays = 14;                                               // older files are deleted
+    o.RetentionDays = 7;                                                // older files are deleted (default 14)
     // o.Sources.Add("weather-feed");                                    // only some sources
     // o.IncludeDetails = true;                                          // also messages and tags
 });
@@ -135,12 +135,29 @@ var report = await HomeostatReplay.RunFilesAsync(files, settings.GetSection("Hom
 homeostat replay /var/log/weather-api --config appsettings.Production.json --max-heals 3
 ```
 
-The report has the timeline (`Events`), a summary per condition and the dry runs (`Runs`), so it fits in an assertion
-too:
+The report has the timeline (`Events`), a summary per condition and the dry-run results (`Runs`), so it fits in an
+assertion too:
 
 ```csharp
 Assert.All(report.Conditions, c => Assert.True(c.WouldHeal <= 3, $"{c.Condition} would act too often"));
 ```
+
+To work with the files yourself, `RecordedSignal.Read(path)` streams the records of one file, and `ToSignal()` turns a
+record back into a `Signal`. `HomeostatReplay.RunAsync` takes any sequence of records, for example a filtered one:
+
+```csharp
+var records = RecordedSignal.Read("signals-web-1-2026-11-01.jsonl")
+    .Where(r => r.Source == "weather-feed");
+var report = await HomeostatReplay.RunAsync(records, h => h.AddCondition(/* ... */));
+```
+
+| `SignalRecordingOptions` | Default | Meaning |
+|---|---|---|
+| `Path` | `signals/homeostat-signals-{instance}-{date}.jsonl` | File path; `{instance}` and `{date}` (UTC) are replaced |
+| `RetentionDays` | 14 | Days of files kept; older files of this instance are deleted; `0` keeps everything |
+| `Sources` | empty: every source | Sources to record |
+| `IncludeDetails` | `false` | Also records messages and tags |
+| `BufferCapacity` | 10000 | Signals queued for writing; the oldest are dropped when full |
 
 The recording writes in the background and drops the oldest signals if the disk falls behind
 (`BufferCapacity`). While the application stops, it writes what is already queued, within the host's shutdown timeout;
@@ -175,6 +192,18 @@ Never activated: disk-full
 | `Truncated` | The run history or the condition history does not reach back to the start of the period, so older entries are missing |
 | `NeverActivated`, `PlansNeverRun` | What the experiments did not reach |
 | `StepCoverage` | Share of plan steps that completed at least once (failed steps are not covered) |
+
+In code, the report is a `CoverageReport` from the `Homeostat.Diagnostics` namespace:
+
+```csharp
+using Homeostat.Diagnostics;
+
+CoverageReport report = await control.GetCoverageAsync(since: timeProvider.GetUtcNow().AddHours(-4));
+foreach (var condition in report.Conditions.Where(c => c.StepsNeverRun.Count > 0))
+{
+    Console.WriteLine($"{condition.Name}: never ran {string.Join(", ", condition.StepsNeverRun)}");
+}
+```
 
 The same report is `GET /homeostat/coverage?last=04:00:00` (or `?since=2026-11-02T09:00:00Z`; default the last 24
 hours), mapped with `MapHomeostatStatus`, and `IHomeostatControl.GetCoverageAsync(since)` in code. With

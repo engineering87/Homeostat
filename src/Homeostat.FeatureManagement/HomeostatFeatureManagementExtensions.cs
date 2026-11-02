@@ -14,9 +14,9 @@ public static class HomeostatFeatureManagementExtensions
     /// <example>
     /// <code>
     /// builder.Services.AddFeatureManagement().AddHomeostatSwitchFilter();
-    /// builder.Services.AddHomeostat(h => h.AddCondition("catalog-slow", c => c
-    ///     .ForSource("catalog-latency").SustainedFor(TimeSpan.FromMinutes(1))
-    ///     .Heal(p => p.TurnOnSwitch("shed-recommendations", turnOffWhenCleared: true))));
+    /// builder.Services.AddHomeostat(h => h.AddCondition("map-tiles-slow", c => c
+    ///     .ForSource("map-tiles-latency").SustainedFor(TimeSpan.FromMinutes(1))
+    ///     .Heal(p => p.TurnOnSwitch("shed-forecast-maps", turnOffWhenCleared: true))));
     /// </code>
     /// </example>
     public static IFeatureManagementBuilder AddHomeostatSwitchFilter(this IFeatureManagementBuilder builder)

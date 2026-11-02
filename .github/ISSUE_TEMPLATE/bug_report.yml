@@ -11,7 +11,7 @@ body:
     id: version
     attributes:
       label: Homeostat version
-      placeholder: 0.1.0-preview.1
+      placeholder: 1.0.0-rc.1
     validations:
       required: true
   - type: input
