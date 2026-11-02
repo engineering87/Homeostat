@@ -27,8 +27,11 @@ internal sealed class HomeostatEngine : BackgroundService
         IHomeostatSwitches switches,
         SwitchOwnership ownership,
         HomeostatApprovals approvals,
-        ILogger<HomeostatEngine> logger)
+        ILogger<HomeostatEngine> logger,
+        Healing.Actions.ApplicationClock clock)
     {
+        // Resolved here, when the host starts, so the clock records the application's start time.
+        _ = clock;
         _channel = channel;
         _conditions = conditions;
         _runner = runner;

@@ -30,6 +30,17 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Added
 
+- Cloud and orchestrators (wave 4), all with approval by default:
+  - `RestartApplication()`: graceful stop with an exit code for the orchestrator to restart. `RestartGuard` and
+    `RestartLimits` (also used by `RestartPod`): minimum uptime and restarts per window counted in the store.
+  - `Homeostat.Kubernetes` (`UseKubernetes`): `RestartPod` (only pods with a controller), `RolloutRestart`,
+    `ScaleDeployment` (only in the asked direction, conditional update), `CordonNode` (leaves cordoned nodes alone);
+    in-cluster REST client trusting the cluster CA for server certificates, rotating service account token, validated
+    names.
+  - `Homeostat.Azure` (`UseAzure` with a token from Azure.Identity): `RestartAppService`, `RestartVirtualMachine`,
+    `DisableFrontDoorOrigin` (never the last enabled origin, enabled again when it did not help),
+    `AzureResourceManager`; resource ids validated against the exact type.
+  - `HomeostatTestHost` runs startup option validation, like the generic host.
 - Operations and developer experience (wave 3):
   - `MapHomeostatDashboard`: embedded dashboard with one-click approvals, switches, pause and recent runs; strict
     Content-Security-Policy, text-only rendering.

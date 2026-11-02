@@ -55,6 +55,7 @@ public static class HomeostatServiceCollectionExtensions
         services.TryAddSingleton<HomeostatApprovals>();
         services.TryAddSingleton<IHomeostatApprovals>(sp => sp.GetRequiredService<HomeostatApprovals>());
         services.TryAddSingleton<HealingRunner>();
+        services.TryAddSingleton<Healing.Actions.ApplicationClock>();
         services.TryAddTransient<ConditionClearedVerifier>();
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IHostedService, HomeostatEngine>());
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IHostedService, DetectorHost>());

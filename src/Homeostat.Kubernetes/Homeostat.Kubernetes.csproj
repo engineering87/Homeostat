@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <PackageId>Homeostat.Kubernetes</PackageId>
+    <Description>Kubernetes actions for Homeostat: restart the application's own pod, rollout restart and scale a deployment, cordon the node. Talks to the API server directly with the pod's service account (no client SDK); every action requires approval by default.</Description>
+    <PackageTags>$(PackageTags);kubernetes;k8s;orchestration</PackageTags>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Homeostat\Homeostat.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.Http" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Homeostat.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="..\..\docs\nuget\README.md" Pack="true" PackagePath="\" />
+    <None Include="..\..\assets\icon.png" Pack="true" PackagePath="\" />
+  </ItemGroup>
+
+</Project>

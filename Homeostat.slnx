@@ -3,12 +3,14 @@
     <Project Path="src/Homeostat/Homeostat.csproj" />
     <Project Path="src/Homeostat.Analyzers/Homeostat.Analyzers.csproj" />
     <Project Path="src/Homeostat.AspNetCore/Homeostat.AspNetCore.csproj" />
+    <Project Path="src/Homeostat.Azure/Homeostat.Azure.csproj" />
     <Project Path="src/Homeostat.Caching/Homeostat.Caching.csproj" />
     <Project Path="src/Homeostat.Cli/Homeostat.Cli.csproj" />
     <Project Path="src/Homeostat.Data/Homeostat.Data.csproj" />
     <Project Path="src/Homeostat.FeatureManagement/Homeostat.FeatureManagement.csproj" />
     <Project Path="src/Homeostat.HealthChecks/Homeostat.HealthChecks.csproj" />
     <Project Path="src/Homeostat.Http/Homeostat.Http.csproj" />
+    <Project Path="src/Homeostat.Kubernetes/Homeostat.Kubernetes.csproj" />
     <Project Path="src/Homeostat.OpenFeature/Homeostat.OpenFeature.csproj" />
     <Project Path="src/Homeostat.Polly/Homeostat.Polly.csproj" />
     <Project Path="src/Homeostat.Redis/Homeostat.Redis.csproj" />

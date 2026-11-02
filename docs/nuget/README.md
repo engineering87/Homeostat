@@ -54,6 +54,7 @@ builder.Services
 - `Homeostat.Caching`: memory cache hit ratio; HybridCache, distributed and memory cache purge actions.
 - `Homeostat.FeatureManagement` and `Homeostat.OpenFeature`: feature flags driven by Homeostat switches.
 - `Homeostat.Testing`: test host with simulated time.
+- `Homeostat.Kubernetes` and `Homeostat.Azure`: platform actions (pods, deployments, nodes, App Service, VMs, Front Door), with approval by default.
 - `Homeostat.Cli`: the `homeostat` command-line tool. `Homeostat.Templates`: `dotnet new` templates.
 
 The core package includes Roslyn analyzers (HOMEO001 to HOMEO005).

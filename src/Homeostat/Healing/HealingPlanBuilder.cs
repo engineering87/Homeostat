@@ -109,6 +109,40 @@ public sealed class HealingPlanBuilder
                 sp.GetRequiredService<ILogger<RestartHostedServiceAction<TService>>>()));
 
     /// <summary>
+    /// Appends a step that stops the application with <paramref name="exitCode"/>, so that the orchestrator or service
+    /// manager (Kubernetes, Azure App Service, systemd, Docker with a restart policy) starts a fresh process: the last
+    /// resort for a state that only a restart clears (leaked memory, a corrupted cache, a stuck native library).
+    /// It requires approval by default, and <see cref="RestartGuard"/> refuses it when this instance started less than
+    /// <see cref="RestartLimits.MinimumUptime"/> ago or the application already restarted too often (3 times per hour by
+    /// default, counted in the store): the plan then escalates instead of looping.
+    /// </summary>
+    /// <param name="exitCode">Process exit code; defaults to 1, so "restart on failure" policies apply too.</param>
+    /// <param name="requireApproval">Whether a person approves the restart first; defaults to <c>true</c>.</param>
+    /// <param name="limits">Minimum uptime and restarts per window; defaults to <see cref="RestartLimits.Default"/>.</param>
+    /// <remarks>
+    /// The step ends the run: put it last, steps after it never run. Keep the store persistent (<c>UseFileStore</c>,
+    /// <c>UseRedis</c>), so the restart count and the cooldown survive the new process.
+    /// </remarks>
+    /// <example>
+    /// <code>
+    /// .AddCondition("memory-leak", c => c.ForSource("memory").WhenRisingFasterThan(0.01, TimeSpan.FromMinutes(30))
+    ///     .Heal(p => p.CompactMemoryCache(0.5).RestartApplication()))
+    /// </code>
+    /// </example>
+    public HealingPlanBuilder RestartApplication(int exitCode = 1, bool requireApproval = true, RestartLimits? limits = null)
+    {
+        var effective = limits ?? RestartLimits.Default;
+        effective.Validate();
+
+        AddStep("Restart the application", sp => new RestartApplicationAction(
+            sp.GetService<IHostApplicationLifetime>(),
+            effective,
+            exitCode,
+            sp.GetRequiredService<ILogger<RestartApplicationAction>>()));
+        return requireApproval ? RequireApproval() : this;
+    }
+
+    /// <summary>
     /// Appends a step that reloads <see cref="IConfiguration"/> from all its providers.
     /// Components that read options through <c>IOptionsMonitor</c> see the new values.
     /// </summary>

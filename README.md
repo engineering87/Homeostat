@@ -226,6 +226,8 @@ dotnet add package Homeostat
 | `Homeostat.Polly` | Polly v8 circuit breaker state as signals; circuit isolation; chaos enabled by switches |
 | `Homeostat.Redis` | State shared by every instance, plans that run once per cluster; Redis client health signals |
 | `Homeostat.Testing` | Test host with simulated time, fault injection, helpers for unit tests |
+| `Homeostat.Kubernetes` | Restart this pod, rollout restart, scale, cordon; approval by default |
+| `Homeostat.Azure` | Restart App Service and VMs, Front Door failover, any Resource Manager operation; approval by default |
 | `Homeostat.Cli` | `homeostat` command-line tool: status, pause, approvals, switches (`dotnet tool install -g Homeostat.Cli`) |
 | `Homeostat.Templates` | `dotnet new homeostat-webapi` and `homeostat-worker` |
 

@@ -22,6 +22,8 @@ lambda, or write a class. All three can be mixed in the same plan.
 | `RemoveDistributedCacheKeys(...)` (`Homeostat.Caching`) | Removes `IDistributedCache` keys | Same, for a distributed cache |
 | `CompactMemoryCache(percentage)` (`Homeostat.Caching`) | Evicts part of the memory cache | Memory pressure |
 | `IsolateCircuit(control)` (`Homeostat.Polly`) | Isolates Polly circuit breakers until the condition clears | Fail fast while a dependency is known to be down |
+| `RestartApplication()` | Stops the process with an exit code so the platform starts a new one (approval by default) | State that only a restart clears |
+| Kubernetes and Azure actions | Restart pods and apps, scale, cordon, Front Door failover: see [Cloud and orchestrators](cloud.md) | Problems the platform must fix |
 
 ### `RestartHostedService<T>()`
 

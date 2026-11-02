@@ -14,8 +14,8 @@ export default {
       2,
       'always',
       [
-        'core', 'analyzers', 'aspnetcore', 'caching', 'cli', 'data', 'featureflags', 'healthchecks', 'http',
-        'polly', 'redis', 'templates', 'testing', 'samples', 'docs', 'deps', 'ci', 'release',
+        'core', 'analyzers', 'aspnetcore', 'azure', 'caching', 'cli', 'data', 'featureflags', 'healthchecks',
+        'http', 'kubernetes', 'polly', 'redis', 'templates', 'testing', 'samples', 'docs', 'deps', 'ci', 'release',
       ],
     ],
     'header-max-length': [2, 'always', 100],

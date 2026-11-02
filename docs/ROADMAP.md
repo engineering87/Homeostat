@@ -52,10 +52,11 @@ ships as previews. It is indicative and changes with feedback: open an issue to 
 
 ## Wave 4: cloud and orchestrators (separate packages, approval on by default)
 
-- [ ] Kubernetes: restart pod, scale, cordon
-- [ ] Azure: App Service restart and scale, Front Door failover, Key Vault secret refresh
-- [ ] AWS: ECS tasks, Auto Scaling groups
-- [ ] Controlled self-restart through the host lifetime
+- [x] Controlled self-restart through the host lifetime (`RestartApplication`), with a minimum uptime guard
+- [x] Kubernetes (`Homeostat.Kubernetes`): restart this pod, rollout restart, scale a deployment, cordon the node; in-cluster REST, no SDK
+- [x] Azure (`Homeostat.Azure`): restart App Service and VMs, Front Door origin failover, any Resource Manager operation
+- [ ] Azure App Service plan scaling and Container Apps actions
+- [ ] AWS: ECS tasks, Auto Scaling groups (needs SigV4 and the SDK credential chain)
 
 ## Wave 5: intelligence
 

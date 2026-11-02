@@ -94,7 +94,9 @@ public sealed class HomeostatTestHost : IAsyncDisposable
         var host = new HomeostatTestHost(collection.BuildServiceProvider(validateScopes: true), recorder, time, options);
         try
         {
-            // Same sequence as the generic host, lifecycle callbacks included.
+            // Same sequence as the generic host: options validated on start, then lifecycle callbacks and hosted services.
+            host._provider.GetService<Microsoft.Extensions.Options.IStartupValidator>()?.Validate();
+
             foreach (var lifecycle in host._hostedServices.OfType<IHostedLifecycleService>())
             {
                 await lifecycle.StartingAsync(CancellationToken.None).ConfigureAwait(false);

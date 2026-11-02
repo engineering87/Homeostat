@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <PackageId>Homeostat.Azure</PackageId>
+    <Description>Azure actions for Homeostat through Azure Resource Manager: restart App Service apps and slots and virtual machines, take a Front Door origin out of rotation, or call any ARM operation. No SDK dependency: bring a token from Azure.Identity; every action requires approval by default.</Description>
+    <PackageTags>$(PackageTags);azure;app-service;front-door;arm</PackageTags>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Homeostat\Homeostat.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.Http" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Homeostat.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="..\..\docs\nuget\README.md" Pack="true" PackagePath="\" />
+    <None Include="..\..\assets\icon.png" Pack="true" PackagePath="\" />
+  </ItemGroup>
+
+</Project>
