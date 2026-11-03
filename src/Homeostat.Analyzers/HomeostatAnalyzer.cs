@@ -153,10 +153,11 @@ public sealed class HomeostatAnalyzer : DiagnosticAnalyzer
             return;
         }
 
-        var body = node switch
+        SyntaxNode? body = node switch
         {
-            AnonymousFunctionExpressionSyntax f => (SyntaxNode?)f.Body,
-            MethodDeclarationSyntax m => (SyntaxNode?)m.Body ?? m.ExpressionBody,
+            AnonymousFunctionExpressionSyntax f => f.Body,
+            MethodDeclarationSyntax { Body: { } block } => block,
+            MethodDeclarationSyntax m => m.ExpressionBody,
             _ => null,
         };
         // Asynchronous work: an await, or an expression body that returns a task (x => client.RenewAsync()).

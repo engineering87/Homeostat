@@ -211,12 +211,10 @@ internal sealed class SignalRecorder : IHostedLifecycleService
             options.UnixCreateMode = UnixFileMode.UserRead | UnixFileMode.UserWrite;
         }
 
-        var stream = new FileStream(path, options);
-        await using (stream.ConfigureAwait(false))
-        {
-            var bytes = Encoding.UTF8.GetBytes(text);
-            await stream.WriteAsync(bytes, cancellationToken).ConfigureAwait(false);
-        }
+        // The recorder writes from its own background loop, where there is no context to return to.
+        await using var stream = new FileStream(path, options);
+        var bytes = Encoding.UTF8.GetBytes(text);
+        await stream.WriteAsync(bytes, cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>Deletes daily files older than the retention, once a day.</summary>

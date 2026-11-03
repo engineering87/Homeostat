@@ -44,6 +44,19 @@ and carries:
 - **Signatures**: nuget.org signs every package it accepts (repository signature). When the maintainer's code signing
   certificate is configured, the packages are also author-signed; check with `dotnet nuget verify --all <package>`.
 
-The workflows pin every third-party action to a commit, fix every NuGet package to an exact version in
+The workflows pin every third-party action to a commit, declare every NuGet package with a single version in
 `Directory.Packages.props` (central package management), run with read-only permissions unless a job needs more, and
 the repository is assessed weekly by [OpenSSF Scorecard](https://scorecard.dev/viewer/?uri=github.com/engineering87/Homeostat).
+
+NuGet restores the lowest version that satisfies each reference, so a declared `1.2.3` resolves to exactly `1.2.3`,
+and nuget.org never lets a published version change. The repository deliberately uses neither of the two forms that
+Scorecard's Pinned-Dependencies check recognizes for NuGet:
+
+- exact ranges (`[1.2.3]`) would be copied into the dependencies of the published packages and force every
+  application using Homeostat onto those exact versions, with conflicts at the next servicing release;
+- lock files (`packages.lock.json`) change with every .NET SDK patch for projects marked Native AOT compatible, which
+  reference a trimming package versioned with the SDK, and would break restores between the CI, contributors and
+  Dependabot.
+
+The two `dotnet restore` steps are therefore reported as unpinned by Scorecard, and the alerts are dismissed as
+"won't fix" with this reason.

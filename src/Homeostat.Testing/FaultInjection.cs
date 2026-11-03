@@ -46,8 +46,14 @@ public sealed class FaultInjectingHandler : DelegatingHandler
     }
 
     /// <inheritdoc />
-    protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
-        => _fault.IsActive
-            ? Task.FromResult(new HttpResponseMessage(_statusCode) { RequestMessage = request })
-            : base.SendAsync(request, cancellationToken);
+    protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+    {
+        // The response belongs to the caller, as any response from a handler.
+        if (_fault.IsActive)
+        {
+            return new HttpResponseMessage(_statusCode) { RequestMessage = request };
+        }
+
+        return await base.SendAsync(request, cancellationToken).ConfigureAwait(false);
+    }
 }
