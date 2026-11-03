@@ -268,7 +268,7 @@ public static class HomeostatReplay
 
         var plans = conditions.Trackers
             .Where(t => t.Definition.Plan is not null)
-            .ToDictionary(t => t.Definition.Name, t => (IReadOnlyList<string>)[.. t.Definition.Plan!.Steps.Select(s => s.Name)], StringComparer.Ordinal);
+            .ToDictionary<ConditionTracker, string, IReadOnlyList<string>>(t => t.Definition.Name, t => [.. t.Definition.Plan!.Steps.Select(s => s.Name)], StringComparer.Ordinal);
         var summaries = conditions.Trackers.Select(t => t.Definition.Name).Select(name => new ReplayConditionSummary(
             name,
             recorder.Events.Count(e => e.Condition == name && e.Kind == ReplayEventKind.Activated),

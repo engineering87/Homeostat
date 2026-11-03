@@ -100,8 +100,8 @@ public static class HomeostatResourceBuilderExtensions
     internal static Uri WithQuery(Uri uri, string? query) => query is null ? uri : new UriBuilder(uri) { Query = query }.Uri;
 
     private static string Describe(TimeSpan span)
-        => span.TotalHours >= 1 && span.TotalHours == Math.Floor(span.TotalHours)
-            ? $"{span.TotalHours:0} hour{(span.TotalHours == 1 ? string.Empty : "s")}"
+        => span >= TimeSpan.FromHours(1) && span.Ticks % TimeSpan.TicksPerHour == 0
+            ? $"{span.TotalHours:0} hour{(span == TimeSpan.FromHours(1) ? string.Empty : "s")}"
             : $"{span.TotalMinutes:0} minutes";
 
     private static ResourceUrlAnnotation? PickEndpoint(List<ResourceUrlAnnotation> urls, string? endpointName)

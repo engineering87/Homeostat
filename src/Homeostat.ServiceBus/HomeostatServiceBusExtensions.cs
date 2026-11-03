@@ -67,7 +67,7 @@ public static class HomeostatServiceBusExtensions
         this HomeostatBuilder builder, string name, Func<IServiceProvider, ServiceBusProcessor>? processor = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(name);
-        var resolve = processor ?? (sp => sp.GetRequiredService<ServiceBusProcessor>());
+        Func<IServiceProvider, ServiceBusProcessor> resolve = processor ?? (sp => sp.GetRequiredService<ServiceBusProcessor>());
         return builder.AddPausableConsumer(sp => new PausableServiceBusProcessor(name, resolve(sp)));
     }
 
@@ -92,7 +92,7 @@ public static class HomeostatServiceBusExtensions
         ArgumentNullException.ThrowIfNull(builder);
         var options = new ServiceBusSignalOptions();
         configure?.Invoke(options);
-        var client = options.Client ?? (sp => sp.GetRequiredService<ServiceBusAdministrationClient>());
+        Func<IServiceProvider, ServiceBusAdministrationClient> client = options.Client ?? (sp => sp.GetRequiredService<ServiceBusAdministrationClient>());
         return AddCountSignals(builder, options.Source ?? defaultSource, options, (sp, ct) => read(client(sp), ct));
     }
 

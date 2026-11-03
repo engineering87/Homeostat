@@ -35,6 +35,7 @@ public sealed class FaultInjectingHandler : DelegatingHandler
     private readonly FaultSwitch _fault;
     private readonly HttpStatusCode _statusCode;
 
+    /// <summary>Creates the handler.</summary>
     /// <param name="fault">Controls when the fault is active.</param>
     /// <param name="statusCode">Status returned while the fault is active.</param>
     public FaultInjectingHandler(FaultSwitch fault, HttpStatusCode statusCode = HttpStatusCode.ServiceUnavailable)

@@ -6,6 +6,7 @@ namespace Homeostat.Healing;
 /// </summary>
 public interface IHealingVerifier
 {
+    /// <summary>Checks whether the condition has recovered after the plan's action.</summary>
     /// <param name="context">The healing context, including when the action completed.</param>
     /// <param name="timeout">Maximum time the verifier should spend.</param>
     /// <param name="cancellationToken">Canceled when the application stops.</param>

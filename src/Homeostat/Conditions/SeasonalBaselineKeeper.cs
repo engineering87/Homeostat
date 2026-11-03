@@ -76,6 +76,7 @@ internal sealed class SeasonalBaselineKeeper : IHostedService, IAsyncDisposable
             }
             catch (OperationCanceledException)
             {
+                // Expected: the loop was just canceled, or the host stopped waiting.
             }
         }
 

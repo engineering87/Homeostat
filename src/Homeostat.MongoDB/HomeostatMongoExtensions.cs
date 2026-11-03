@@ -52,7 +52,7 @@ public static class HomeostatMongoExtensions
             throw new ArgumentOutOfRangeException(nameof(configure), "The interval must be positive and PoolTimeoutsUnhealthyAbove not negative.");
         }
 
-        var client = options.Client ?? (sp => sp.GetRequiredService<IMongoClient>());
+        Func<IServiceProvider, IMongoClient> client = options.Client ?? (sp => sp.GetRequiredService<IMongoClient>());
         void Settings(ProbeOptions from, ProbeOptions to)
         {
             from.CopyTo(to);

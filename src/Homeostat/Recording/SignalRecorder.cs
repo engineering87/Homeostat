@@ -175,9 +175,10 @@ internal sealed class SignalRecorder : IHostedLifecycleService
 
         try
         {
+            var text = new StringBuilder();
             foreach (var group in batch.GroupBy(s => PathFor(s.Timestamp)))
             {
-                var text = new StringBuilder();
+                text.Clear();
                 foreach (var signal in group)
                 {
                     var recorded = new RecordedSignal(signal.Timestamp, signal.Source, signal.Severity, signal.Value,

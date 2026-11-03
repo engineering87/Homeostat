@@ -132,7 +132,7 @@ public sealed class MetricSignalBuilder
     /// <param name="factor">A finite number other than zero.</param>
     public MetricSignalBuilder Scale(double factor)
     {
-        if (!double.IsFinite(factor) || factor == 0)
+        if (!double.IsFinite(factor) || factor is 0d)
         {
             throw new ArgumentOutOfRangeException(nameof(factor), "The factor must be a finite number other than zero.");
         }

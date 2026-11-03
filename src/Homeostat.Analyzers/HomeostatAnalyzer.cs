@@ -164,7 +164,7 @@ public sealed class HomeostatAnalyzer : DiagnosticAnalyzer
             && (body.DescendantNodesAndSelf().OfType<AwaitExpressionSyntax>().Any()
                 || (body is ExpressionSyntax expression && body.Parent is not BlockSyntax
                     && model.GetTypeInfo(expression, cancellationToken).Type is { Name: "Task" or "ValueTask" }));
-        if (!asynchronous || body is null)
+        if (body is null || !asynchronous)
         {
             return;
         }

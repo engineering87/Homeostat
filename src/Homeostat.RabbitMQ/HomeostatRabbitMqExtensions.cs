@@ -37,7 +37,7 @@ public static class HomeostatRabbitMqExtensions
             throw new ArgumentOutOfRangeException(nameof(configure), "The interval must be positive.");
         }
 
-        var connection = options.Connection ?? (sp => sp.GetRequiredService<IConnection>());
+        Func<IServiceProvider, IConnection> connection = options.Connection ?? (sp => sp.GetRequiredService<IConnection>());
         return AddQueueSignals(builder, queue, options, (sp, name, ct) => ReadAsync(connection(sp), name, ct));
     }
 

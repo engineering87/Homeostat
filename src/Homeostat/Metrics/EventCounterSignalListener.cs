@@ -51,6 +51,8 @@ internal sealed class EventCounterSignalListener : EventListener
     private readonly ISignalPublisher _publisher;
     private readonly TimeProvider _timeProvider;
     private readonly ILogger _logger;
+    // Not readonly: the base constructor calls OnEventSourceCreated before this constructor runs, and those calls must
+    // see false. Volatile, because event callbacks run on other threads.
     private volatile bool _ready;
 
     public EventCounterSignalListener(

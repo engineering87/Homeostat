@@ -110,7 +110,7 @@ public static class HomeostatEndpointRouteBuilderExtensions
 
         group.MapPost("/switches/{name}/on", (string name, IHomeostatSwitches switches) =>
         {
-            if (name.Length > MaxSwitchNameLength)
+            if (!IsValidSwitchName(name))
             {
                 return Results.BadRequest();
             }
@@ -121,6 +121,11 @@ public static class HomeostatEndpointRouteBuilderExtensions
 
         group.MapPost("/switches/{name}/off", (string name, IHomeostatSwitches switches) =>
         {
+            if (!IsValidSwitchName(name))
+            {
+                return Results.BadRequest();
+            }
+
             switches.TurnOff(name);
             return Results.NoContent();
         });
@@ -259,4 +264,8 @@ public static class HomeostatEndpointRouteBuilderExtensions
 
     private static string? UserName(ClaimsPrincipal user)
         => user.Identity is { IsAuthenticated: true, Name: { Length: > 0 } name } ? name : null;
+
+    /// <summary>A switch name from a URL: not empty, not too long, and without control characters (no line breaks in logs).</summary>
+    internal static bool IsValidSwitchName(string name)
+        => name.Length is > 0 and <= MaxSwitchNameLength && !name.Any(char.IsControl);
 }

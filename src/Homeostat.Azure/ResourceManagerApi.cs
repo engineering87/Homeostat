@@ -108,6 +108,7 @@ internal sealed partial class ResourceManagerApi
         }
         catch (Exception ex) when (ex is JsonException or InvalidOperationException)
         {
+            // Not the usual error document: fall back to the raw text below.
         }
 
         return text.Length <= 200 ? text : text[..200];

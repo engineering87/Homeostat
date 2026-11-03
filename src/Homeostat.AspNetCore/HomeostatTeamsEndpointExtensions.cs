@@ -71,11 +71,6 @@ public static partial class HomeostatTeamsEndpointExtensions
         byte[] key,
         SeenMessages seen)
     {
-        if (http.Request.ContentLength > MaxBodySize)
-        {
-            return Results.StatusCode(StatusCodes.Status413PayloadTooLarge);
-        }
-
         var body = await ReadBodyAsync(http.Request, http.RequestAborted);
         if (body is null)
         {
@@ -174,8 +169,14 @@ public static partial class HomeostatTeamsEndpointExtensions
     private static IResult Reply(string text)
         => Results.Text(new JsonObject { ["type"] = "message", ["text"] = text }.ToJsonString(), "application/json", Encoding.UTF8);
 
+    /// <summary>The body, or <c>null</c> when it is larger than <see cref="MaxBodySize"/> (declared or actual).</summary>
     private static async Task<byte[]?> ReadBodyAsync(HttpRequest request, CancellationToken cancellationToken)
     {
+        if (request.ContentLength > MaxBodySize)
+        {
+            return null;
+        }
+
         using var buffer = new MemoryStream();
         var chunk = new byte[8192];
         int read;

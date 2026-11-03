@@ -288,7 +288,7 @@ public sealed class HealingPlanBuilder
     /// <example><code>.Cooldown(TimeSpan.FromMinutes(5)).CooldownBackoff(2, TimeSpan.FromHours(1))</code></example>
     public HealingPlanBuilder CooldownBackoff(double multiplier, TimeSpan max)
     {
-        if (!(multiplier >= 1) || double.IsInfinity(multiplier))
+        if (!double.IsFinite(multiplier) || multiplier < 1)
         {
             throw new ArgumentOutOfRangeException(nameof(multiplier), "The multiplier must be a finite number of at least 1.");
         }

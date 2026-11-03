@@ -154,7 +154,8 @@ All actions require approval by default.
 
 - `Homeostat.AspNetCore`: status and control endpoints (`MapHomeostatStatus`, `MapHomeostatControl`), which require an
   authorization policy unless explicitly mapped for anonymous use; `GET /homeostat/history` and
-  `GET /homeostat/coverage`.
+  `GET /homeostat/coverage`. Switch names in the URL are refused when empty, longer than 200 characters or with
+  control characters, by both the `on` and the `off` endpoint.
 - `MapHomeostatDashboard`: embedded dashboard with one-click approvals, switches, pause, recent runs, condition
   history and 24-hour coverage panels; strict Content-Security-Policy, text-only rendering.
 - `MapHomeostatAlerts`: receives Prometheus Alertmanager, Grafana and Azure Monitor (common alert schema)
@@ -228,6 +229,9 @@ All actions require approval by default.
   package (also attached to the release as `.intoto.jsonl`), and package signing when a certificate is configured;
   every action pinned to a commit, checkouts without persisted credentials, every NuGet package fixed to an exact version; CodeQL and
   OpenSSF Scorecard workflows; a security policy with coordinated disclosure timelines.
+- CodeQL configuration (`.github/codeql/codeql-config.yml`): the security-and-quality suite on the shipped code,
+  without tests and benchmarks, and without three style rules and the catch-all rule of the engine's fault isolation,
+  each with its reason.
 - Property-based tests (FsCheck) for the invariants of call signals (exact failure ratio, monotonic severity, every
   call counted once, p95 within the recorded durations) and of signal series (trend of a straight line, values kept
   exactly inside the window).

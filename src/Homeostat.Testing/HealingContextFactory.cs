@@ -8,6 +8,7 @@ namespace Homeostat.Testing;
 /// <summary>Creates <see cref="HealingContext"/> instances for unit testing actions and verifiers.</summary>
 public static class HealingContextFactory
 {
+    /// <summary>Creates a context for one step of a plan, with defaults for everything not passed.</summary>
     /// <param name="conditionName">Condition name.</param>
     /// <param name="triggeringSignal">Defaults to an unhealthy signal from source <c>"test"</c>.</param>
     /// <param name="services">Defaults to an empty service provider.</param>

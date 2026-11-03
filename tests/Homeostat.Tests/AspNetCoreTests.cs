@@ -106,6 +106,10 @@ public class AspNetCoreTests
         Assert.Equal("serve-cached", Assert.Single((await GetStatusAsync(client)).GetProperty("switches").EnumerateArray().ToList()).GetString());
         Assert.Equal(HttpStatusCode.NoContent, (await client.PostAsync("/homeostat/switches/serve-cached/off", null)).StatusCode);
         Assert.Empty((await GetStatusAsync(client)).GetProperty("switches").EnumerateArray().ToList());
+
+        // Names with control characters (a forged log line) or too long are refused, by both endpoints.
+        Assert.Equal(HttpStatusCode.BadRequest, (await client.PostAsync("/homeostat/switches/a%0D%0Afake-entry/on", null)).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await client.PostAsync($"/homeostat/switches/{new string('x', 201)}/off", null)).StatusCode);
     }
 
     [Fact]

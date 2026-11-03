@@ -56,7 +56,8 @@ internal sealed class HomeostatSwitches : IHomeostatSwitches
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "A handler of switch {Switch} failed.", name);
+                // The name may come from an HTTP request: a line break must not start a fake log entry.
+                _logger.LogError(ex, "A handler of switch {Switch} failed.", name.ReplaceLineEndings(" "));
             }
         }
     }

@@ -187,6 +187,7 @@ internal sealed class KubernetesApi
         }
         catch (JsonException)
         {
+            // Not a Status object: fall back to the raw text below.
         }
 
         return text.Length <= 200 ? text : text[..200];

@@ -1,0 +1,26 @@
+name: Homeostat
+
+# The security-and-quality suite, on the code that ships: the packages, the analyzers, the samples and the templates.
+queries:
+  - uses: security-and-quality
+
+# Tests and benchmarks are not shipped and deliberately do things production code must not (raw paths, undisposed
+# fakes, comparisons of exact floating point results): their alerts would only hide the ones that matter.
+paths-ignore:
+  - tests
+  - benchmarks
+
+query-filters:
+  # Homeostat isolates failures by design: a broken detector, action, observer or notifier must not stop the engine,
+  # so those boundaries catch every exception, log it and record the outcome. Each one is reviewed and commented.
+  - exclude:
+      id: cs/catch-of-all-exceptions
+  # Style suggestions (rewrite loops as LINQ, use statements instead of try/finally) with no effect on behavior: the
+  # loops are on hot paths where the explicit form avoids allocations, and the try/finally blocks release resources
+  # whose lifetime depends on conditions.
+  - exclude:
+      id: cs/linq/missed-where
+  - exclude:
+      id: cs/linq/missed-select
+  - exclude:
+      id: cs/missed-using-statement
