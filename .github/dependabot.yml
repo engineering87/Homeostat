@@ -13,7 +13,7 @@ updates:
       microsoft-extensions:
         patterns: [ "Microsoft.Extensions.*", "Microsoft.EntityFrameworkCore.*" ]
       test-tooling:
-        patterns: [ "xunit*", "Microsoft.NET.Test.Sdk" ]
+        patterns: [ "xunit*", "Microsoft.NET.Test.Sdk", "FsCheck" ]
       messaging-clients:
         patterns: [ "Azure.Messaging.ServiceBus", "RabbitMQ.Client", "Confluent.Kafka", "MongoDB.Driver" ]
     ignore:

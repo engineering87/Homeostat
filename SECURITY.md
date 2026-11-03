@@ -9,8 +9,21 @@ current major version.
 
 Please **do not** open a public issue. Use GitHub's
 [private vulnerability reporting](https://github.com/engineering87/Homeostat/security/advisories/new)
-for this repository. You will receive an acknowledgement as soon as possible, and a fix or mitigation
-plan once the report has been assessed.
+for this repository. Include the affected package and version, a description of the
+vulnerability and, if possible, the steps or code to reproduce it.
+
+## Disclosure policy
+
+Homeostat follows coordinated disclosure:
+
+1. Reports are acknowledged within **5 working days**.
+2. Within **14 days** of the report you receive an assessment: whether the issue is confirmed, its severity, and the
+   expected timeline of a fix.
+3. Confirmed vulnerabilities are fixed in a new release, normally within **90 days** of the report, and disclosed
+   through a [GitHub security advisory](https://github.com/engineering87/Homeostat/security/advisories) (with a CVE
+   when applicable) once the fix is published. Reporters are credited unless they prefer otherwise.
+4. Please keep the details private until the advisory is published, or until 90 days have passed, whichever comes
+   first.
 
 ## Verifying a release
 

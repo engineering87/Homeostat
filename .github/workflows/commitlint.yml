@@ -24,6 +24,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
+          persist-credentials: false
 
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
@@ -35,10 +36,11 @@ jobs:
 
       - name: Lint the commits of the pull request
         if: github.event_name == 'pull_request'
-        run: >
-          npx --no -- commitlint --verbose
-          --from "${{ github.event.pull_request.base.sha }}"
-          --to "${{ github.event.pull_request.head.sha }}"
+        # Event values go through the environment, never straight into the script.
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        run: npx --no -- commitlint --verbose --from "$BASE" --to "$HEAD"
 
       - name: Lint the pushed commits
         if: github.event_name == 'push'
@@ -63,7 +65,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          # Same types and scopes as commitlint.config.mjs.
+          # Same types and scopes as commitlint.config.mjs: keep the two lists in sync.
           types: |
             build
             chore
@@ -78,10 +80,27 @@ jobs:
             test
           scopes: |
             core
+            analyzers
+            artemis
+            aspire
             aspnetcore
+            azure
+            caching
+            cli
+            data
+            efcore
+            featureflags
+            grpc
             healthchecks
             http
+            kafka
+            kubernetes
+            mongodb
             polly
+            rabbitmq
+            redis
+            servicebus
+            templates
             testing
             samples
             docs

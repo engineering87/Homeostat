@@ -15,6 +15,11 @@
   -->
   <PropertyGroup>
     <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
+    <!--
+      On GitHub Actions the implicit restores of build and pack are locked too. Not for a runtime-specific restore (the
+      Native AOT publish): the committed lock files are generated without a runtime identifier.
+    -->
+    <RestoreLockedMode Condition="'$(GITHUB_ACTIONS)' == 'true' and '$(RuntimeIdentifier)' == ''">true</RestoreLockedMode>
   </PropertyGroup>
 
   <!-- Package metadata -->

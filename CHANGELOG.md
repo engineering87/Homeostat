@@ -225,8 +225,12 @@ All actions require approval by default.
 - Public API listings in `api/`, one per package, checked by `PublicApiTests` (`HOMEOSTAT_ACCEPT_API=1` updates
   them); API rules for 1.0 in `CONTRIBUTING.md`; XML documentation for the whole public API.
 - Release workflow on version tags with package validation, an SBOM (SPDX) and a build provenance attestation per
-  package, and package signing when a certificate is configured; every action pinned to a commit; OpenSSF Scorecard
-  workflow.
+  package (also attached to the release as `.intoto.jsonl`), and package signing when a certificate is configured;
+  every action pinned to a commit, checkouts without persisted credentials, NuGet restores in locked mode; CodeQL and
+  OpenSSF Scorecard workflows; a security policy with coordinated disclosure timelines.
+- Property-based tests (FsCheck) for the invariants of call signals (exact failure ratio, monotonic severity, every
+  call counted once, p95 within the recorded durations) and of signal series (trend of a straight line, values kept
+  exactly inside the window).
 - Conventional Commits enforced by commitlint (local `commit-msg` hook and a CI workflow that also checks pull request
   titles); Dependabot writes compliant commit messages.
 - Per-package NuGet READMEs; logo, package icon and social preview image; issue and pull request templates.

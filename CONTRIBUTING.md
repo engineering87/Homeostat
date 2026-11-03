@@ -90,7 +90,9 @@ change to those paths and mention the figures in the pull request.
 
 - Keep changes focused; one topic per pull request.
 - Give the pull request a Conventional Commits title (see above).
-- Add or update tests for behavior changes.
+- Add or update tests for behavior changes. For arithmetic that turns numbers into decisions (ratios, percentiles,
+  trends, windows), add a property to `PropertyTests` (FsCheck) as well: it checks an invariant against hundreds of
+  generated inputs, and reports the smallest failing case.
 - Public APIs must have XML documentation: missing comments are build warnings, and errors in CI.
 - New guardrail-relevant behavior must default to the safe option.
 - Update `CHANGELOG.md` under `[Unreleased]`.
