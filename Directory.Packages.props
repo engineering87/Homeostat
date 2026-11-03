@@ -33,7 +33,7 @@
     <PackageVersion Include="MongoDB.Driver" Version="3.13.0" />
     <PackageVersion Include="Polly.Core" Version="8.9.0" />
     <PackageVersion Include="RabbitMQ.Client" Version="7.2.2" />
-    <PackageVersion Include="StackExchange.Redis" Version="3.4.29" />
+    <PackageVersion Include="StackExchange.Redis" Version="3.4.31" />
     <PackageVersion Include="System.CommandLine" Version="2.0.14" />
 
     <!-- Test dependencies: xUnit v3 with Microsoft Testing Platform off, run through VSTest by dotnet test and Test Explorer -->
