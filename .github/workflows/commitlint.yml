@@ -58,7 +58,8 @@ jobs:
   title:
     name: Pull request title
     runs-on: ubuntu-latest
-    if: github.event_name == 'pull_request'
+    # Dependabot titles start with "Bump": commitlint.config.mjs accepts them, this check would not.
+    if: github.event_name == 'pull_request' && github.event.pull_request.user.login != 'dependabot[bot]'
 
     steps:
       - uses: amannn/action-semantic-pull-request@48f256284bd46cdaab1048c3721360e808335d50 # v6.1.1

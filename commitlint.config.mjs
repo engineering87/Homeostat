@@ -8,6 +8,9 @@
 // Checked locally by the commit-msg hook (npm install enables it) and in CI on every pull request.
 export default {
   extends: ['@commitlint/config-conventional'],
+  // Dependabot writes its subjects with a capital letter ("build(deps): Bump x from 1.0 to 1.1", "ci(deps): Bump the x group
+  // with 2 updates"): accept those messages as they are, here and on main after a squash merge.
+  ignores: [(message) => /^(build|ci)(\(deps(-dev)?\))?: Bump (\S+ from \S+ to \S+|the \S+ group)/.test(message)],
   rules: {
     // Optional, but when present it must name a part of the repository.
     'scope-enum': [

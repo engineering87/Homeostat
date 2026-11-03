@@ -116,9 +116,8 @@ published version, so that accidental breaking changes fail the build.
 
 Notes for dependencies:
 
-- Every project has a `packages.lock.json`, and CI restores in locked mode. After changing a package reference or a
-  version in `Directory.Packages.props`, run `dotnet restore Homeostat.slnx --force-evaluate` and commit the updated
-  lock files with the change.
+- Package versions live only in `Directory.Packages.props` (central package management), always as exact versions:
+  no ranges (`[1.0, 2.0)`) and no floating versions (`1.*`). Project files reference packages without a version.
 - The templates reference the Homeostat packages with the token `HOMEOSTAT_VERSION`, replaced at pack time, so they
   always match the release. Other versions in the template projects (such as `Microsoft.Extensions.Hosting`) are not
   updated by Dependabot: update them with the Microsoft.Extensions servicing releases.

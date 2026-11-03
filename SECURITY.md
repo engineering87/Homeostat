@@ -44,6 +44,6 @@ and carries:
 - **Signatures**: nuget.org signs every package it accepts (repository signature). When the maintainer's code signing
   certificate is configured, the packages are also author-signed; check with `dotnet nuget verify --all <package>`.
 
-The workflows pin every third-party action to a commit, restore NuGet packages in locked mode from the committed
-`packages.lock.json` files, run with read-only permissions unless a job needs more, and
+The workflows pin every third-party action to a commit, fix every NuGet package to an exact version in
+`Directory.Packages.props` (central package management), run with read-only permissions unless a job needs more, and
 the repository is assessed weekly by [OpenSSF Scorecard](https://scorecard.dev/viewer/?uri=github.com/engineering87/Homeostat).

@@ -226,7 +226,7 @@ All actions require approval by default.
   them); API rules for 1.0 in `CONTRIBUTING.md`; XML documentation for the whole public API.
 - Release workflow on version tags with package validation, an SBOM (SPDX) and a build provenance attestation per
   package (also attached to the release as `.intoto.jsonl`), and package signing when a certificate is configured;
-  every action pinned to a commit, checkouts without persisted credentials, NuGet restores in locked mode; CodeQL and
+  every action pinned to a commit, checkouts without persisted credentials, every NuGet package fixed to an exact version; CodeQL and
   OpenSSF Scorecard workflows; a security policy with coordinated disclosure timelines.
 - Property-based tests (FsCheck) for the invariants of call signals (exact failure ratio, monotonic severity, every
   call counted once, p95 within the recorded durations) and of signal series (trend of a straight line, values kept

@@ -58,8 +58,9 @@ jobs:
           echo "VERSION=$version" >> "$GITHUB_ENV"
 
       - name: Restore
-        # Locked mode: exactly the versions and hashes in the packages.lock.json files, or the build fails.
-        run: dotnet restore Homeostat.slnx --locked-mode
+        # Every package version is fixed in Directory.Packages.props (central package management, no ranges or
+        # floating versions), so the restore resolves exactly the reviewed versions.
+        run: dotnet restore Homeostat.slnx
 
       - name: Build
         run: dotnet build Homeostat.slnx --configuration Release --no-restore -p:Version=$VERSION
