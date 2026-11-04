@@ -53,9 +53,9 @@ public sealed class KafkaSignalReporter
         {
             ReportCore(statisticsJson);
         }
-        catch (Exception ex) when (ex is JsonException or InvalidOperationException or FormatException)
+        catch (Exception)
         {
-            // An unexpected document: skip it.
+            // An unexpected document, or anything else: skip it. The client would rethrow it from the next Consume.
         }
     }
 

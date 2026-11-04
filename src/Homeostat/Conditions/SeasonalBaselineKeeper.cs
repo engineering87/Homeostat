@@ -51,8 +51,14 @@ internal sealed class SeasonalBaselineKeeper : IHostedService, IAsyncDisposable
             {
                 using var limit = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
                 limit.CancelAfter(StoreWait);
-                await SyncAsync(limit.Token).ConfigureAwait(false);
+
+                // Bounded even when the store ignores the token: the application's startup must not wait for it.
+                await SyncAsync(limit.Token).WaitAsync(limit.Token).ConfigureAwait(false);
             }
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            _logger.LogWarning("The saved seasonal baselines could not be loaded within {Wait}: learning starts over.", StoreWait);
         }
         finally
         {

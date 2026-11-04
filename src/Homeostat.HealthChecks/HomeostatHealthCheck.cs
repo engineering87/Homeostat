@@ -11,6 +11,8 @@ internal sealed class HomeostatHealthCheck : IHealthCheck
 
     private readonly IHomeostatControl _control;
     private readonly IHomeostatApprovals _approvals;
+    private static readonly TimeSpan StoreTimeout = TimeSpan.FromSeconds(2);
+
     private readonly HealthStatus _attentionStatus;
 
     public HomeostatHealthCheck(IHomeostatControl control, IHomeostatApprovals approvals, HealthStatus attentionStatus)
@@ -27,8 +29,10 @@ internal sealed class HomeostatHealthCheck : IHealthCheck
         int pending;
         try
         {
-            budget = await _control.GetBudgetAsync(cancellationToken).ConfigureAwait(false);
-            pending = (await _approvals.GetPendingAsync(cancellationToken).ConfigureAwait(false)).Count;
+            // Bounded: a store that does not answer must not make the health endpoint time out (a liveness probe that
+            // times out restarts the application).
+            budget = await _control.GetBudgetAsync(cancellationToken).AsTask().WaitAsync(StoreTimeout, cancellationToken).ConfigureAwait(false);
+            pending = (await _approvals.GetPendingAsync(cancellationToken).AsTask().WaitAsync(StoreTimeout, cancellationToken).ConfigureAwait(false)).Count;
         }
         catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
         {

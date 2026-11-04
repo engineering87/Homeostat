@@ -403,6 +403,12 @@ repository (version `0.1.0` in the project files):
 - A pending cause that receives no signal for `max(SustainedFor, 1 minute)` no longer suppresses its symptoms.
 - A condition removed by a configuration reload stops its running plan before the next step.
 - `RestartLimits.Window` is a fixed window starting at the first restart counted in it.
+- Homeostat can no longer hold up the application it heals: startup waits at most 5 seconds for the control state; the
+  control, status, history and coverage endpoints, the Slack and Teams endpoints and the health check stop waiting for
+  a store that does not answer; an action, compensating action or verifier that ignores its cancellation no longer
+  holds the run, the concurrency slot or the shutdown; an `IsFailure` classifier that throws no longer fails the
+  application's HTTP, gRPC, Entity Framework Core or tracked call; exceptions from the engine and detector loops no
+  longer stop the host; MongoDB, Redis, Kafka and alert-timer callbacks never throw into the client libraries.
 - File store: a change that cannot be written is undone in memory too (a retried condition event was stored twice, a
   refused budget unit stayed spent); a second process on the same file fails at startup (`{path}.lock`); null records
   in the file no longer prevent startup. `FileHomeostatStore` is `IDisposable`, to release the lock.

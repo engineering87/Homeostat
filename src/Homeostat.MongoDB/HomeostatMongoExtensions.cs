@@ -120,9 +120,10 @@ public static class HomeostatMongoExtensions
         settings.ClusterConfigurator = events.Configurator(name, previous, () => cluster =>
         {
             previous?.Invoke(cluster);
-            cluster.Subscribe<ConnectionPoolCheckingOutConnectionFailedEvent>(e =>
-                state.CheckoutFailed(e.Reason == ConnectionCheckOutFailedReason.Timeout));
-            cluster.Subscribe<ClusterDescriptionChangedEvent>(e =>
+            // The handlers run inside the driver's connection pool and server monitoring: they never throw.
+            cluster.Subscribe<ConnectionPoolCheckingOutConnectionFailedEvent>(e => Safely(() =>
+                state.CheckoutFailed(e.Reason == ConnectionCheckOutFailedReason.Timeout)));
+            cluster.Subscribe<ClusterDescriptionChangedEvent>(e => Safely(() =>
             {
                 var servers = e.NewDescription.Servers;
 
@@ -141,9 +142,21 @@ public static class HomeostatMongoExtensions
                 {
                     MongoSignals.PublishPrimary(publisher, registration.Prefix, state, time.GetUtcNow());
                 }
-            });
+            }));
         });
         return settings;
+    }
+
+    private static void Safely(Action handler)
+    {
+        try
+        {
+            handler();
+        }
+        catch
+        {
+            // A signal missed is better than a driver event handler that fails.
+        }
     }
 
     private static IEnumerable<ReplicaMember> Members(BsonDocument status)

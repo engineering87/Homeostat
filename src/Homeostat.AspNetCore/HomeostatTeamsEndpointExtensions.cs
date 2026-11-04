@@ -18,6 +18,9 @@ namespace Homeostat;
 /// <summary>Maps the endpoint of a Microsoft Teams outgoing webhook that answers approval requests from a channel.</summary>
 public static partial class HomeostatTeamsEndpointExtensions
 {
+    // Teams waits 5 seconds for the answer to an outgoing webhook: a store that does not answer gets a reply in time.
+    private static readonly TimeSpan StoreTimeout = TimeSpan.FromSeconds(4);
+
     private const int MaxBodySize = 64 * 1024;
 
     /// <summary>
@@ -117,7 +120,8 @@ public static partial class HomeostatTeamsEndpointExtensions
 
         try
         {
-            return await RunCommandAsync(message, approvals, options, logger, http.RequestAborted);
+            // Teams gives up after a few seconds: a store that does not answer gets a reply, not a hung request.
+            return await RunCommandAsync(message, approvals, options, logger, http.RequestAborted).WaitAsync(StoreTimeout, http.RequestAborted);
         }
         catch (Exception ex) when (!http.RequestAborted.IsCancellationRequested)
         {

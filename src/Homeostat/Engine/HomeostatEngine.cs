@@ -73,13 +73,13 @@ internal sealed class HomeostatEngine : BackgroundService
 
             await foreach (var signal in _channel.Reader.ReadAllAsync(stoppingToken).ConfigureAwait(false))
             {
-                foreach (var recorder in _recorders)
-                {
-                    recorder.Record(signal);
-                }
-
                 try
                 {
+                    foreach (var recorder in _recorders)
+                    {
+                        recorder.Record(signal);
+                    }
+
                     Process(signal, stoppingToken);
                 }
                 catch (Exception ex) when (ex is not OperationCanceledException)
@@ -94,6 +94,12 @@ internal sealed class HomeostatEngine : BackgroundService
         catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
         {
             // Normal shutdown.
+        }
+        catch (Exception ex)
+        {
+            // Never: an exception out of a background service stops the whole application by default
+            // (BackgroundServiceExceptionBehavior.StopHost). Self-healing stops; the application keeps running.
+            _logger.LogCritical(ex, "The Homeostat engine stopped unexpectedly; self-healing is off until the application restarts.");
         }
     }
 

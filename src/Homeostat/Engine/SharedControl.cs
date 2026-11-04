@@ -15,6 +15,9 @@ internal sealed class SharedControl
 {
     private static readonly View EmptyView = new(ControlState.Empty);
 
+    // A store that never answers must not hold the refresh, and with it every pause and switch change, forever.
+    internal static readonly TimeSpan ReadTimeout = TimeSpan.FromSeconds(10);
+
     private readonly IHomeostatStore _store;
     private readonly ILogger<SharedControl> _logger;
     private readonly SemaphoreSlim _refreshing = new(1, 1);
@@ -54,7 +57,7 @@ internal sealed class SharedControl
             ControlState next;
             try
             {
-                next = Validate(await _store.GetControlStateAsync(cancellationToken).ConfigureAwait(false));
+                next = Validate(await _store.GetControlStateAsync(cancellationToken).AsTask().WaitAsync(ReadTimeout, cancellationToken).ConfigureAwait(false));
             }
             catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
             {
@@ -189,6 +192,8 @@ internal sealed class SharedControl
 /// <summary>Reads the control state at startup and then periodically, so changes made on other instances apply here.</summary>
 internal sealed class SharedControlRefresher(SharedControl control, IOptions<HomeostatOptions> options, TimeProvider timeProvider) : BackgroundService
 {
+    private static readonly TimeSpan StartupWait = TimeSpan.FromSeconds(5);
+
     public override async Task StartAsync(CancellationToken cancellationToken)
     {
         // The guardrails are fixed from now on (see HomeostatOptions.Freeze).
@@ -197,7 +202,16 @@ internal sealed class SharedControlRefresher(SharedControl control, IOptions<Hom
         // A pause set before this instance started applies from its first signal. Until the state is read, Homeostat
         // counts as paused (see HomeostatControl.PauseReason), so a store unreachable at startup delays healing
         // rather than letting it run through a pause it cannot see.
-        await control.TryRefreshAsync(cancellationToken).ConfigureAwait(false);
+        // The application's startup waits a few seconds at most: past that the refresh goes on in the background.
+        try
+        {
+            await control.TryRefreshAsync(cancellationToken).WaitAsync(StartupWait, cancellationToken).ConfigureAwait(false);
+        }
+        catch (TimeoutException)
+        {
+            // Still paused (state unknown) until the read completes.
+        }
+
         await base.StartAsync(cancellationToken).ConfigureAwait(false);
     }
 

@@ -62,5 +62,10 @@ internal sealed class DetectorHost : BackgroundService
         {
             // Normal shutdown.
         }
+        catch (Exception ex)
+        {
+            // An exception out of a background service would stop the application (StopHost): signals stop instead.
+            _logger.LogCritical(ex, "The Homeostat detectors stopped unexpectedly; their signals are no longer published.");
+        }
     }
 }

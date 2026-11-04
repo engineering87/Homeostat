@@ -267,6 +267,9 @@ Requirements:
 - `GetControlStateAsync` skips records it cannot read rather than failing: one bad record must not hide the pause.
 - Return `PlanState.Empty` for unknown plans.
 - Throw on failure: Homeostat handles it (fail closed).
+- Time out your own calls (the Redis store relies on the client's timeouts): a call that never returns holds the healing
+  run that made it. Homeostat bounds its own waits for the control state, the endpoints and the health check, but not
+  every call of a run.
 
 `InMemoryHomeostatStore` is a good reference; `FileHomeostatStore` shows how to persist it. Both are sealed: wrap
 them rather than derive from them.

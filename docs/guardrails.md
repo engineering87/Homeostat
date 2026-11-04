@@ -71,9 +71,32 @@ fails closed and does not start runs.
 | `DefaultActionTimeout` | 30 s | Each action and compensating action (`.ActionTimeout(...)` after a step) |
 | `DefaultVerificationTimeout` | 1 min | Each verification (`.VerificationTimeout(...)` after a step) |
 
-Cancellation is cooperative: when the timeout expires, the action's `CancellationToken` is canceled,
-and the step fails if the action then throws. An action that ignores the token keeps the run waiting,
-and if it eventually completes normally it is treated as successful.
+When the timeout expires, the action's `CancellationToken` is canceled and the step fails with a `TimeoutException`.
+Homeostat stops waiting at that moment even if the action ignores the token: a stuck action (a blocking call, a
+lost token) cannot hold the run, the concurrency slot or the shutdown. .NET cannot stop code that ignores
+cancellation, so such an action keeps running in the background, and Homeostat logs an error saying so: pass the
+token to every call an action makes. A verifier gets its timeout and Homeostat waits at most twice as long for it, plus the condition's
+`ClearAfter` (the default verifier waits for a recovery in progress to hold); one that never returns ends the run as
+`Inconclusive`.
+
+## What Homeostat does when it is the problem
+
+Self-healing must never be what takes the application down. These are the rules, and `ReliabilityTests` checks them:
+
+| Failure | What happens |
+|---|---|
+| The store never answers | Startup waits at most 5 seconds for the control state, then Homeostat counts as paused until it can read it. Control and status endpoints answer `503` within 10 seconds, the Homeostat health check within 2, and shutdown is not delayed. |
+| The store fails | Fail closed: no run starts whose cooldown or budget cannot be checked; store errors are logged without flooding the log. |
+| An action, compensating action or verifier never returns | Homeostat stops waiting at its timeout (twice the timeout plus `ClearAfter` for a verifier) and logs it. |
+| A classifier (`IsFailure`) or a metric filter throws | The application's call or measurement is not affected: Homeostat counts it and moves on. |
+| A detector, probe, observer or sink throws | Logged and isolated: the others go on. |
+| Something escapes Homeostat's engine or detector loop | Logged as critical; self-healing stops, the application keeps running (an exception out of a background service would otherwise stop the host). |
+| Signals arrive faster than they are processed | `TryPublish` never waits: the buffer (`SignalBufferCapacity`) drops the oldest. |
+| Plans that would act too often | Dry-run by default, action budget (10 per hour), one run at a time, cooldown with backoff, restart limits. |
+
+What Homeostat cannot prevent: an observer (`IHealingObserver`) runs on Homeostat's threads, so a slow one delays
+signal processing (use an [event sink](observability.md) for slow work); and a custom store must time out its own
+calls, because a call that never returns inside a healing run holds that run.
 
 ## Kill switch
 

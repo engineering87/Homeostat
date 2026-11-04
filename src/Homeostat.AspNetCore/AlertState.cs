@@ -88,7 +88,15 @@ internal sealed class AlertState : IDisposable
 
         foreach (var name in names)
         {
-            Publish(name, now);
+            // A timer callback that throws ends the process: one source that fails only skips its signal.
+            try
+            {
+                Publish(name, now);
+            }
+            catch
+            {
+                // Skipped until the next interval.
+            }
         }
     }
 

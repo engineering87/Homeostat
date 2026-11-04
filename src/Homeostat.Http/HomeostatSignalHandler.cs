@@ -18,6 +18,9 @@ internal sealed class HomeostatSignalHandler : DelegatingHandler
         try
         {
             var response = await base.SendAsync(request, cancellationToken).ConfigureAwait(false);
+
+            // Measuring must never fail the application's call: a classifier that throws counts the response as a
+            // success, and the caller gets it as if Homeostat were not there.
             bool failed;
             try
             {
@@ -25,9 +28,7 @@ internal sealed class HomeostatSignalHandler : DelegatingHandler
             }
             catch
             {
-                // The caller never receives the response, so release it here.
-                response.Dispose();
-                throw;
+                failed = false;
             }
 
             _window.Record(failed, _timeProvider.GetElapsedTime(start));

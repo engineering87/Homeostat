@@ -132,7 +132,17 @@ public sealed class HomeostatGrpcInterceptor : Interceptor
                 return;
             }
 
-            var failed = owner._isFailure(status);
+            // A classifier that throws must not reach the application's call: it counts as not failed.
+            bool failed;
+            try
+            {
+                failed = owner._isFailure(status);
+            }
+            catch
+            {
+                failed = false;
+            }
+
             if (started is { } timestamp)
             {
                 owner._recorder.Record(failed, owner._timeProvider.GetElapsedTime(timestamp));

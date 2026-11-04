@@ -663,7 +663,22 @@ internal sealed class HealingRunner
             Exception? verificationError = null;
             try
             {
-                verification = await verifier.VerifyAsync(context, timeout, cancellationToken).ConfigureAwait(false);
+                // The verifier gets its timeout; Homeostat waits at most twice as long, plus ClearAfter (the default
+                // verifier waits for a recovery in progress to hold), so one that never returns cannot hold the run,
+                // its concurrency slot or the shutdown.
+                var verificationLimitSpan = timeout + timeout + tracker.Definition.ClearAfter;
+                using var verificationDeadline = new CancellationTokenSource(verificationLimitSpan, _timeProvider);
+                using var verificationLimit = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, verificationDeadline.Token);
+                var verifying = Task.Run(() => verifier.VerifyAsync(context, timeout, cancellationToken), CancellationToken.None);
+                try
+                {
+                    verification = await verifying.WaitAsync(verificationLimit.Token).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException) when (verificationDeadline.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
+                {
+                    Abandon(verifying, name, $"the verification after {step.Name}");
+                    throw new TimeoutException($"The verifier after '{step.Name}' did not return within {verificationLimitSpan} (twice its timeout, plus ClearAfter).");
+                }
             }
             catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
             {
@@ -763,7 +778,8 @@ internal sealed class HealingRunner
         _logger.LogWarning("Condition {Condition}: {Action} did not heal; compensating with {Undo}.", context.ConditionName, step.Name, step.UndoName);
         try
         {
-            await resolveUndo(services).ExecuteAsync(context, linkedCts.Token).ConfigureAwait(false);
+            var undo = resolveUndo(services);
+            await RunBoundedAsync(() => undo.ExecuteAsync(context, linkedCts.Token), linkedCts.Token, context.ConditionName, step.UndoName ?? "undo").ConfigureAwait(false);
             return true;
         }
         catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
@@ -915,7 +931,7 @@ internal sealed class HealingRunner
         try
         {
             var action = step.Resolve(services);
-            await action.ExecuteAsync(context, linkedCts.Token).ConfigureAwait(false);
+            await RunBoundedAsync(() => action.ExecuteAsync(context, linkedCts.Token), linkedCts.Token, context.ConditionName, step.Name).ConfigureAwait(false);
             return (true, null);
         }
         catch (OperationCanceledException ex) when (timeoutCts.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
@@ -929,6 +945,34 @@ internal sealed class HealingRunner
             _logger.LogError(ex, "Condition {Condition}: {Action} threw an exception.", context.ConditionName, step.Name);
             return (false, ex);
         }
+    }
+
+    /// <summary>
+    /// Runs an action off the run's thread and stops waiting for it at the deadline, even if it ignores its token: a
+    /// stuck action (a blocking call, a lost cancellation) cannot hold the run, the concurrency slot or the shutdown.
+    /// </summary>
+    private async Task RunBoundedAsync(Func<Task> work, CancellationToken deadline, string condition, string what)
+    {
+        var task = Task.Run(work, CancellationToken.None);
+        try
+        {
+            await task.WaitAsync(deadline).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (deadline.IsCancellationRequested && !task.IsCompleted)
+        {
+            Abandon(task, condition, what);
+            throw;
+        }
+    }
+
+    private void Abandon(Task task, string condition, string what)
+    {
+        // Observed, so its eventual failure is not an unobserved task exception.
+        _ = task.ContinueWith(static t => _ = t.Exception, CancellationToken.None,
+            TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
+        _logger.LogError(
+            "Condition {Condition}: {What} did not stop when canceled and is still running; Homeostat no longer waits for it. "
+            + "Pass the cancellation token to every call it makes.", condition, what);
     }
 
     /// <summary>Turns off the application switches this condition's cluster plan turned on here; a store failure is logged.</summary>

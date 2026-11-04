@@ -124,10 +124,23 @@ public sealed class CallRecorder
             var callerCanceled = ex is OperationCanceledException && cancellationToken.IsCancellationRequested;
             if (!callerCanceled)
             {
-                Record(isFailure?.Invoke(ex) ?? true, _timeProvider.GetElapsedTime(started));
+                Record(IsFailure(isFailure, ex), _timeProvider.GetElapsedTime(started));
             }
 
             throw;
+        }
+    }
+
+    // The caller must get its own exception back: a classifier that throws counts the call as failed instead.
+    private static bool IsFailure(Func<Exception, bool>? isFailure, Exception exception)
+    {
+        try
+        {
+            return isFailure?.Invoke(exception) ?? true;
+        }
+        catch
+        {
+            return true;
         }
     }
 

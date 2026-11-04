@@ -236,4 +236,6 @@ builder.Services.AddHealthChecks()
 
 The result data contains `paused`, `dry_run`, `active_conditions`, `budget_remaining` and `pending_approvals`.
 Use `attentionStatus: HealthStatus.Unhealthy` to make it stricter, and `tags` to select it in a dedicated
-endpoint. This check is never turned into a Homeostat signal, so it cannot trigger conditions about itself.
+endpoint. This check is never turned into a Homeostat signal, so it cannot trigger conditions about itself. It
+answers within about 2 seconds even when the store does not. Keep it out of liveness probes: "a condition is active"
+means the application is being healed, not that it must be restarted; use it in readiness or monitoring endpoints.

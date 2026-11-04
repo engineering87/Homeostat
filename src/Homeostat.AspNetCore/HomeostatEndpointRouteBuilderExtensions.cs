@@ -103,7 +103,7 @@ public static class HomeostatEndpointRouteBuilderExtensions
         {
             try
             {
-                return await control.ReleaseHoldAsync(name, ct) ? Results.NoContent() : Results.NotFound();
+                return await control.ReleaseHoldAsync(name, ct).AsTask().WaitAsync(StoreTimeout).ConfigureAwait(false) ? Results.NoContent() : Results.NotFound();
             }
             catch (ArgumentException)
             {
@@ -160,6 +160,9 @@ public static class HomeostatEndpointRouteBuilderExtensions
     private const int MaxSwitchNameLength = 200;
 
     private static readonly TimeSpan MaxPause = TimeSpan.FromDays(30);
+
+    // A store that does not answer: the request gets a 503 instead of waiting, so requests do not pile up.
+    private static readonly TimeSpan StoreTimeout = TimeSpan.FromSeconds(10);
 
     internal static bool IsForgeable(HttpRequest request)
     {
@@ -238,7 +241,7 @@ public static class HomeostatEndpointRouteBuilderExtensions
     {
         try
         {
-            await call();
+            await call().AsTask().WaitAsync(StoreTimeout).ConfigureAwait(false);
             return Results.NoContent();
         }
         catch (ArgumentException)
@@ -255,7 +258,7 @@ public static class HomeostatEndpointRouteBuilderExtensions
     {
         try
         {
-            return await answer() ? Results.NoContent() : Results.NotFound();
+            return await answer().AsTask().WaitAsync(StoreTimeout).ConfigureAwait(false) ? Results.NoContent() : Results.NotFound();
         }
         catch (ArgumentException)
         {
@@ -285,10 +288,10 @@ public static class HomeostatEndpointRouteBuilderExtensions
         string? storeError = null;
         try
         {
-            pending = await approvals.GetPendingAsync(cancellationToken);
-            var budget = await control.GetBudgetAsync(cancellationToken);
+            pending = await approvals.GetPendingAsync(cancellationToken).AsTask().WaitAsync(StoreTimeout, cancellationToken);
+            var budget = await control.GetBudgetAsync(cancellationToken).AsTask().WaitAsync(StoreTimeout, cancellationToken);
             budgetStatus = new BudgetStatus(budget.Used, budget.Limit, budget.Remaining, budget.Window.TotalSeconds);
-            runInfos = (await control.GetRecentRunsAsync(cancellationToken)).Select(RunInfo.From).ToArray();
+            runInfos = (await control.GetRecentRunsAsync(cancellationToken).AsTask().WaitAsync(StoreTimeout, cancellationToken)).Select(RunInfo.From).ToArray();
         }
         catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
         {
@@ -314,7 +317,7 @@ public static class HomeostatEndpointRouteBuilderExtensions
     {
         try
         {
-            var events = await control.GetConditionHistoryAsync(cancellationToken);
+            var events = await control.GetConditionHistoryAsync(cancellationToken).AsTask().WaitAsync(StoreTimeout, cancellationToken);
             return Results.Json(events
                 .Where(e => condition is null || string.Equals(e.ConditionName, condition, StringComparison.Ordinal))
                 .Select(ConditionEventInfo.From)
@@ -354,7 +357,7 @@ public static class HomeostatEndpointRouteBuilderExtensions
 
         try
         {
-            var report = await control.GetCoverageAsync(from, cancellationToken);
+            var report = await control.GetCoverageAsync(from, cancellationToken).AsTask().WaitAsync(StoreTimeout, cancellationToken);
             return Results.Json(report, HomeostatAspNetCoreJsonContext.Default.CoverageReport);
         }
         catch (Exception) when (!cancellationToken.IsCancellationRequested)

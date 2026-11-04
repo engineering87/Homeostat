@@ -16,6 +16,9 @@ namespace Homeostat;
 /// <summary>Maps the endpoint that receives clicks on the Slack approval buttons.</summary>
 public static class HomeostatSlackEndpointExtensions
 {
+    // Slack waits 3 seconds for the answer: a store that does not answer gets a reply in time.
+    private static readonly TimeSpan StoreTimeout = TimeSpan.FromSeconds(2);
+
     private const int MaxBodySize = 64 * 1024;
     private static readonly HttpClient SharedClient = new(new SocketsHttpHandler { PooledConnectionLifetime = TimeSpan.FromMinutes(5) })
     {
@@ -117,8 +120,8 @@ public static class HomeostatSlackEndpointExtensions
         try
         {
             answered = action.Approve
-                ? await approvals.ApproveAsync(action.ApprovalId, by, http.RequestAborted)
-                : await approvals.RejectAsync(action.ApprovalId, by, http.RequestAborted);
+                ? await approvals.ApproveAsync(action.ApprovalId, by, http.RequestAborted).AsTask().WaitAsync(StoreTimeout, http.RequestAborted)
+                : await approvals.RejectAsync(action.ApprovalId, by, http.RequestAborted).AsTask().WaitAsync(StoreTimeout, http.RequestAborted);
         }
         catch (Exception ex) when (!http.RequestAborted.IsCancellationRequested)
         {
