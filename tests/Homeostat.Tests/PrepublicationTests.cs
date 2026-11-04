@@ -60,7 +60,7 @@ public class PrepublicationTests
         var services = new ServiceCollection();
         var time = new FakeTimeProvider();
         services.AddSingleton<TimeProvider>(time);
-        services.AddHomeostat(h => h.AddNpgsqlPoolSignal(maxPoolSize: 50, dataSourceName: "reports"));
+        services.AddHomeostat(h => h.AddNpgsqlPoolSignal(o => { o.MaxPoolSize = 50; o.DataSourceName = "reports"; }));
         using var detector = services.BuildServiceProvider().GetServices<ISignalDetector>().OfType<MetricSignalDetector>().Single();
 
         var sink = new CollectingPublisher();

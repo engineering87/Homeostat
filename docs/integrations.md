@@ -53,10 +53,15 @@ h.AddLatencyProbe("search-index",
 |---|---|---|
 | `Interval` | every detection interval | How often the probe runs |
 | `Timeout` | 5 s | Longest call; then `outcome=timeout` |
-| `DegradedAbove`, `UnhealthyAbove` | none | Upper thresholds |
-| `DegradedBelow`, `UnhealthyBelow` | none | Lower thresholds (free disk space, consumers online) |
+| `DegradedAbove`, `UnhealthyAbove` | none | Upper thresholds: a value strictly above reaches them |
+| `DegradedBelow`, `UnhealthyBelow` | none | Lower thresholds (free disk space, consumers online): a value strictly below reaches them |
 | `FailureSeverity` | `Unhealthy` | Severity when the probe throws or times out |
 | `Origin` | `probe`, `latency-probe` | Value of the `origin` tag; integration packages set their own (`database-probe`, `redis-ping`, ...) |
+
+Probe, event counter and Kafka thresholds compare **strictly**: with `UnhealthyAbove = 10_000`, a backlog of exactly
+10 000 is not `Unhealthy`. [Metric signals](detectors.md#metrics) (and the signals built on them, such as the server
+error rate and latency signals and the Npgsql pool signal) compare **inclusively**: a value at or above
+`UnhealthyAbove`, or at or below `UnhealthyBelow`, reaches it.
 
 How probes behave:
 
@@ -123,7 +128,7 @@ time instead, and use the tag in logs, the audit trail and notifications:
 h.AddCondition("reports-db-down", c => c
     .ForSource("reports-db")
     .SustainedFor(TimeSpan.FromMinutes(1))          // a blip clears before this
-    .Heal(p => p.TurnOnSwitch("reports-read-only", turnOffWhenCleared: true)));
+    .Heal(p => p.TurnOnSwitch("reports-read-only")));
 
 h.AddCondition("reports-db-flapping", c => c
     .ForSource("reports-db")
@@ -153,7 +158,7 @@ A pool that stays full makes every request wait for a connection, then fail with
 itself is in trouble. `Microsoft.Data.SqlClient` reports its pool through **event counters**, not metrics:
 
 ```csharp
-h.AddSqlClientPoolSignal(maxPoolSize: 100)        // sqlclient:pool: connections in use / Max Pool Size
+h.AddSqlClientPoolSignal(o => o.MaxPoolSize = 100)   // sqlclient:pool: connections in use / Max Pool Size
  .AddCondition("sql-pool-full", c => c
      .ForSource("sqlclient:pool")
      .WhenSeverityAtLeast(SignalSeverity.Degraded)
@@ -163,8 +168,9 @@ h.AddSqlClientPoolSignal(maxPoolSize: 100)        // sqlclient:pool: connections
 
 Clearing the pools does not help here: connections in use are not closed by it. Shed load instead (pause consumers,
 turn on a degraded mode), and look for the cause: slow queries holding connections, or connections not disposed
-(`number-of-reclaimed-connections`). The counter covers every SqlClient pool of the process: with several connection strings, pass the sum of their pool
-sizes. Any other event counter becomes a signal with `AddEventCounterSignal(eventSource, counter, o => ...)`, with a
+(`number-of-reclaimed-connections`). The counter covers every SqlClient pool of the process: with several connection strings, set
+`MaxPoolSize` to the sum of their pool sizes. The SqlClient signal is an event counter, so its thresholds compare
+strictly (above 0.8, above 0.95). Any other event counter becomes a signal with `AddEventCounterSignal(eventSource, counter, o => ...)`, with a
 `Transform` and thresholds; only the counters are enabled, not the library's tracing events.
 
 Npgsql publishes its pool through **metrics** (Npgsql 10 or later). `AddNpgsqlPoolSignal` reads the connections in
@@ -172,7 +178,7 @@ use (`db.client.connection.count` with state `used`, meter `Npgsql`) as a share 
 reference to Npgsql:
 
 ```csharp
-h.AddNpgsqlPoolSignal(maxPoolSize: 50, dataSourceName: "reports")   // npgsql:pool; Degraded ≥ 0.8, Unhealthy ≥ 0.95
+h.AddNpgsqlPoolSignal(o => { o.MaxPoolSize = 50; o.DataSourceName = "reports"; })   // npgsql:pool; Degraded ≥ 0.8, Unhealthy ≥ 0.95
  .AddCondition("reports-pool-full", c => c
      .ForSource("npgsql:pool")
      .WhenSeverityAtLeast(SignalSeverity.Degraded)
@@ -180,12 +186,12 @@ h.AddNpgsqlPoolSignal(maxPoolSize: 50, dataSourceName: "reports")   // npgsql:po
      .Heal(p => p.PauseConsumer("ingest")));
 ```
 
-| Parameter | Default | Meaning |
+| `SqlClientPoolSignalOptions`, `NpgsqlPoolSignalOptions` | Default | Meaning |
 |---|---|---|
-| `maxPoolSize` | 100 | `Maximum Pool Size` of the connection string |
-| `dataSourceName` | all pools | Name of the data source (`NpgsqlDataSourceBuilder.Name`, by default the connection string without the password); `null` adds up every Npgsql pool of the process: then pass the sum of their sizes |
-| `source` | `npgsql:pool` | Signal source |
-| `degradedAbove`, `unhealthyAbove` | 0.8, 0.95 | Thresholds on the share in use |
+| `MaxPoolSize` | 100 | `Maximum Pool Size` of the connection string |
+| `Source` | `sqlclient:pool`, `npgsql:pool` | Signal source |
+| `DegradedAbove`, `UnhealthyAbove` | 0.8, 0.95 | Thresholds on the share in use |
+| `DataSourceName` (Npgsql only) | all pools | Name of the data source (`NpgsqlDataSourceBuilder.Name`, by default the connection string without the password); `null` adds up every Npgsql pool of the process: then set `MaxPoolSize` to the sum of their sizes |
 
 Providers that publish other pool metrics can be watched with [metric signals](detectors.md#metrics), using
 `Scale(1.0 / poolSize)` to turn a count into a share.
@@ -205,11 +211,11 @@ builder.Services.AddDbContext<ReportsDbContext>(o => o.UseNpgsql(connectionStrin
 
 builder.Services.AddHomeostat(h => h
     .AddDbContextSignals<ReportsDbContext>(o => o.UnhealthyLatency = TimeSpan.FromSeconds(3))
-    .AddDbContextProbe<ReportsDbContext>(configure: p => p.DegradedAbove = 200)   // efcore:ReportsDbContext:ping
+    .AddDbContextProbe<ReportsDbContext>(p => p.DegradedAbove = 200)   // efcore:ReportsDbContext:ping
     .AddCondition("reports-db-failing", c => c
         .ForSource("efcore:ReportsDbContext")
         .SustainedFor(TimeSpan.FromMinutes(1))
-        .Heal(p => p.TurnOnSwitch("reports-read-only", turnOffWhenCleared: true))));
+        .Heal(p => p.TurnOnSwitch("reports-read-only"))));
 ```
 
 `AddDbContextSignals<TContext>()` adds an interceptor through EF Core's `ConfigureDbContext`, so the registration of
@@ -243,8 +249,8 @@ with SqlClient).
 Command signals depend on traffic: when the application sends no commands, no signal is published, and a plan that
 waits for recovery may end `Inconclusive` in a quiet period. `AddDbContextProbe<TContext>()` covers that: at every
 probe interval it calls `Database.CanConnectAsync` on a new context, in its own scope, and publishes the round trip
-in milliseconds as `efcore:{context type name}:ping`, `Unhealthy` when the context cannot connect. It takes an optional
-`source` and the [probe settings](#probes-any-number-as-a-signal) (`Interval`, `Timeout`, thresholds in milliseconds);
+in milliseconds as `efcore:{context type name}:ping`, `Unhealthy` when the context cannot connect. Its options (`DbContextProbeOptions`) are the
+[probe settings](#probes-any-number-as-a-signal) (`Interval`, `Timeout`, thresholds in milliseconds) plus `Source`;
 the context must be registered with `AddDbContext` or `AddDbContextPool`. Use the probe as the condition's source when
 the plan needs verification even without traffic, and the command signals when what matters is what users see.
 
@@ -310,6 +316,7 @@ builder.Services.AddHomeostat(h => h
 | `MongoSignalOptions` | Default | Meaning |
 |---|---|---|
 | `Client` | the registered `IMongoClient` | Returns the client the probes use |
+| `Source` | `mongodb:{name}` | Prefix of the `:ping`, `:primary`, `:pool` and `:replication-lag` sources |
 | `Interval` | 30 seconds | How often the probes run and the event-based signals are published |
 | `Ping` | no thresholds | Thresholds of the ping round trip, in milliseconds |
 | `PoolTimeoutsUnhealthyAbove` | 0 | Checkout timeouts per interval above which `pool` is Unhealthy |
@@ -332,12 +339,12 @@ builder.Services.AddSingleton<IConnectionMultiplexer>(_ =>
     ConnectionMultiplexer.Connect("redis:6379,abortConnect=false"));
 
 builder.Services.AddHomeostat(h => h
-    .AddRedisSignals("session-cache", o => o.DegradedAbove = 50)
+    .AddRedisSignals(o => { o.Source = "session-cache"; o.DegradedAbove = 50; })
     .AddCondition("session-cache-down", c => c
         .ForSource("session-cache")
         .SustainedFor(TimeSpan.FromSeconds(30))
         .ClearAfter(TimeSpan.FromMinutes(1))
-        .Heal(p => p.TurnOnSwitch("sessions-in-memory", turnOffWhenCleared: true))));
+        .Heal(p => p.TurnOnSwitch("sessions-in-memory"))));
 ```
 
 StackExchange.Redis reconnects by itself, so Homeostat does not tear the multiplexer down: the useful healing is to
@@ -369,7 +376,7 @@ builder.Services.AddHomeostat(h => h
     .AddCondition("forecasts-failing", c => c
         .ForSource("grpc:ForecastsClient")
         .SustainedFor(TimeSpan.FromMinutes(1))
-        .Heal(p => p.TurnOnSwitch("serve-cached-forecast", turnOffWhenCleared: true))));
+        .Heal(p => p.TurnOnSwitch("serve-cached-forecast"))));
 ```
 
 The source is `grpc:{client name}`. The client factory names a client after its type unless you give it a name, so
@@ -449,18 +456,19 @@ dotnet add package Homeostat.Caching --prerelease
 
 ```csharp
 builder.Services.AddMemoryCache(o => o.TrackStatistics = true);   // required
-h.AddMemoryCacheSignals("lookup-cache", o =>
+h.AddMemoryCacheSignals(o =>
 {
+    o.Source = "lookup-cache";
     o.DegradedBelow = 0.6;      // hit ratio over the last detection interval
     o.UnhealthyBelow = 0.2;
     o.MinimumLookups = 20;      // no signal for quieter intervals (the default)
 });
 ```
 
-| Parameter or option | Default | Meaning |
+| `MemoryCacheSignalOptions` | Default | Meaning |
 |---|---|---|
-| `source` | `cache:memory` | Signal source |
-| `cache` | the registered `IMemoryCache` | Selects another cache: `cache: sp => sp.GetRequiredService<LookupCache>().Inner` |
+| `Source` | `cache:memory` | Signal source |
+| `Cache` | the registered `IMemoryCache` | Selects another cache: `o.Cache = sp => sp.GetRequiredService<LookupCache>().Inner` |
 | `DegradedBelow`, `UnhealthyBelow` | none | Hit ratio (0 to 1) below which the signal is `Degraded` or `Unhealthy`; without thresholds every interval is `Healthy` and the value carries the ratio |
 | `MinimumLookups` | 20 | Hits plus misses needed in an interval to publish the ratio |
 
@@ -538,7 +546,7 @@ policy. Bodies are limited to 1 MiB, 500 alerts per request and 1000 tracked sou
 |---|---|---|
 | `Token` | none | Shared secret sent as `Authorization: Bearer {token}` (or `?token=` for Azure Monitor); at least 16 characters, no white space |
 | `SourceLabel` | `alertname` | Label whose value becomes the source (Alertmanager, Grafana); alerts without it are skipped |
-| `SourcePrefix` | `alert:` | Prefix of every source |
+| `SourcePrefix` | `alert:` | Prefix of every source; cannot be empty, so alerts cannot impersonate other sources |
 | `SeverityLabel` | `severity` | Label read for the severity (Alertmanager, Grafana) |
 | `UnhealthySeverities` | `critical`, `error`, `page`, `high`, `major`, `disaster`, `fatal` | Label values (case-insensitive) mapped to `Unhealthy`; add or remove values to match your rules |
 | `DefaultSeverity` | `Degraded` | Severity of other firing alerts and of alerts without the label; `Degraded` or `Unhealthy` |
@@ -548,7 +556,7 @@ policy. Bodies are limited to 1 MiB, 500 alerts per request and 1000 tracked sou
 | `MaxRequestBodySize` | 1 MiB | Largest body accepted, in bytes (at least 1024) |
 | `MaxAlertsPerRequest` | 500 | Alerts accepted per request; the rest are skipped |
 
-Each endpoint answers with the number of alerts `accepted` and `skipped` (`AlertIngestionResult`).
+Each endpoint answers with the number of alerts accepted and skipped, as JSON: `{ "accepted": 3, "skipped": 0 }`.
 
 ```yaml
 # Alertmanager
@@ -570,7 +578,7 @@ h.AddCondition("disk-almost-full", c => c
     .Heal(p => p.With<PruneTempFilesAction>().OncePerCluster()));
 ```
 
-Keep `send_resolved: true`, so conditions clear and switches turned on with `turnOffWhenCleared` are turned off.
+Keep `send_resolved: true`, so conditions clear and the switches their plans turned on are turned off.
 
 **Several instances.** The alert state lives in the memory of the instance that receives the notifications. Behind
 a load balancer, "firing" and "resolved" can reach different instances, and the one that saw "firing" keeps the
@@ -605,7 +613,7 @@ builder.Services.AddFeatureManagement().AddHomeostatSwitchFilter();
 ```
 
 `ForecastMaps` is enabled while the switch is off; a plan with
-`.TurnOnSwitch("shed-forecast-maps", turnOffWhenCleared: true)` turns it off and brings it back when the
+`.TurnOnSwitch("shed-forecast-maps")` turns it off and brings it back when the
 condition clears. Use `"RequirementType": "All"` to combine the filter with a rollout filter.
 
 ### OpenFeature
@@ -639,6 +647,8 @@ When a probe or an alert says a dependency is down, waiting for a circuit breake
 Attach a manual control and isolate it from a plan:
 
 ```csharp
+using Homeostat.Polly;   // TrackCircuitBreaker, CircuitControl, ChaosEnabledBySwitch
+
 builder.Services.AddResiliencePipeline("forecast", (pipeline, context) =>
     pipeline.AddCircuitBreaker(new CircuitBreakerStrategyOptions
     {
@@ -656,7 +666,10 @@ builder.Services.AddHomeostat(h => h
 ```
 
 `IsolateCircuit("forecast")` turns on the switch `circuit:forecast:isolated`; the control follows the switch, so
-you can also isolate or close by hand with the control endpoints (`POST /homeostat/switches/circuit:forecast:isolated/on`).
+you can also isolate or close by hand with the control endpoints (`POST /homeostat/switches/circuit:forecast:isolated/on`,
+for every instance that shares the store, or `?scope=instance` for one). Like any
+[`TurnOnSwitch`](actions.md#turnonswitchname-and-ihomeostatswitches) step, the plan isolates the circuit of the
+instance that runs it, or of every instance in a `OncePerCluster()` plan.
 Base the condition on a signal that isolation does not hide (a probe, an alert), not on the circuit's own state.
 
 ### Validate plans with chaos
@@ -664,6 +677,7 @@ Base the condition on a signal that isolation does not hide (a probe, an alert),
 Polly's chaos strategies can stay in production code, off, and be enabled by a switch during a game day:
 
 ```csharp
+// using Homeostat.Polly;
 pipeline.AddChaosLatency(new ChaosLatencyStrategyOptions
 {
     Latency = TimeSpan.FromSeconds(3),

@@ -16,7 +16,7 @@ Work through this list in order:
 | Does the condition have a plan? | Without `Heal(...)` a condition is only observed. |
 | Is Homeostat paused? | `IHomeostatControl.IsPaused`. |
 | Is the condition suppressed? | `SuppressedBy` in the status endpoint or `GetConditions()`: its cause is active. |
-| Is a step waiting for approval? | `pendingApprovals` in the status endpoint, or `IHomeostatApprovals.GetPending()`. |
+| Is a step waiting for approval? | `pendingApprovals` in the status endpoint, or `await IHomeostatApprovals.GetPendingAsync()`. |
 | Cooldown or budget? | Cooldown skips are logged at `Debug` (enable `Debug` for the `Homeostat` category); budget exhaustion is logged as an `Error`. |
 
 ### It ran the first step but did not escalate
@@ -27,8 +27,8 @@ timeout. Either make signals more frequent or extend the timeout:
 ```csharp
 .Heal(p => p
     .With<RenewFeedClientAction>()
-    .Then<SwitchToBackupProviderAction>()
-    .VerificationTimeout(TimeSpan.FromMinutes(2)))
+        .VerificationTimeout(TimeSpan.FromMinutes(2))   // applies to the step before it
+    .Then<SwitchToBackupProviderAction>())
 ```
 
 ### The same action runs again after a few minutes

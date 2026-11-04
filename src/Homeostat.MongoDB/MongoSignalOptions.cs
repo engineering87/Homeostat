@@ -9,6 +9,12 @@ public sealed class MongoSignalOptions
     /// <summary>Returns the client; by default the <see cref="IMongoClient"/> registered in the services.</summary>
     public Func<IServiceProvider, IMongoClient>? Client { get; set; }
 
+    /// <summary>
+    /// Source prefix of the signals: <c>{prefix}:ping</c>, <c>{prefix}:primary</c>, <c>{prefix}:pool</c> and
+    /// <c>{prefix}:replication-lag</c>. Defaults to <c>mongodb:{name}</c>.
+    /// </summary>
+    public string? Source { get; set; }
+
     /// <summary>Thresholds of the ping round trip, in milliseconds (<c>mongodb:{name}:ping</c>).</summary>
     public ProbeOptions Ping { get; } = new();
 

@@ -18,8 +18,8 @@ steps without a new build, and the changes are applied **while the application r
         "SuppressedBy": [ "network-down" ],
         "Plan": {
           "Steps": [
-            { "Action": "renew-feed-client" },
-            { "Action": "switch-to-backup", "RequireApproval": true, "ApprovalTimeout": "10m", "UndoAction": "switch-to-primary" },
+            { "Action": "renew-feed-client", "ActionTimeout": "10s" },
+            { "Action": "switch-to-backup", "RequireApproval": true, "ApprovalTimeout": "10m", "UndoAction": "switch-to-primary", "VerificationTimeout": "45s" },
             { "Action": "switch:serve-cached-forecast", "TurnOffWhenCleared": true }
           ],
           "Cooldown": "5m",
@@ -38,13 +38,13 @@ steps without a new build, and the changes are applied **while the application r
 
 ```csharp
 builder.Services.AddHomeostat(h => h
-    .MapAction<RenewFeedClientAction>("renew-feed-client")
-    .MapAction<SwitchToBackupProviderAction>("switch-to-backup")
-    .MapAction<SwitchToPrimaryProviderAction>("switch-to-primary")
+    .AddAction<RenewFeedClientAction>("renew-feed-client")
+    .AddAction<SwitchToBackupProviderAction>("switch-to-backup")
+    .AddAction<SwitchToPrimaryProviderAction>("switch-to-primary")
     .AddConditionsFromConfiguration(builder.Configuration.GetSection("Homeostat:Conditions")));
 ```
 
-Action classes are code; configuration refers to them by the name given in `MapAction<T>(name)`. Conditions
+Action classes are code; configuration refers to them by the name given in `AddAction<T>(name)`. Conditions
 defined in code and in configuration can be mixed, and can refer to each other (in `SuppressedBy` or in
 composites).
 
@@ -82,10 +82,15 @@ A condition has at most one trigger: `Severity`, `ValueAbove`, `ValueBelow`, `Ri
 | `Steps:N:Action` | A mapped action name, `switch:<name>` (with optional `TurnOffWhenCleared`), or `reload-configuration` |
 | `Steps:N:RequireApproval`, `Steps:N:ApprovalTimeout` | `RequireApproval(timeout)` |
 | `Steps:N:UndoAction` | `UndoWith<T>()` with a mapped action |
-| `Cooldown`, `ActionTimeout`, `VerificationTimeout` | Same-name methods |
+| `Steps:N:ActionTimeout`, `Steps:N:VerificationTimeout` | `ActionTimeout(t)`, `VerificationTimeout(t)` after the step |
+| `Cooldown` | `Cooldown(t)` |
 | `CooldownBackoff:Multiplier`, `CooldownBackoff:Max` | `CooldownBackoff(multiplier, max)` |
 | `Scope` | `"Instance"` (default) or `"Cluster"` (`OncePerCluster()`) |
 | `Adaptive` | `true` (`Adaptive()`), or `{ "MinimumAttempts": 10 }` (`Adaptive(10)`) |
+
+`ActionTimeout` and `VerificationTimeout` belong to each step, like in code: on the plan object they are unknown keys.
+`TurnOffWhenCleared` is `true` unless set, as in code (`TurnOnSwitch(name)`): the switch is turned off when the
+condition clears. Write `"TurnOffWhenCleared": false` to leave it on until someone turns it off.
 
 Durations accept `hh:mm:ss` or a number with a unit: `500ms`, `30s`, `5m`, `2h`, `1d` (a bare number is rejected,
 so `"30"` cannot silently mean 30 days). Numbers use the invariant culture (`0.9`, not `0,9`). Keys are not
@@ -102,15 +107,16 @@ Homeostat rebuilds the conditions defined there:
 - conditions whose **configuration changed keep their status** (an active condition stays active with its new
   rules), but the history of those rules starts again, except the baseline of a seasonal rule whose cycle (period,
   slot and time zone) did not change, which is kept;
-- new conditions start inactive; removed conditions stop being tracked: their pending approvals are withdrawn and
-  the switches they turned on are turned off (a run already in progress finishes);
+- new conditions start inactive; removed conditions stop being tracked: their pending approvals are withdrawn,
+  the switches they turned on are turned off (on this instance, and in the store for application switches), and a run
+  already in progress stops before its next step;
 - an **invalid change is logged as an error and ignored**: Homeostat keeps the previous conditions.
 
 At startup, by contrast, an invalid configuration fails fast with the path of the offending key, for example:
 
 ```text
 Configuration 'Homeostat:Conditions:weather-feed-down:Plan:Steps:0': unknown action 'renew-feed'.
-Known actions: switch:<name>, reload-configuration, renew-feed-client, switch-to-backup, switch-to-primary. Map action classes with MapAction<T>(name).
+Known actions: switch:<name>, reload-configuration, renew-feed-client, switch-to-backup, switch-to-primary. Map action classes with AddAction<T>(name).
 ```
 
 ```json

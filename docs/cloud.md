@@ -35,7 +35,8 @@ Guards (`RestartLimits`, shared with `RestartPod`):
 - **Minimum uptime** (10 minutes by default): an instance that has just started is not restarted, so a process that
   fails right after starting does not loop.
 - **Restarts per window** (3 per hour by default), counted in the store for the whole application, across instances and
-  processes: after that the step fails and a person has to look. Keep the store persistent (`UseFileStore` on a volume
+  processes: after that the step fails and a person has to look. The window is fixed: it starts at the first restart
+  counted in it, and a new window starts at the first restart after it ends. Keep the store persistent (`UseFileStore` on a volume
   that survives the restart, or `UseRedis`): the in-memory store starts empty in the new process, and so would the
   count, the cooldown and the history.
 - The step **ends the run**: put it last, steps after it never run. The run is recorded as canceled by the shutdown it
@@ -87,10 +88,13 @@ builder.Services.AddHomeostat(h => h
 
 | Action | Kubernetes call | Permission |
 |---|---|---|
-| `RestartPod(gracePeriodSeconds, limits)` | `GET` then `DELETE pods/{this pod}`; the controller starts a new pod. Refused for a pod without a controller, and by the restart guards | `get`, `delete` on `pods` |
+| `RestartPod(gracePeriod, requireApproval, limits)` | `GET` then `DELETE pods/{this pod}` with a grace period (30 s by default, in whole seconds, at least 1 s, for example `RestartPod(gracePeriod: TimeSpan.FromSeconds(15))`); the controller starts a new pod. Refused for a pod without a controller, and by the restart guards | `get`, `delete` on `pods` |
 | `RolloutRestart(deployment)` | `PATCH deployments/{name}` with the `kubectl.kubernetes.io/restartedAt` annotation, like `kubectl rollout restart` | `patch` on `deployments` |
 | `ScaleDeployment(deployment, by, maximum, minimum)` | `GET` and `PATCH deployments/{name}/scale`, only in the direction of `by` (a deployment already above `maximum` is not scaled in); conditional on the read version, so a concurrent change fails the step | `get`, `patch` on `deployments/scale` |
 | `CordonNode()` | `GET`, then `PATCH nodes/{this node}` `spec.unschedulable: true` (new pods go elsewhere; running pods stay). A node already cordoned is left alone | `get`, `patch` on `nodes` (ClusterRole) |
+
+Steps that take `requireApproval` (`true` by default) use `DefaultApprovalTimeout`; call
+`.RequireApproval(timeout)` after the step to change it.
 
 `UndoWithUncordon()` after `CordonNode()` makes the node schedulable again when cordoning did not help. With a
 HorizontalPodAutoscaler, scale the autoscaler's bounds instead of the deployment: the autoscaler would undo the change.

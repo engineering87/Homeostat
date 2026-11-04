@@ -196,7 +196,7 @@ public class BuiltInActionTests
         await using var host = await HomeostatTestHost.StartAsync(
             h => h
                 .AddBackgroundServiceSignals()
-                .AddCondition("worker-crashed", c => c.ForSource("service:RestartableWorker").Heal(p => p
+                .AddCondition("worker-crashed", c => c.ForSource("hosted-service:RestartableWorker").Heal(p => p
                     .RestartHostedService<RestartableWorker>()
                     .VerifyWith<AlwaysHealed>())),
             s => s.AddSingleton(new RestartableWorker { FailFirstRun = true }).AddHostedService(sp => sp.GetRequiredService<RestartableWorker>()));

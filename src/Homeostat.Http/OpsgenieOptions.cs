@@ -6,6 +6,9 @@ namespace Homeostat.Http;
 /// </summary>
 public sealed class OpsgenieOptions : IncidentOptions
 {
+    /// <summary>Name of the <see cref="HttpClient"/> used to send events; configure it (proxy, handlers) with <c>AddHttpClient(OpsgenieOptions.HttpClientName)</c>.</summary>
+    public const string HttpClientName = "Homeostat.Opsgenie";
+
     /// <summary>Jira Service Management Operations alert API.</summary>
     public static readonly Uri JiraServiceManagement = new("https://api.atlassian.com/jsm/ops/integration/v2/alerts");
 

@@ -1,6 +1,6 @@
 # Homeostat.AspNetCore
 
-ASP.NET Core endpoints for Homeostat: a status endpoint with conditions, approvals, budget and recent runs; condition history and coverage reports; control endpoints to pause, resume, approve or reject steps and flip switches; an embedded dashboard with one-click approvals; approvals from Slack and Microsoft Teams; and alert ingestion from Prometheus Alertmanager, Grafana and Azure Monitor as signals. The status, control and dashboard endpoints require an authorization policy, the alert endpoints a policy or a token, and the Slack and Teams endpoints a valid signature; only local development can opt out explicitly.
+ASP.NET Core endpoints for Homeostat: a status endpoint with conditions, approvals, budget and recent runs; condition history and coverage reports; control endpoints to pause, resume, approve or reject steps, release held plans and flip switches; an embedded dashboard with one-click approvals; approvals from Slack and Microsoft Teams; and alert ingestion from Prometheus Alertmanager, Grafana and Azure Monitor as signals. The status, control and dashboard endpoints require an authorization policy, the alert endpoints a policy or a token, and the Slack and Teams endpoints a valid signature; only local development can opt out explicitly.
 
 ## Install
 
@@ -20,7 +20,7 @@ builder.Services.AddHomeostat(h => h
     .AddCondition("weather-feed-down", c => c
         .ForSource("weather-feed")
         .SustainedFor(TimeSpan.FromSeconds(30))
-        .Heal(p => p.TurnOnSwitch("serve-cached-forecast", turnOffWhenCleared: true))));
+        .Heal(p => p.TurnOnSwitch("serve-cached-forecast"))));
 builder.Services.AddAuthorization(o => o.AddPolicy("operations", p => p.RequireRole("operations")));
 
 var app = builder.Build();
@@ -30,6 +30,8 @@ app.MapHomeostatControl("operations");     // POST /homeostat/pause, /resume, /a
 app.MapHomeostatDashboard("operations");   // GET  /homeostat/dashboard
 app.Run();
 ```
+
+Each `Map...` method also accepts an inline policy: `app.MapHomeostatControl(p => p.RequireRole("operations"))`.
 
 ## Documentation
 

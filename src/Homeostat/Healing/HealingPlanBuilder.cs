@@ -28,8 +28,6 @@ public sealed class HealingPlanBuilder
     private readonly IServiceCollection _services;
     private readonly List<HealingStep> _steps = [];
     private Type? _verifierType;
-    private TimeSpan? _verificationTimeout;
-    private TimeSpan? _actionTimeout;
     private TimeSpan? _cooldown;
     private PlanScope _scope = PlanScope.Instance;
     private double _cooldownBackoff = 1;
@@ -178,22 +176,26 @@ public sealed class HealingPlanBuilder
 
     /// <summary>
     /// Appends a step that turns on a named switch in <see cref="IHomeostatSwitches"/>.
-    /// Your code checks the switch to change behavior, for example to serve cached data.
+    /// Your code checks the switch to change behavior, for example to serve cached data. In a plan that runs on every
+    /// instance the switch is on for this instance; in a plan that runs once per cluster (<see cref="OncePerCluster"/>)
+    /// it is an application switch, on for every instance.
     /// </summary>
     /// <param name="switchName">Name of the switch.</param>
     /// <param name="turnOffWhenCleared">
-    /// When <c>true</c>, the switch is turned off automatically when the condition clears. Make sure the switch
-    /// itself does not make the condition clear (for example by hiding the failing dependency from its health
-    /// check), otherwise the condition flaps; <see cref="Conditions.ConditionBuilder.ClearAfter"/> helps.
+    /// When <c>true</c> (the default), the switch is turned off automatically when the condition clears (for an
+    /// application switch, when it clears on any instance); with <c>false</c> it stays on until someone turns it off.
+    /// Make sure the switch itself does not make the condition clear (for example by hiding the failing dependency from
+    /// its health check), otherwise the condition flaps; <see cref="Conditions.ConditionBuilder.ClearAfter"/> helps.
     /// </param>
-    public HealingPlanBuilder TurnOnSwitch(string switchName, bool turnOffWhenCleared = false)
+    public HealingPlanBuilder TurnOnSwitch(string switchName, bool turnOffWhenCleared = true)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(switchName);
         _steps.Add(new HealingStep(
             $"Turn on switch '{switchName}'",
             sp => new TurnOnSwitchAction(
-                sp.GetRequiredService<IHomeostatSwitches>(),
+                sp.GetRequiredService<HomeostatSwitches>(),
                 switchName,
+                turnOffWhenCleared,
                 sp.GetRequiredService<ILogger<TurnOnSwitchAction>>()))
         {
             SwitchToResetOnClear = turnOffWhenCleared ? switchName : null,
@@ -250,19 +252,33 @@ public sealed class HealingPlanBuilder
         return this;
     }
 
-    /// <summary>Time allowed for verification after each action (default <see cref="HomeostatOptions.DefaultVerificationTimeout"/>).</summary>
+    /// <summary>
+    /// Time allowed for verification after the step added just before this call (default
+    /// <see cref="HomeostatOptions.DefaultVerificationTimeout"/>), like <see cref="RequireApproval"/> and
+    /// <see cref="UndoWith{TAction}"/>.
+    /// </summary>
+    /// <param name="timeout">The timeout.</param>
+    /// <example><code>.Then&lt;RolloutRestartAction&gt;().ActionTimeout(TimeSpan.FromMinutes(5)).VerificationTimeout(TimeSpan.FromMinutes(10))</code></example>
     public HealingPlanBuilder VerificationTimeout(TimeSpan timeout)
     {
-        _verificationTimeout = Positive(timeout, nameof(timeout));
+        LastStep(nameof(VerificationTimeout)).VerificationTimeout = Positive(timeout, nameof(timeout));
         return this;
     }
 
-    /// <summary>Maximum duration of each action (default <see cref="HomeostatOptions.DefaultActionTimeout"/>).</summary>
+    /// <summary>
+    /// Maximum duration of the action of the step added just before this call, and of its compensating action (default
+    /// <see cref="HomeostatOptions.DefaultActionTimeout"/>).
+    /// </summary>
+    /// <param name="timeout">The timeout.</param>
     public HealingPlanBuilder ActionTimeout(TimeSpan timeout)
     {
-        _actionTimeout = Positive(timeout, nameof(timeout));
+        LastStep(nameof(ActionTimeout)).ActionTimeout = Positive(timeout, nameof(timeout));
         return this;
     }
+
+    private HealingStep LastStep(string modifier) => _steps.Count == 0
+        ? throw new InvalidOperationException($"{modifier} applies to the previous step: add a step first.")
+        : _steps[^1];
 
     /// <summary>
     /// Minimum time between the end of a run and the start of the next run of this plan (default
@@ -371,7 +387,7 @@ public sealed class HealingPlanBuilder
         }
 
         return new HealingPlan(
-            conditionName, _steps.ToArray(), _verifierType, _verificationTimeout, _actionTimeout, _cooldown,
+            conditionName, _steps.ToArray(), _verifierType, _cooldown,
             _scope, _cooldownBackoff, _maxCooldown)
         {
             AdaptiveMinimumAttempts = _adaptiveMinimumAttempts,

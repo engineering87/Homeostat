@@ -13,11 +13,10 @@ internal sealed class HomeostatControl : IHomeostatControl
     private readonly MaintenanceWindows _maintenance;
     private readonly TimeProvider _timeProvider;
     private readonly HomeostatOptions _options;
-    private readonly object _gate = new();
     private readonly Diagnostics.ActivationLog _activations;
     private readonly Diagnostics.ConditionHistory _history;
-    private bool _paused;
-    private DateTimeOffset? _pausedUntil;
+    private readonly Engine.SharedControl _shared;
+    private readonly Engine.PlanStateCache _planStates;
 
     public HomeostatControl(
         ConditionSet conditions,
@@ -26,8 +25,12 @@ internal sealed class HomeostatControl : IHomeostatControl
         TimeProvider timeProvider,
         IOptions<HomeostatOptions> options,
         Diagnostics.ActivationLog activations,
-        Diagnostics.ConditionHistory history)
+        Diagnostics.ConditionHistory history,
+        Engine.SharedControl shared,
+        Engine.PlanStateCache planStates)
     {
+        _shared = shared;
+        _planStates = planStates;
         _history = history;
         _activations = activations;
         _conditions = conditions;
@@ -43,18 +46,17 @@ internal sealed class HomeostatControl : IHomeostatControl
     {
         get
         {
-            var now = _timeProvider.GetUtcNow();
-            lock (_gate)
+            // Not read from the store yet (it is unreachable, or the instance is starting): a pause may be in place.
+            if (!_shared.IsKnown)
             {
-                if (_paused)
-                {
-                    return "paused";
-                }
+                return "waiting for the control state from the store";
+            }
 
-                if (_pausedUntil is { } until && now < until)
-                {
-                    return $"paused until {until:O}";
-                }
+            var now = _timeProvider.GetUtcNow();
+            if (_shared.Current.Pause is { } pause && (pause.Until is not { } until || now < until))
+            {
+                var by = pause.By is { Length: > 0 } who ? $" by {who}" : string.Empty;
+                return pause.Until is { } end ? $"paused until {end:O}{by}" : $"paused{by}";
             }
 
             return _maintenance.ActiveWindow(now) is { } window ? $"maintenance window '{window}'" : null;
@@ -63,29 +65,28 @@ internal sealed class HomeostatControl : IHomeostatControl
 
     public bool IsDryRun => _options.DryRun;
 
-    public void Pause()
+    public ValueTask PauseAsync(DateTimeOffset? until = null, string? by = null, CancellationToken cancellationToken = default)
     {
-        lock (_gate)
-        {
-            _paused = true;
-        }
+        var pause = new PauseState { Until = until, By = by, At = _timeProvider.GetUtcNow() };
+        return new ValueTask(_shared.ChangeAsync(
+            (store, ct) => store.SetPauseAsync(pause, ct), s => Engine.SharedControl.WithPause(s, pause), cancellationToken));
     }
 
-    public void PauseUntil(DateTimeOffset until)
-    {
-        lock (_gate)
-        {
-            _pausedUntil = until;
-        }
-    }
+    public ValueTask ResumeAsync(CancellationToken cancellationToken = default)
+        => new(_shared.ChangeAsync((store, ct) => store.SetPauseAsync(null, ct), s => Engine.SharedControl.WithPause(s, null), cancellationToken));
 
-    public void Resume()
+    public async ValueTask<bool> ReleaseHoldAsync(string condition, CancellationToken cancellationToken = default)
     {
-        lock (_gate)
+        ArgumentException.ThrowIfNullOrWhiteSpace(condition);
+        if (_conditions.Get(condition)?.Definition.Plan is not { } plan)
         {
-            _paused = false;
-            _pausedUntil = null;
+            return false;
         }
+
+        var key = plan.Scope == Healing.PlanScope.Cluster ? plan.ConditionName : $"{_options.InstanceId}/{plan.ConditionName}";
+        await _store.UpdatePlanStateAsync(key, new PlanStateUpdate { Held = false, Failures = FailureCountChange.Reset }, cancellationToken).ConfigureAwait(false);
+        _planStates.Forget(key);
+        return true;
     }
 
     public IReadOnlyList<ConditionSnapshot> GetConditions()

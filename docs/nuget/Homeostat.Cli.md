@@ -1,6 +1,6 @@
 # Homeostat.Cli
 
-The `homeostat` command-line tool. It operates Homeostat in a running application through its endpoints: read the status, coverage and condition history, pause and resume, approve or reject steps, flip switches and send test signals. It also replays recorded signals against a configuration offline, with no running application.
+The `homeostat` command-line tool. It operates Homeostat in a running application through its endpoints: read the status, coverage and condition history, pause and resume, approve or reject steps, release held plans, flip switches and send test signals. It also replays recorded signals against a configuration offline, with no running application.
 
 ## Install
 
@@ -19,6 +19,7 @@ export HOMEOSTAT_TOKEN=...                # bearer token accepted by the endpoin
 homeostat status                          # conditions, approvals, switches, budget, recent runs
 homeostat pause --for 20m                 # kill switch with automatic resume
 homeostat approve 4f1c...                 # ids are shown by 'homeostat status'
+homeostat release weather-feed-down       # lift the hold of a plan after a rejection
 homeostat switch off serve-cached-forecast
 homeostat coverage --last 4h --fail-below 0.8
 homeostat replay ./signals --config appsettings.json   # offline: what would these conditions have done?

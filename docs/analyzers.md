@@ -38,13 +38,17 @@ the call returns, verification starts while the work is still running, and its e
 **A condition does not select its signals.**
 
 ```csharp
-.AddCondition("feed-down", c => c.SustainedFor(TimeSpan.FromSeconds(30)))      // HOMEO002
+.AddCondition("feed-down", c => c
+    .ClearWhen(s => s.Severity == SignalSeverity.Healthy)                     // HOMEO002
+    .SustainedFor(TimeSpan.FromSeconds(30)))
 .AddCondition("feed-down", c => c.ForSource("weather-feed").SustainedFor(TimeSpan.FromSeconds(30)))
 ```
 
-Without `ForSource`, `Where` or a composite rule (`WhenAllActive`, `WhenAnyActive`), the condition reacts to every
-unhealthy signal of every source, so any problem anywhere runs its plan. A lambda that hands the builder to another
-method (`c => ConfigureFeed(c)`) is not reported, since the rule cannot see inside it.
+Without `ForSource`, `Where` or a composite rule (`WhenAllActive`, `WhenAnyActive`), the condition listens to every
+source: an unhealthy signal from any component triggers it, so any problem anywhere runs its plan. A condition that has
+neither `ForSource` nor `ClearWhen` is also refused when the application starts (a healthy signal from any component
+would clear it); the analyzer reports both cases at build time. A lambda that hands the builder to another method
+(`c => ConfigureFeed(c)`) is not reported, since the rule cannot see inside it.
 
 ## HOMEO003
 

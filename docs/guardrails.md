@@ -34,7 +34,7 @@ are not flooded. They do not consume the action budget. Observers still receive 
 
 **Default: 10 actions per rolling hour, across all plans.**
 
-Before every executed action (dry-run steps do not count) Homeostat consumes one unit of a global budget. When the budget is exhausted,
+Before every executed action, compensating actions included (dry-run steps do not count), Homeostat consumes one unit of a global budget. When the budget is exhausted,
 the run stops with an error:
 
 ```text
@@ -68,8 +68,8 @@ fails closed and does not start runs.
 
 | Option | Default | Applies to |
 |---|---|---|
-| `DefaultActionTimeout` | 30 s | Each action (`.ActionTimeout(...)` per plan) |
-| `DefaultVerificationTimeout` | 1 min | Each verification (`.VerificationTimeout(...)` per plan) |
+| `DefaultActionTimeout` | 30 s | Each action and compensating action (`.ActionTimeout(...)` after a step) |
+| `DefaultVerificationTimeout` | 1 min | Each verification (`.VerificationTimeout(...)` after a step) |
 
 Cancellation is cooperative: when the timeout expires, the action's `CancellationToken` is canceled,
 and the step fails if the action then throws. An action that ignores the token keeps the run waiting,
@@ -84,15 +84,28 @@ With `Homeostat.AspNetCore` the endpoints are ready ([details](aspnetcore.md)):
 app.MapHomeostatControl("operations");   // POST /homeostat/pause and /resume, ... (authorization policy)
 ```
 
-Or call `IHomeostatControl.Pause()` and `Resume()` from your own code. `PauseUntil(time)` pauses until a given
-time and then resumes by itself, which is handy for a deployment script that might not reach its last step.
-`PauseReason` says why Homeostat is paused. With the endpoints: `POST /homeostat/pause?for=00:30:00`.
+Or call `IHomeostatControl` from your own code:
+
+```csharp
+await control.PauseAsync();                                         // until ResumeAsync
+await control.PauseAsync(until: time.GetUtcNow().AddMinutes(30), by: "deploy");   // resumes by itself
+await control.ResumeAsync();
+```
+
+A timed pause is handy for a deployment script that might not reach its last step. A new call replaces the previous
+pause. `PauseReason` says why Homeostat is paused, for example `paused until 2026-11-02T10:30:00.0000000+00:00 by deploy`, or
+the name of a maintenance window. With the endpoints: `POST /homeostat/pause?for=00:30:00`.
+
+The pause is kept in the [store](persistence-and-clusters.md#shared-control-state): with a shared store it stops
+every instance within `ControlRefreshInterval` (5 seconds by default), and with the file or Redis store it survives
+restarts. `IsPaused` reads the instance's view of it and never waits.
 
 While paused:
 
 - conditions keep being tracked and remain visible through `GetConditions()`;
 - no new run starts;
-- a run in progress stops before its next step.
+- a run in progress stops before its next step;
+- compensating actions (`UndoWith`) do not run either. The same holds during maintenance windows.
 
 > The control endpoints require an authorization policy: they control what your application does to itself.
 
@@ -113,18 +126,19 @@ it too. Without `On(...)` the window opens every day; the duration must be more 
 `MaintenanceWindow.IsActive(now)` tells whether the window is open at a given time, and `Name`, `Start`, `Duration`,
 `Days` and `TimeZone` describe it.
 
-For a one-off deployment, prefer a timed pause (`PauseUntil`, or `POST /homeostat/pause?for=...`): it ends by itself
+For a one-off deployment, prefer a timed pause (`PauseAsync(until)`, or `POST /homeostat/pause?for=...`): it ends by itself
 even if the deployment script never reaches its last step. See [Pause during deployments](recipes.md#pause-during-deployments).
 
 ## Approval
 
 Risky steps can wait for a person: `.Then<FailoverAction>().RequireApproval()`. A rejected or unanswered
-request stops the run with `NotApproved`, without escalating. See
+request stops the run with `NotApproved`, without escalating. A rejection holds the plan until the condition clears
+or until [`ReleaseHoldAsync`](healing-plans.md#releasing-a-hold). See
 [Human in the loop](healing-plans.md#human-in-the-loop-requireapproval).
 
 ## Suppression
 
-A condition declared as a symptom with `SuppressedBy("cause")` is not healed while its cause is active, so
+A condition declared as a symptom with `SuppressedBy("cause")` is not healed while its cause is pending or active, so
 one broken dependency does not spend the budget on every component that depends on it. See
 [Causes and symptoms](conditions.md#causes-and-symptoms-suppressedby).
 
@@ -163,6 +177,9 @@ see [Security](security.md).
 | `ApplicationName` | entry assembly name | Included in notifications and audit records |
 | `InstanceId` | machine name | Identifies the instance in runs, leases, traces and instance plan keys |
 | `ClusterLeaseDuration` | 1 minute | Lease of `OncePerCluster()` plans, renewed while a run lasts |
+| `ControlRefreshInterval` | 5 seconds | How often the instance reads the pause, the application switches and the answers to approval requests from the [store](persistence-and-clusters.md#shared-control-state) |
 
 Options are validated when Homeostat starts: negative or zero values where a positive one is required,
 and timeouts or intervals above the .NET timer limit (about 49 days), fail fast with a descriptive message.
+Once Homeostat has started the options are frozen: setting a property throws `InvalidOperationException`, so code
+that resolved the options cannot lift a guardrail such as `DryRun` or the budget at runtime.

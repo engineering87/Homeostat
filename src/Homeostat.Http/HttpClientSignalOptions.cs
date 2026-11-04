@@ -25,14 +25,13 @@ public sealed class HttpClientSignalOptions
     /// Minimum number of requests in a sample to judge the client. With fewer requests, the sample is
     /// reported as healthy only if none failed; otherwise no signal is published. Defaults to 10.
     /// </summary>
-    public int MinimumRequests { get; set; } = 10;
+    public int MinimumCalls { get; set; } = 10;
 
     /// <summary>
-    /// Decides whether a response counts as a failure. By default: 5xx, 408 (Request Timeout), 429 (Too Many
-    /// Requests), and gRPC calls that fail with a server-side status (see <see cref="IsGrpcFailure"/>). Exceptions
-    /// always count as failures.
+    /// Decides whether a response counts as a failure. Defaults to <see cref="IsServiceFailure"/>. Exceptions always
+    /// count as failures.
     /// </summary>
-    public Func<HttpResponseMessage, bool> IsFailure { get; set; } = DefaultIsFailure;
+    public Func<HttpResponseMessage, bool> IsFailure { get; set; } = IsServiceFailure;
 
     /// <summary>
     /// Whether canceled requests count as failures. Default <c>true</c>, because <see cref="HttpClient"/>
@@ -70,9 +69,19 @@ public sealed class HttpClientSignalOptions
             && status is 2 or 4 or 8 or 13 or 14 or 15;
     }
 
-    private static bool DefaultIsFailure(HttpResponseMessage response)
-        => (int)response.StatusCode >= 500
-           || response.StatusCode == HttpStatusCode.RequestTimeout
-           || response.StatusCode == HttpStatusCode.TooManyRequests
-           || IsGrpcFailure(response);
+    /// <summary>
+    /// Whether a response means that the service is in trouble: 5xx, 408 (Request Timeout), 429 (Too Many Requests),
+    /// and gRPC calls that fail with a server-side status (see <see cref="IsGrpcFailure"/>). Combine it with your own
+    /// rule: <c>o.IsFailure = r => HttpClientSignalOptions.IsServiceFailure(r) || r.StatusCode == HttpStatusCode.Conflict</c>.
+    /// </summary>
+    /// <param name="response">The response.</param>
+    /// <returns><c>true</c> for those responses.</returns>
+    public static bool IsServiceFailure(HttpResponseMessage response)
+    {
+        ArgumentNullException.ThrowIfNull(response);
+        return (int)response.StatusCode >= 500
+            || response.StatusCode == HttpStatusCode.RequestTimeout
+            || response.StatusCode == HttpStatusCode.TooManyRequests
+            || IsGrpcFailure(response);
+    }
 }

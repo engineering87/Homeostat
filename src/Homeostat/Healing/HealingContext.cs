@@ -47,6 +47,9 @@ public sealed class HealingContext
     /// <summary>Hysteresis of the condition, used by the default verifier.</summary>
     internal TimeSpan ClearAfter { get; init; }
 
+    /// <summary>Whether the plan runs once per cluster: its switches are then application switches.</summary>
+    internal bool IsClusterPlan { get; init; }
+
     /// <summary>Services from the scope created for this step.</summary>
     public IServiceProvider Services { get; }
 

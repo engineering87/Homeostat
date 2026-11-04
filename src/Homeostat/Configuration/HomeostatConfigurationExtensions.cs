@@ -18,7 +18,7 @@ public static class HomeostatConfigurationExtensions
     /// <typeparam name="TAction">The action class, registered as transient.</typeparam>
     /// <param name="builder">The Homeostat builder.</param>
     /// <param name="name">Name used in configuration, for example <c>"renew-feed-client"</c>.</param>
-    public static HomeostatBuilder MapAction<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] TAction>(this HomeostatBuilder builder, string name)
+    public static HomeostatBuilder AddAction<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] TAction>(this HomeostatBuilder builder, string name)
         where TAction : class, IHealingAction
     {
         ArgumentNullException.ThrowIfNull(builder);

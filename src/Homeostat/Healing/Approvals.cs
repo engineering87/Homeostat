@@ -1,7 +1,7 @@
 namespace Homeostat.Healing;
 
 /// <summary>A step waiting for a person to approve it.</summary>
-/// <param name="Id">Identifier to pass to <see cref="IHomeostatApprovals.Approve"/> or <see cref="IHomeostatApprovals.Reject"/>.</param>
+/// <param name="Id">Identifier to pass to <see cref="IHomeostatApprovals.ApproveAsync"/> or <see cref="IHomeostatApprovals.RejectAsync"/>.</param>
 /// <param name="ConditionName">Condition being healed.</param>
 /// <param name="Step">Zero-based index of the step.</param>
 /// <param name="StepName">Step name.</param>

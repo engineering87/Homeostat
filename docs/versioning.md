@@ -31,14 +31,17 @@ version:
 
 - **Public API**: removing or renaming a public type or member, changing a signature or a default parameter value,
   changing the underlying value of an enum member, sealing a class or adding an abstract member to a public base class or interface without a default
-  implementation.
+  implementation. Public positional records (such as `RestartLimits`) keep their constructor fixed: new fields arrive
+  as init-only properties with a default, so adding a field in a minor version is not a breaking change.
 - **Default signal source names**, such as `threadpool`, `http:{client}`, `cache:memory`, `sqlclient:pool`,
-  `npgsql:pool`, `http-server:errors` and `rabbitmq:{queue}:messages`: conditions and alert rules refer to them. See
+  `npgsql:pool`, `http-server:errors`, `rabbitmq:{queue}:messages`, `servicebus:{queue}:messages` and
+  `hosted-service:{type}`: conditions and alert rules refer to them. See
   [Naming sources](signals.md#naming-sources).
-- **JSON documents**: the answers of the status, history, coverage and alert endpoints, the audit log and webhook
+- **JSON documents**: the answers of the status, history, coverage, control and alert endpoints, the audit log and webhook
   events, the signal recording files, and the data written by the file and Redis stores (file format, Redis keys). A
   new version reads the data written by the previous ones of the same major version. Fields can be added; existing
-  fields keep their names, types and meaning, and enums stay written as names.
+  fields keep their names, types and meaning, and enums stay written as names. For the endpoints the JSON is the
+  contract: the .NET types that produce it are internal, so read it as JSON (or with your own types).
 - **Configuration keys** read by `AddConditionsFromConfiguration` and their meaning.
 - **Endpoint routes** and their default prefixes, **CLI commands, options and exit codes**, metric and activity
   names and tags.

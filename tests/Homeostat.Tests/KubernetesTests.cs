@@ -94,7 +94,7 @@ public sealed class KubernetesTests : IAsyncDisposable
             .RolloutRestart("weather-api", requireApproval: false)
             .ScaleDeployment("weather-api", by: 2, maximum: 3, requireApproval: false)
             .CordonNode(requireApproval: false)
-            .RestartPod(gracePeriodSeconds: 15, requireApproval: false, limits: new RestartLimits(TimeSpan.Zero, 3, TimeSpan.FromHours(1))));
+            .RestartPod(gracePeriod: TimeSpan.FromSeconds(15), requireApproval: false, limits: new RestartLimits(TimeSpan.Zero, 3, TimeSpan.FromHours(1))));
 
         host.Publish("weather-api", SignalSeverity.Unhealthy);
         var run = await host.WaitForRunAsync("weather-api-sick");

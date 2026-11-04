@@ -16,7 +16,7 @@ namespace Homeostat.AspNetCore;
 /// <param name="PendingApprovals">Steps waiting for approval.</param>
 /// <param name="RecentRuns">Most recent runs, newest first (empty when the store is unavailable).</param>
 /// <param name="StoreError">Why the store could not be read, or <c>null</c>; budget and runs are then missing.</param>
-public sealed record HomeostatStatus(
+internal sealed record HomeostatStatus(
     string Application,
     string Instance,
     bool Paused,
@@ -34,7 +34,7 @@ public sealed record HomeostatStatus(
 /// <param name="Limit">Maximum per window.</param>
 /// <param name="Remaining">Actions still allowed.</param>
 /// <param name="WindowSeconds">Window length in seconds.</param>
-public sealed record BudgetStatus(int Used, int Limit, int Remaining, double WindowSeconds);
+internal sealed record BudgetStatus(int Used, int Limit, int Remaining, double WindowSeconds);
 
 /// <summary>State of one condition.</summary>
 /// <param name="Name">Condition name.</param>
@@ -46,7 +46,7 @@ public sealed record BudgetStatus(int Used, int Limit, int Remaining, double Win
 /// <param name="LastSignalAt">Latest relevant signal time.</param>
 /// <param name="LastSeverity">Latest relevant signal severity.</param>
 /// <param name="LastMessage">Latest relevant signal message.</param>
-public sealed record ConditionStatusInfo(
+internal sealed record ConditionStatusInfo(
     string Name,
     string Status,
     DateTimeOffset? PendingSince,
@@ -69,7 +69,7 @@ public sealed record ConditionStatusInfo(
 /// <param name="CompletedAt">End time.</param>
 /// <param name="Steps">Executed steps.</param>
 /// <param name="Instance">Instance that ran it.</param>
-public sealed record RunInfo(string Condition, string Outcome, DateTimeOffset StartedAt, DateTimeOffset CompletedAt, IReadOnlyList<StepInfo> Steps, string Instance)
+internal sealed record RunInfo(string Condition, string Outcome, DateTimeOffset StartedAt, DateTimeOffset CompletedAt, IReadOnlyList<StepInfo> Steps, string Instance)
 {
     internal static RunInfo From(HealingRunRecord r) => new(
         r.ConditionName, r.Outcome.ToString(), r.StartedAt, r.CompletedAt,
@@ -83,7 +83,7 @@ public sealed record RunInfo(string Condition, string Outcome, DateTimeOffset St
 /// <param name="Verification">Verification outcome.</param>
 /// <param name="Error">Error message, if the action or verifier failed.</param>
 /// <param name="UndoSucceeded">Whether the compensating action succeeded; <c>null</c> if it did not run.</param>
-public sealed record StepInfo(string Name, bool Succeeded, string? Verification, string? Error, bool? UndoSucceeded);
+internal sealed record StepInfo(string Name, bool Succeeded, string? Verification, string? Error, bool? UndoSucceeded);
 
 /// <summary>A condition becoming active or clearing.</summary>
 /// <param name="Condition">Condition name.</param>
@@ -94,7 +94,7 @@ public sealed record StepInfo(string Name, bool Succeeded, string? Verification,
 /// <param name="Severity">Severity of that signal.</param>
 /// <param name="Value">Value of that signal, if any.</param>
 /// <param name="Message">Message of that signal, if any.</param>
-public sealed record ConditionEventInfo(
+internal sealed record ConditionEventInfo(
     string Condition, string Kind, DateTimeOffset At, string Instance, string? Source, string? Severity, double? Value, string? Message)
 {
     internal static ConditionEventInfo From(ConditionEventRecord e) => new(

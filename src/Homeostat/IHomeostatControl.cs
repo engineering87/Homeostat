@@ -8,27 +8,39 @@ namespace Homeostat;
 /// <summary>Runtime control and inspection of Homeostat.</summary>
 public interface IHomeostatControl
 {
-    /// <summary>Whether new healing steps are suspended (by <see cref="Pause"/>, <see cref="PauseUntil"/> or a maintenance window).</summary>
+    /// <summary>Whether new healing steps are suspended, by <see cref="PauseAsync"/> or a maintenance window.</summary>
+    /// <remarks>Reads this instance's view of the store and never waits.</remarks>
     bool IsPaused { get; }
 
-    /// <summary>Why Homeostat is paused, or <c>null</c> when it is not.</summary>
+    /// <summary>Why Homeostat is paused (who paused it, until when, or which maintenance window), or <c>null</c>.</summary>
     string? PauseReason { get; }
 
     /// <summary>Whether actions are only logged (<see cref="HomeostatOptions.DryRun"/>).</summary>
     bool IsDryRun { get; }
 
     /// <summary>
-    /// Kill switch: no new action starts until <see cref="Resume"/> is called.
-    /// Conditions keep being tracked, so the status remains observable.
+    /// Kill switch: no new action starts until <see cref="ResumeAsync"/> is called, or until <paramref name="until"/>.
+    /// The pause is kept in the store: with a shared store it stops every instance within
+    /// <see cref="HomeostatOptions.ControlRefreshInterval"/> and survives restarts. Conditions keep being tracked, so
+    /// the status remains observable. A new call replaces the previous pause.
     /// </summary>
-    void Pause();
+    /// <param name="until">When to resume by itself; <c>null</c> pauses until <see cref="ResumeAsync"/>.</param>
+    /// <param name="by">Who paused, shown in <see cref="PauseReason"/> and the status.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    ValueTask PauseAsync(DateTimeOffset? until = null, string? by = null, CancellationToken cancellationToken = default);
 
-    /// <summary>Pauses until the given time, then resumes automatically (unless <see cref="Pause"/> was also called).</summary>
-    /// <param name="until">When to resume.</param>
-    void PauseUntil(DateTimeOffset until);
+    /// <summary>Lets healing plans run again after <see cref="PauseAsync"/>, on every instance. Maintenance windows still apply.</summary>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    ValueTask ResumeAsync(CancellationToken cancellationToken = default);
 
-    /// <summary>Lets healing plans run again after <see cref="Pause"/> or <see cref="PauseUntil"/>. Maintenance windows still apply.</summary>
-    void Resume();
+    /// <summary>
+    /// Lifts the hold of a condition's plan after a rejected approval, and restarts its cooldown backoff, without waiting
+    /// for the condition to clear: for example after the person who rejected the step fixed the cause by hand.
+    /// </summary>
+    /// <param name="condition">Name of the condition.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns><c>false</c> when no condition with a plan has this name.</returns>
+    ValueTask<bool> ReleaseHoldAsync(string condition, CancellationToken cancellationToken = default);
 
     /// <summary>Current state of every registered condition.</summary>
     IReadOnlyList<ConditionSnapshot> GetConditions();

@@ -11,7 +11,7 @@ namespace Homeostat;
 public static class HomeostatServiceBusExtensions
 {
     /// <summary>
-    /// Publishes the active and dead-letter message counts of a queue as two signals, <c>servicebus:{queue}:active</c>
+    /// Publishes the active and dead-letter message counts of a queue as two signals, <c>servicebus:{queue}:messages</c>
     /// and <c>servicebus:{queue}:dead-letter</c>, with the values as counts.
     /// </summary>
     /// <param name="builder">The Homeostat builder.</param>
@@ -20,7 +20,7 @@ public static class HomeostatServiceBusExtensions
     /// <example>
     /// <code>
     /// builder.Services.AddSingleton(new ServiceBusAdministrationClient("ingest.servicebus.windows.net", new DefaultAzureCredential()));
-    /// h.AddServiceBusQueueSignals("ingest", o => o.Active.UnhealthyAbove = 10_000)
+    /// h.AddServiceBusQueueSignals("ingest", o => o.Messages.UnhealthyAbove = 10_000)
     ///  .AddCondition("ingest-dead-letters", c => c.ForSource("servicebus:ingest:dead-letter")
     ///      .WhenRisingFasterThan(5, TimeSpan.FromMinutes(15)));
     /// </code>
@@ -37,7 +37,7 @@ public static class HomeostatServiceBusExtensions
 
     /// <summary>
     /// Publishes the active and dead-letter message counts of a topic subscription as two signals,
-    /// <c>servicebus:{topic}/{subscription}:active</c> and <c>servicebus:{topic}/{subscription}:dead-letter</c>.
+    /// <c>servicebus:{topic}:{subscription}:messages</c> and <c>servicebus:{topic}:{subscription}:dead-letter</c>.
     /// </summary>
     /// <param name="builder">The Homeostat builder.</param>
     /// <param name="topic">Topic name.</param>
@@ -48,7 +48,7 @@ public static class HomeostatServiceBusExtensions
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(topic);
         ArgumentException.ThrowIfNullOrWhiteSpace(subscription);
-        return AddSignals(builder, $"servicebus:{topic}/{subscription}", configure, async (client, ct) =>
+        return AddSignals(builder, $"servicebus:{topic}:{subscription}", configure, async (client, ct) =>
         {
             var properties = (await client.GetSubscriptionRuntimePropertiesAsync(topic, subscription, ct).ConfigureAwait(false)).Value;
             return new EntityCounts(properties.ActiveMessageCount, properties.DeadLetterMessageCount + properties.TransferDeadLetterMessageCount);
@@ -106,7 +106,7 @@ public static class HomeostatServiceBusExtensions
         }
 
         // The shared read gets its own deadline, the longest of the two probes; each probe stops waiting at its own.
-        var cache = new SharedRead<EntityCounts>(read, Max(options.Active.Timeout, options.DeadLetter.Timeout));
+        var cache = new SharedRead<EntityCounts>(read, Max(options.Messages.Timeout, options.DeadLetter.Timeout));
         void Settings(ProbeOptions from, ProbeOptions to)
         {
             from.CopyTo(to);
@@ -115,7 +115,7 @@ public static class HomeostatServiceBusExtensions
         }
 
         return builder
-            .AddProbe($"{source}:active", async (sp, ct) => (await cache.GetAsync(sp).WaitAsync(ct).ConfigureAwait(false)).Active, p => Settings(options.Active, p))
+            .AddProbe($"{source}:messages", async (sp, ct) => (await cache.GetAsync(sp).WaitAsync(ct).ConfigureAwait(false)).Active, p => Settings(options.Messages, p))
             .AddProbe($"{source}:dead-letter", async (sp, ct) => (await cache.GetAsync(sp).WaitAsync(ct).ConfigureAwait(false)).DeadLetter, p => Settings(options.DeadLetter, p));
     }
 

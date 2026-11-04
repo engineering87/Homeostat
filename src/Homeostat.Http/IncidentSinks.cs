@@ -32,24 +32,24 @@ internal sealed class IncidentTracker
 /// <summary>Opens and resolves PagerDuty incidents through the Events API v2.</summary>
 internal sealed class PagerDutySink : HttpEventSink
 {
-    internal const string HttpClientName = "Homeostat.PagerDuty";
+    internal const string HttpClientName = PagerDutyOptions.HttpClientName;
     private readonly PagerDutyOptions _options;
     private readonly IncidentTracker _tracker = new();
 
     public PagerDutySink(
         IHttpClientFactory clients,
         IOptions<PagerDutyOptions> pagerDuty,
-        IOptions<HomeostatOptions> options,
         TimeProvider timeProvider,
-        ILogger<PagerDutySink> logger)
-        : base(clients, HttpClientName, options.Value.ApplicationName, IncidentOptions.Kinds, timeProvider, logger)
+        ILogger<PagerDutySink> logger,
+        Microsoft.Extensions.Hosting.IHostApplicationLifetime? lifetime = null)
+        : base(clients, HttpClientName, IncidentOptions.Kinds, timeProvider, logger, lifetime)
         => _options = pagerDuty.Value;
 
     protected override TimeSpan Timeout => _options.Timeout;
 
     protected override int MaxAttempts => _options.MaxAttempts;
 
-    protected override Task WriteAsync(HomeostatEvent e, CancellationToken cancellationToken)
+    public override Task WriteAsync(HomeostatEvent e, CancellationToken cancellationToken)
     {
         var decision = _tracker.Decide(_options, e);
         if (decision.IsResolve)
@@ -92,7 +92,7 @@ internal sealed class PagerDutySink : HttpEventSink
 /// <summary>Creates and closes alerts through the Opsgenie alert API (Jira Service Management Operations or Opsgenie).</summary>
 internal sealed class OpsgenieSink : HttpEventSink
 {
-    internal const string HttpClientName = "Homeostat.Opsgenie";
+    internal const string HttpClientName = OpsgenieOptions.HttpClientName;
     private readonly OpsgenieOptions _options;
     private readonly IncidentTracker _tracker = new();
     private readonly KeyValuePair<string, string>[] _headers;
@@ -100,10 +100,10 @@ internal sealed class OpsgenieSink : HttpEventSink
     public OpsgenieSink(
         IHttpClientFactory clients,
         IOptions<OpsgenieOptions> opsgenie,
-        IOptions<HomeostatOptions> options,
         TimeProvider timeProvider,
-        ILogger<OpsgenieSink> logger)
-        : base(clients, HttpClientName, options.Value.ApplicationName, IncidentOptions.Kinds, timeProvider, logger)
+        ILogger<OpsgenieSink> logger,
+        Microsoft.Extensions.Hosting.IHostApplicationLifetime? lifetime = null)
+        : base(clients, HttpClientName, IncidentOptions.Kinds, timeProvider, logger, lifetime)
     {
         _options = opsgenie.Value;
         _headers = [new("Authorization", $"{_options.AuthorizationScheme} {_options.ApiKey}")];
@@ -113,7 +113,7 @@ internal sealed class OpsgenieSink : HttpEventSink
 
     protected override int MaxAttempts => _options.MaxAttempts;
 
-    protected override Task WriteAsync(HomeostatEvent e, CancellationToken cancellationToken)
+    public override Task WriteAsync(HomeostatEvent e, CancellationToken cancellationToken)
     {
         var decision = _tracker.Decide(_options, e);
         var alias = IncidentOptions.Key(e);

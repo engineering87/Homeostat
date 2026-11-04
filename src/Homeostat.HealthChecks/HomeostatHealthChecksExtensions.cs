@@ -14,34 +14,31 @@ public static class HomeostatHealthChecksExtensions
     /// framework's health check publisher, in the background, whether or not a health endpoint is called.
     /// </summary>
     /// <param name="builder">The Homeostat builder.</param>
-    /// <param name="period">
-    /// How often health checks run (at least one second). When <c>null</c>, the framework default applies (30 seconds).
-    /// Keep it shorter than the <c>SustainedFor</c> of your conditions. This sets
-    /// <see cref="HealthCheckPublisherOptions.Period"/>, which is shared by every <see cref="IHealthCheckPublisher"/> of
-    /// the application: other publishers run at the same pace.
-    /// </param>
-    /// <exception cref="ArgumentOutOfRangeException"><paramref name="period"/> is shorter than one second.</exception>
+    /// <param name="configure">How often the checks run; optional.</param>
+    /// <exception cref="ArgumentOutOfRangeException"><see cref="HealthCheckSignalOptions.Period"/> is shorter than one second.</exception>
     /// <example>
     /// <code>
     /// builder.Services.AddHealthChecks().AddCheck&lt;WeatherFeedHealthCheck&gt;("weather-feed");
     /// builder.Services.AddHomeostat(h => h
-    ///     .AddHealthCheckSignals(period: TimeSpan.FromSeconds(10))
+    ///     .AddHealthCheckSignals(o => o.Period = TimeSpan.FromSeconds(10))
     ///     .AddCondition("weather-feed-down", c => c.ForSource("weather-feed").SustainedFor(TimeSpan.FromMinutes(1))));
     /// </code>
     /// </example>
-    public static HomeostatBuilder AddHealthCheckSignals(this HomeostatBuilder builder, TimeSpan? period = null)
+    public static HomeostatBuilder AddHealthCheckSignals(this HomeostatBuilder builder, Action<HealthCheckSignalOptions>? configure = null)
     {
         ArgumentNullException.ThrowIfNull(builder);
-        if (period is { } requested && requested < TimeSpan.FromSeconds(1))
+        var options = new HealthCheckSignalOptions();
+        configure?.Invoke(options);
+        if (options.Period is { } requested && requested < TimeSpan.FromSeconds(1))
         {
-            throw new ArgumentOutOfRangeException(nameof(period), "The health check period must be at least one second.");
+            throw new ArgumentOutOfRangeException(nameof(configure), "The health check period must be at least one second.");
         }
 
         // Registers the hosted service that runs health checks periodically.
         builder.Services.AddHealthChecks();
         builder.Services.TryAddEnumerable(ServiceDescriptor.Singleton<IHealthCheckPublisher, HealthCheckSignalPublisher>());
 
-        if (period is { } value)
+        if (options.Period is { } value)
         {
             builder.Services.Configure<HealthCheckPublisherOptions>(o => o.Period = value);
         }

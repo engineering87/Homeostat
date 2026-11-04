@@ -10,7 +10,7 @@ let Homeostat act.
 > Prefer to run something first? The complete code is in
 > [`samples/Homeostat.Samples.WeatherFeed`](../samples/Homeostat.Samples.WeatherFeed); for a worker service without
 > ASP.NET Core, see [`samples/Homeostat.Samples.Worker`](../samples/Homeostat.Samples.Worker). Or start a new project
-> with everything set up: `dotnet new install Homeostat.Templates`, then `dotnet new homeostat-webapi` or
+> with everything set up: `dotnet new install Homeostat.Templates::1.0.0-rc.1`, then `dotnet new homeostat-webapi` or
 > `dotnet new homeostat-worker` (see [Tools](tools.md)).
 
 ## 1. Install
@@ -72,7 +72,7 @@ builder.Services
             .ForSource("weather-feed")
             .SustainedFor(TimeSpan.FromSeconds(30))
             .Heal(p => p.With<RenewFeedClientAction>())))
-    .AddHealthCheckSignals(period: TimeSpan.FromSeconds(10));
+    .AddHealthCheckSignals(o => o.Period = TimeSpan.FromSeconds(10));
 ```
 
 Read it as a sentence:
@@ -151,7 +151,7 @@ app.MapHomeostatStatus("operations");   // GET /homeostat/status: conditions, ru
 `"operations"` is the name of an [authorization policy](https://learn.microsoft.com/aspnet/core/security/authorization/policies)
 of your application, defined above; the application also needs authentication (JWT bearer, cookies, ...) so that
 users have roles. The endpoint reveals internal details, so Homeostat asks for a policy (for a local experiment,
-`MapHomeostatStatus(allowAnonymous: true)`). The control endpoints (pause, resume, approvals) and the
+`MapHomeostatStatus(allowAnonymous: true)`). The control endpoints (pause, resume, approvals, switches) and the
 dashboard (`MapHomeostatDashboard`, a page with one-click approvals) are described in
 [ASP.NET Core endpoints](aspnetcore.md); the `homeostat` command-line tool in [Tools](tools.md).
 

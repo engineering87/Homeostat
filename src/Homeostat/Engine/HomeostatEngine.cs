@@ -14,7 +14,7 @@ internal sealed class HomeostatEngine : BackgroundService
     private readonly ConditionSet _conditions;
     private readonly HealingRunner _runner;
     private readonly ObserverNotifier _notifier;
-    private readonly IHomeostatSwitches _switches;
+    private readonly HomeostatSwitches _switches;
     private readonly SwitchOwnership _ownership;
     private readonly HomeostatApprovals _approvals;
     private readonly ILogger<HomeostatEngine> _logger;
@@ -29,7 +29,7 @@ internal sealed class HomeostatEngine : BackgroundService
         ConditionSet conditions,
         HealingRunner runner,
         ObserverNotifier notifier,
-        IHomeostatSwitches switches,
+        HomeostatSwitches switches,
         SwitchOwnership ownership,
         HomeostatApprovals approvals,
         ILogger<HomeostatEngine> logger,
@@ -113,9 +113,30 @@ internal sealed class HomeostatEngine : BackgroundService
         {
             if (_switches.IsOn(name))
             {
-                _switches.TurnOff(name);
+                _switches.TurnOffLocal(name);
                 _logger.LogInformation("Condition {Condition} cleared: switch {Switch} turned off.", definition.Name, name);
             }
+        }
+
+        // Application switches its cluster plan turned on: the store records the owner, so any instance can do it.
+        if (definition.Plan?.Scope == Healing.PlanScope.Cluster)
+        {
+            _ = ReleaseSharedAsync(definition.Name);
+        }
+    }
+
+    private async Task ReleaseSharedAsync(string condition)
+    {
+        try
+        {
+            foreach (var name in await _switches.ReleaseSharedAsync(condition, CancellationToken.None).ConfigureAwait(false))
+            {
+                _logger.LogInformation("Condition {Condition} cleared: application switch {Switch} turned off.", condition, name);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Condition {Condition} cleared, but its application switches could not be turned off in the store.", condition);
         }
     }
 

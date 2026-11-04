@@ -161,17 +161,19 @@ public sealed class HomeostatBuilder
 
     /// <summary>
     /// Publishes the state of every <see cref="RestartableBackgroundService"/> registered with <c>AddHostedService</c>:
-    /// Healthy while it runs, Unhealthy when its loop threw or returned. The source is <c>service:{type name}</c>, so a
-    /// condition can restart a worker that crashed.
+    /// Healthy while it runs, Unhealthy when its loop threw or returned. The source is <c>hosted-service:{type name}</c>,
+    /// so a condition can restart a worker that crashed.
     /// </summary>
+    /// <param name="configure">Source prefix; optional.</param>
     /// <example>
     /// <code>
     /// h.AddBackgroundServiceSignals()
-    ///  .AddCondition("ingest-crashed", c => c.ForSource("service:IngestWorker")
+    ///  .AddCondition("ingest-crashed", c => c.ForSource("hosted-service:IngestWorker")
     ///      .Heal(p => p.RestartHostedService&lt;IngestWorker&gt;()));
     /// </code>
     /// </example>
-    public HomeostatBuilder AddBackgroundServiceSignals() => AddDetector<BackgroundServiceSignalDetector>();
+    public HomeostatBuilder AddBackgroundServiceSignals(Action<BackgroundServiceSignalOptions>? configure = null)
+        => AddBuiltInDetector<BackgroundServiceSignalDetector, BackgroundServiceSignalOptions>(configure);
 
     /// <summary>
     /// Registers a custom <see cref="ISignalDetector"/> (a singleton): the engine calls it at every
@@ -182,7 +184,7 @@ public sealed class HomeostatBuilder
     public HomeostatBuilder AddDetector<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] TDetector>()
         where TDetector : class, ISignalDetector
     {
-        Services.AddSignalDetector<TDetector>();
+        Services.AddHomeostatDetector<TDetector>();
         return this;
     }
 
@@ -221,7 +223,7 @@ public sealed class HomeostatBuilder
             options.Configure(configure);
         }
 
-        Services.AddSignalDetector<TDetector>();
+        Services.AddHomeostatDetector<TDetector>();
         return this;
     }
 }

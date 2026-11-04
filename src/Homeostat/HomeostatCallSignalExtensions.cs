@@ -27,7 +27,7 @@ public static class HomeostatCallSignalExtensions
     /// public sealed class Geocoder(GeocodingSdk sdk, [FromKeyedServices("geocoding:api")] CallRecorder calls)
     /// {
     ///     public Task&lt;Coordinates&gt; LookupAsync(string address, CancellationToken ct)
-    ///         => calls.TrackAsync(token => sdk.GeocodeAsync(address, token), ct);
+    ///         => calls.TrackAsync(token => sdk.GeocodeAsync(address, token), cancellationToken: ct);
     /// }
     /// </code>
     /// </example>
@@ -59,7 +59,7 @@ public static class HomeostatCallSignalExtensions
         services.AddKeyedSingleton(source, (sp, _) => new CallRecorder(source, options, sp.GetService<TimeProvider>()));
         services.AddSingleton(new CallSignalRegistration(source, origin));
         services.TryAddSingleton(TimeProvider.System);
-        services.AddSignalDetector<CallSignalDetector>();
+        services.AddHomeostatDetector<CallSignalDetector>();
         return services;
     }
 }

@@ -24,7 +24,7 @@ builder.Services.AddHomeostat(h => h
             .CooldownBackoff(2, TimeSpan.FromMinutes(30))))
     // A crashed loop: restart it at once.
     .AddCondition("ingest-crashed", c => c
-        .ForSource("service:DocumentIngestWorker")
+        .ForSource("hosted-service:DocumentIngestWorker")
         .Heal(p => p.RestartHostedService<DocumentIngestWorker>()))
     .AddAuditLog("logs/homeostat-{date}.jsonl"));
 

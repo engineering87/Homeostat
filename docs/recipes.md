@@ -68,7 +68,7 @@ once the provider has been stable for a while.
     .ForSource("forecast")
     .SustainedFor(TimeSpan.FromSeconds(30))
     .ClearAfter(TimeSpan.FromMinutes(2))
-    .Heal(p => p.TurnOnSwitch("serve-cached-forecast", turnOffWhenCleared: true)))
+    .Heal(p => p.TurnOnSwitch("serve-cached-forecast")))
 ```
 
 The `forecast` health check must call the provider directly, not through the cached path, otherwise the switch
@@ -137,8 +137,9 @@ signals.TryPublish("thumbnail-queue",
     .SustainedFor(TimeSpan.FromMinutes(2))
     .Heal(p => p
         .With<IncreaseWorkerParallelismAction>()
+            .VerificationTimeout(TimeSpan.FromMinutes(3))   // applies to the step before it
         .Then<PausePreviewGenerationAction>()
-        .VerificationTimeout(TimeSpan.FromMinutes(3))))
+            .VerificationTimeout(TimeSpan.FromMinutes(3))))
 ```
 
 ```csharp
@@ -195,16 +196,18 @@ homeostat pause --for 20m            # resumes by itself after 20 minutes
 homeostat resume                     # resume early when the deployment went well
 ```
 
-From code, for example a deployment hook inside the application, use `PauseUntil` rather than `Pause()`, for the
+From code, for example a deployment hook inside the application, pass an end time to `PauseAsync`, for the
 same reason:
 
 ```csharp
 public sealed class DeploymentHook(IHomeostatControl control, TimeProvider time)
 {
-    public void Begin() => control.PauseUntil(time.GetUtcNow().AddMinutes(20));   // never left paused by mistake
-    public void End()   => control.Resume();
+    public ValueTask BeginAsync() => control.PauseAsync(time.GetUtcNow().AddMinutes(20), by: "deployment");   // never left paused by mistake
+    public ValueTask EndAsync()   => control.ResumeAsync();
 }
 ```
+
+With a shared store the pause applies to every instance, so one hook or one `homeostat pause` is enough.
 
 When deployments happen at fixed times, declare a [maintenance window](guardrails.md#maintenance-windows) instead:
 nobody has to remember to pause.
@@ -215,7 +218,7 @@ nobody has to remember to pause.
     .On(DayOfWeek.Wednesday))
 ```
 
-Keep plain `Pause()` for incidents that people handle by hand, and resume when they are done.
+Keep a pause without an end time (`PauseAsync()`) for incidents that people handle by hand, and resume when they are done.
 
 ---
 

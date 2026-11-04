@@ -14,7 +14,7 @@ internal sealed class ConditionReloader : IHostedService, IDisposable
     private readonly IReadOnlyList<ConditionDefinition> _codeDefinitions;
     private readonly IReadOnlyList<ConfigurationConditionSource> _sources;
     private readonly SwitchOwnership _ownership;
-    private readonly IHomeostatSwitches _switches;
+    private readonly HomeostatSwitches _switches;
     private readonly HomeostatApprovals _approvals;
     private readonly ILogger<ConditionReloader> _logger;
     private readonly List<IDisposable> _subscriptions = [];
@@ -28,7 +28,7 @@ internal sealed class ConditionReloader : IHostedService, IDisposable
         IEnumerable<ConditionDefinition> codeDefinitions,
         IEnumerable<ConfigurationConditionSource> sources,
         SwitchOwnership ownership,
-        IHomeostatSwitches switches,
+        HomeostatSwitches switches,
         HomeostatApprovals approvals,
         ILogger<ConditionReloader> logger,
         Diagnostics.ConditionHistory history,
@@ -101,15 +101,20 @@ internal sealed class ConditionReloader : IHostedService, IDisposable
                         _timeProvider.GetUtcNow());
                 }
 
+                before[removed].Retire();
                 _approvals.CancelFor(removed);
                 foreach (var name in _ownership.Release(removed))
                 {
                     if (_switches.IsOn(name))
                     {
-                        _switches.TurnOff(name);
+                        _switches.TurnOffLocal(name);
                         _logger.LogInformation("Condition {Condition} was removed from configuration: switch {Switch} turned off.", removed, name);
                     }
                 }
+
+                _ = _switches.ReleaseSharedAsync(removed, CancellationToken.None, anyInstance: true).AsTask().ContinueWith(
+                    t => _logger.LogError(t.Exception, "Condition {Condition} was removed, but its application switches could not be turned off.", removed),
+                    CancellationToken.None, TaskContinuationOptions.OnlyOnFaulted, TaskScheduler.Default);
             }
 
             _logger.LogInformation("Homeostat conditions reloaded from configuration ({Count} conditions).", definitions.Count);

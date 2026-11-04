@@ -12,7 +12,7 @@ public static class HomeostatDetectorServiceCollectionExtensions
     /// Registers a detector that runs at <see cref="HomeostatOptions.DetectionInterval"/>.
     /// Requires <c>AddHomeostat</c>. Registering the same detector type twice has no effect.
     /// </summary>
-    public static IServiceCollection AddSignalDetector<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] TDetector>(this IServiceCollection services)
+    public static IServiceCollection AddHomeostatDetector<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] TDetector>(this IServiceCollection services)
         where TDetector : class, ISignalDetector
     {
         ArgumentNullException.ThrowIfNull(services);

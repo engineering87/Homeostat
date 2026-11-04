@@ -120,7 +120,7 @@ internal static class HomeostatCli
         // replay
         var files = new Argument<string[]>("files")
         {
-            Description = "Recording files written by RecordSignals, or directories of them (*.jsonl).",
+            Description = "Recording files written by AddSignalRecording, or directories of them (*.jsonl).",
             Arity = ArgumentArity.OneOrMore,
         };
         var config = new Option<string>("--config")
@@ -187,6 +187,18 @@ internal static class HomeostatCli
         }));
         root.Subcommands.Add(resume);
 
+        // release <condition>
+        var condition = new Argument<string>("condition") { Description = "Condition whose plan is held after a rejected approval." };
+        var release = new Command("release", "Lift the hold of a plan after a rejected approval, without waiting for its condition to clear.") { condition };
+        release.SetAction((result, ct) => Run(error, async () =>
+        {
+            using var client = Connect(result);
+            await client.PostAsync($"conditions/{Uri.EscapeDataString(result.GetValue(condition)!)}/release", ct);
+            await output.WriteLineAsync($"Plan of '{result.GetValue(condition)}' released.");
+            return Ok;
+        }));
+        root.Subcommands.Add(release);
+
         // approve / reject
         foreach (var (name, verb, done) in new[] { ("approve", "Approve", "Approved"), ("reject", "Reject", "Rejected") })
         {
@@ -207,11 +219,18 @@ internal static class HomeostatCli
         foreach (var state in new[] { "on", "off" })
         {
             var switchName = new Argument<string>("name") { Description = "Switch name." };
+            var instanceOnly = new Option<bool>("--instance") { Description = "Only for the instance that answers the request (on: default is the whole application)." };
             var command = new Command(state, $"Turn the switch {state}.") { switchName };
+            if (state == "on")
+            {
+                command.Options.Add(instanceOnly);
+            }
+
             command.SetAction((result, ct) => Run(error, async () =>
             {
                 using var client = Connect(result);
-                await client.PostAsync($"switches/{Uri.EscapeDataString(result.GetValue(switchName)!)}/{state}", ct);
+                var scope = state == "on" && result.GetValue(instanceOnly) ? "?scope=instance" : string.Empty;
+                await client.PostAsync($"switches/{Uri.EscapeDataString(result.GetValue(switchName)!)}/{state}{scope}", ct);
                 await output.WriteLineAsync($"Switch '{result.GetValue(switchName)}' is {state}.");
                 return Ok;
             }));

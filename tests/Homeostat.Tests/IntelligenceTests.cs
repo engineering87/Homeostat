@@ -226,11 +226,11 @@ public class IntelligenceTests
             await File.WriteAllTextAsync(notOurs, "{}\n");
             await using (var host = await HomeostatTestHost.StartAsync(
                 h => h
-                    .RecordSignals(o =>
+                    .AddSignalRecording(o =>
                     {
                         o.Path = Path.Combine(directory, "signals-{date}.jsonl");
                         o.Sources.Add("feed");
-                        o.RetentionDays = 7;
+                        o.Retention = TimeSpan.FromDays(7);
                         o.IncludeDetails = true;
                     })
                     .AddCondition("feed-down", c => c.ForSource("feed"))
@@ -272,7 +272,7 @@ public class IntelligenceTests
             await using (var host = await HomeostatTestHost.StartAsync(
                 h => h
                     .Configure(o => o.InstanceId = "web/1")
-                    .RecordSignals(o => o.Path = Path.Combine(directory, "signals-{instance}-{date}.jsonl"))
+                    .AddSignalRecording(o => o.Path = Path.Combine(directory, "signals-{instance}-{date}.jsonl"))
                     .AddCondition("feed-down", c => c.ForSource("feed")),
                 options: new HomeostatTestHostOptions { StartTime = Start }))
             {

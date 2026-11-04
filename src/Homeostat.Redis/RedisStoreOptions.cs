@@ -1,7 +1,7 @@
 namespace Homeostat.Redis;
 
 /// <summary>Settings of the Redis store and coordinator.</summary>
-public sealed class RedisHomeostatOptions
+public sealed class RedisStoreOptions
 {
     /// <summary>
     /// Prefix of every key. Instances that share the prefix share cooldowns, budget, history and leases; use one

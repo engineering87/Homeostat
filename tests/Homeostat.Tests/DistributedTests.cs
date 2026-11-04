@@ -433,11 +433,54 @@ public class DistributedTests
         }
     }
 
+    [Fact]
+    public async Task Redis_store_keeps_the_control_state_with_atomic_switch_ownership_and_answers()
+    {
+        using var redis = RedisFixture.Connect();
+        var prefix = RedisFixture.Prefix();
+        var store = CreateRedisStore(redis, prefix);
+        var now = DateTimeOffset.UtcNow;
+
+        await store.SetPauseAsync(new PauseState { At = now, By = "on-call" });
+        Assert.Equal("on-call", (await store.GetControlStateAsync()).Pause?.By);
+        await store.SetPauseAsync(null);
+        Assert.Null((await store.GetControlStateAsync()).Pause);
+
+        // A plan claims a free switch, takes it back from itself, but never from a person or another condition.
+        Assert.True(await store.TryClaimSwitchAsync(new SwitchState { Name = "degrade", Condition = "feed-down", Instance = "a", At = now }));
+        Assert.True(await store.TryClaimSwitchAsync(new SwitchState { Name = "degrade", Condition = "feed-down", Instance = "b", At = now }));
+        Assert.False(await store.TryClaimSwitchAsync(new SwitchState { Name = "degrade", Condition = "disk-full", Instance = "a", At = now }));
+        Assert.False(await store.TryReleaseSwitchAsync("degrade", "feed-down", "a"), "B owns it now");
+        Assert.True(await store.TryReleaseSwitchAsync("degrade", "feed-down", "b"));
+
+        await store.SetSwitchAsync("serve-cached", new SwitchState { Name = "serve-cached", By = "on-call", At = now });
+        Assert.False(await store.TryClaimSwitchAsync(new SwitchState { Name = "serve-cached", Condition = "feed-down", Instance = "a", At = now }));
+        Assert.False(await store.TryReleaseSwitchAsync("serve-cached", "feed-down", null));
+        var state = Assert.Single((await store.GetControlStateAsync()).Switches);
+        Assert.Null(state.Condition);
+
+        // The first answer wins; an answer this version cannot read leaves the request pending.
+        var request = new PendingApproval("r1", "feed-down", 0, "renew", now, now.AddMinutes(5), new Signal("feed", SignalSeverity.Unhealthy, now));
+        await store.AddApprovalAsync(new ApprovalRecord { Request = request, Instance = "a" });
+        Assert.True(await store.TryResolveApprovalAsync("r1", ApprovalStatus.Approved, "on-call"));
+        Assert.False(await store.TryResolveApprovalAsync("r1", ApprovalStatus.Rejected, "someone else"));
+        var answered = Assert.Single((await store.GetControlStateAsync()).Approvals);
+        Assert.Equal(ApprovalStatus.Approved, answered.Status);
+        Assert.Equal("on-call", answered.ResolvedBy);
+
+        await store.AddApprovalAsync(new ApprovalRecord { Request = request with { Id = "r2" }, Instance = "a" });
+        await redis.GetDatabase().HashSetAsync($"{prefix}{{control}}:answers", "r2", "Postponed\nfuture");
+        Assert.Null((await store.GetControlStateAsync()).Approvals.Single(a => a.Request.Id == "r2").Status);
+
+        await store.RemoveApprovalAsync("r1");
+        Assert.Equal("r2", Assert.Single((await store.GetControlStateAsync()).Approvals).Request.Id);
+    }
+
     private static RedisHomeostatStore CreateRedisStore(IConnectionMultiplexer redis, string prefix)
-        => new(redis, Options.Create(new RedisHomeostatOptions { KeyPrefix = prefix }), Options.Create(new HomeostatOptions()));
+        => new(redis, Options.Create(new RedisStoreOptions { KeyPrefix = prefix }), Options.Create(new HomeostatOptions()));
 
     private static RedisCoordinator CreateRedisCoordinator(IConnectionMultiplexer redis, string prefix)
-        => new(redis, Options.Create(new RedisHomeostatOptions { KeyPrefix = prefix }), NullLogger<RedisCoordinator>.Instance);
+        => new(redis, Options.Create(new RedisStoreOptions { KeyPrefix = prefix }), NullLogger<RedisCoordinator>.Instance);
 
     private static void InterlockedMax(ref int target, int value)
     {

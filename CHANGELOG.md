@@ -23,9 +23,19 @@ stable through 1.0.0.
 
 - Signals, conditions and healing plans with escalation and three-outcome verification.
 - Guardrails: dry-run by default, action budget, cooldown with backoff, concurrency limit, timeouts, kill switch,
-  maintenance windows, `PauseUntil` and `PauseReason` (`POST /homeostat/pause?for=...`).
-- Human approval for risky steps (`RequireApproval`, `IHomeostatApprovals`, `NotApproved` outcome): the concurrency
-  slot is released while waiting, and a rejection holds the plan until the condition clears.
+  maintenance windows, timed pauses (`PauseAsync(until, by)`, `POST /homeostat/pause?for=...`) and `PauseReason`.
+- Human approval for risky steps (`RequireApproval`, `IHomeostatApprovals` with `GetPendingAsync`, `ApproveAsync` and
+  `RejectAsync`, `NotApproved` outcome): the concurrency slot is released while waiting, and a rejection holds the
+  plan until the condition clears or `IHomeostatControl.ReleaseHoldAsync(condition)` lifts the hold
+  (`POST /homeostat/conditions/{name}/release`, `homeostat release <condition>`).
+- Shared control state: the pause, the application switches and the approval requests are kept in the store, so with
+  a shared store a pause, a switch or an answer given on one instance applies to every instance within
+  `HomeostatOptions.ControlRefreshInterval` (5 seconds by default). `IHomeostatStore` gains `GetControlStateAsync`,
+  `SetPauseAsync`, `SetSwitchAsync`, `TryClaimSwitchAsync`, `TryReleaseSwitchAsync` (atomic ownership of the
+  switches a cluster plan turns on), `AddApprovalAsync`, `TryResolveApprovalAsync` and `RemoveApprovalAsync`, with
+  `ControlState`, `PauseState`, `SwitchState` and `ApprovalRecord`. The file store keeps the pause and the switches
+  turned on by a person or by code across restarts; Redis keeps everything, shared, under keys with the `{control}`
+  hash tag (one slot on Redis Cluster). Until the state has been read once, Homeostat counts as paused.
 - `ConditionCleared` outcome: a run stops before a step that is no longer needed.
 - Persistent state: `IHomeostatStore` with in-memory, file (`UseFileStore`) and Redis stores; atomic plan-state
   updates (cooldown, backoff, holds); budget and run history survive restarts; fail-closed when the store is
@@ -34,7 +44,8 @@ stable through 1.0.0.
   stop the run when the lease may be lost, `InstanceId` (machine name by default).
 - `IHomeostatControl` with run history, budget status, condition history and coverage (`GetRecentRunsAsync`,
   `GetBudgetAsync`, `GetConditionHistoryAsync`, `GetCoverageAsync`).
-- `IHomeostatSwitches` with the `Changed` event, raised when a switch is turned on or off.
+- `IHomeostatSwitches` with `TurnOnAsync(name, scope, by)`, `TurnOffAsync`, `SwitchScope` (`Application`, the
+  default, or `Instance`) and the `Changed` event, raised when a switch is turned on or off, also on another instance.
 - `AddPauseGate(name)` registers a keyed `PauseGate`, so workers resolve a gate whose paused state survives restarts.
 - `IHealingObserver` with public run and step results and approval events.
 - Tracing and metrics (`Homeostat` activity source and meter); gauges `homeostat.conditions`,
@@ -51,20 +62,26 @@ stable through 1.0.0.
 - Predictive conditions `WhenProjectedAbove` and `WhenProjectedBelow`, which clear soon after a fix when the latest
   values stop moving toward the threshold.
 - Hysteresis on recovery (`ClearAfter`) and suppression of symptoms (`SuppressedBy`, with startup validation).
-- Conditions and plans from configuration (`AddConditionsFromConfiguration`, `MapAction`) with strict validation,
+- Conditions and plans from configuration (`AddConditionsFromConfiguration`, `AddAction`) with strict validation,
   reloaded at runtime without touching unchanged conditions; includes `RisingFasterThan`, `FallingFasterThan`,
   `AnomalouslyHigh`, `AnomalouslyLow`, `SeasonallyHigh`, `SeasonallyLow`, `ProjectedAbove`, `ProjectedBelow` and
   `Adaptive`.
 - Persisted condition history: activations and clears with the causing signal, in the file and Redis stores
-  (`ConditionHistorySize`, 200 by default; `RedisHomeostatOptions.DocumentRetention`); history reads fall back to this
+  (`ConditionHistorySize`, 200 by default; `RedisStoreOptions.DocumentRetention`); history reads fall back to this
   instance's events when the store fails.
 
 #### Healing plans and actions
 
 - Inline lambda actions and compensating actions (`UndoWith`).
-- Built-in actions: restart a hosted service, reload configuration, turn on a switch, with automatic reset when the
-  condition clears (`TurnOnSwitch(name, turnOffWhenCleared: true)`).
-- `RestartableBackgroundService`, restarted inside the service, and `AddBackgroundServiceSignals`.
+- Built-in actions: restart a hosted service, reload configuration, turn on a switch, turned off when the condition
+  clears unless `TurnOnSwitch(name, turnOffWhenCleared: false)`. In a `OncePerCluster()` plan the switch is an
+  application switch owned by the condition, turned off when it clears on any instance; in other plans it is an
+  instance switch.
+- Step settings: `ActionTimeout`, `VerificationTimeout`, `RequireApproval` and `UndoWith` apply to the step added just
+  before them (in configuration, `ActionTimeout` and `VerificationTimeout` are keys of each step); `Cooldown`,
+  `CooldownBackoff`, `VerifyWith`, `OncePerCluster` and `Adaptive` apply to the plan.
+- `RestartableBackgroundService`, restarted inside the service, and `AddBackgroundServiceSignals` (sources
+  `hosted-service:{type name}`, `SourcePrefix` option).
 - `RestartApplication()` (approval by default): graceful stop with an exit code for the orchestrator to restart;
   `RestartGuard` and `RestartLimits` enforce a minimum uptime and a maximum number of restarts per window, counted in
   the store.
@@ -76,8 +93,10 @@ stable through 1.0.0.
 - Probes (`AddProbe`, `AddLatencyProbe`): any number or round trip as a signal value, with thresholds, interval and
   timeout; probes run in the background in their own scope, and a hanging call is canceled and never stacked.
 - Metric signals from any `System.Diagnostics.Metrics` instrument (`AddMetricSignal`), with
-  `AddServerErrorRateSignal`, `AddServerLatencySignal` and `MetricSignalBuilder.Scale(factor)`.
-- Any event counter as a signal (`AddEventCounterSignal`), enabling only the counters it needs.
+  `AddServerErrorRateSignal(o => ...)` (`ServerErrorRateSignalOptions`), `AddServerLatencySignal(o => ...)`
+  (`ServerLatencySignalOptions`, thresholds as `TimeSpan`) and `MetricSignalBuilder.Scale(factor)`.
+- Any event counter as a signal (`AddEventCounterSignal`, source `counter:{eventSource}:{counter}`, `Interval` 10 s by
+  default), enabling only the counters it needs.
 - Starter presets `AddWebApiDefaults()` and `AddWorkerDefaults()`: the thread pool, memory and exception detectors
   (plus the server error rate and latency signals for web APIs, and `AddBackgroundServiceSignals` for workers) with
   the observe-only conditions `threadpool-starved`, `memory-pressure`, `exception-rate-high`, `server-errors-high` and
@@ -86,7 +105,8 @@ stable through 1.0.0.
   (`Configure`, for example `WhenValueAbove` for another threshold) or given a plan (`Heal`). One preset per
   application.
 - Call signals for any client (`AddCallSignals(source)`): a keyed `CallRecorder` records calls (`Record`,
-  `Record(failed)` without a duration, `TrackAsync`, which ignores cancellations requested by the caller) and publishes their failure ratio as the signal
+  `Record(failed)` without a duration, `TrackAsync(call, isFailure, cancellationToken)`, which ignores cancellations
+  requested by the caller) and publishes their failure ratio as the signal
   value, with the p95 duration in the tags; thresholds in `CallSignalOptions`. An `IServiceCollection` overload with an
   `origin` serves integration packages.
 - `Homeostat.HealthChecks`: health check results as signals.
@@ -94,23 +114,25 @@ stable through 1.0.0.
 #### Integrations: data, Entity Framework Core, caching, Redis, MongoDB, HTTP and gRPC, Polly, feature flags
 
 - `Homeostat.Data`: `AddDatabaseProbe` for any ADO.NET provider (failures tagged `transient` from
-  `DbException.IsTransient`), the `ClearConnectionPools<TConnection>()` action and `AddSqlClientPoolSignal` for
-  SqlClient pool exhaustion.
-- `AddNpgsqlPoolSignal` (Homeostat.Data): Npgsql 10+ pool usage as a share of the maximum, from the `Npgsql` meter.
+  `DbException.IsTransient`), the `ClearConnectionPools<TConnection>()` action and `AddSqlClientPoolSignal(o => ...)`
+  (`SqlClientPoolSignalOptions`) for SqlClient pool exhaustion.
+- `AddNpgsqlPoolSignal(o => ...)` (Homeostat.Data, `NpgsqlPoolSignalOptions`): Npgsql 10+ pool usage as a share of
+  the maximum, from the `Npgsql` meter.
 - `Homeostat.EntityFrameworkCore`: `AddDbContextSignals<TContext>()` publishes the failure ratio and p95 duration of
   the commands of a `DbContext` (`efcore:{context type name}`) through an interceptor added with `ConfigureDbContext`,
   leaving `AddDbContext`, `AddDbContextPool` and `AddDbContextFactory` unchanged (a second call updates the settings,
   never adds a second interceptor); timeouts, transient errors and failed connections count, command errors and
-  cancellations do not (`DbContextSignalOptions.IsDatabaseFailure`). `AddDbContextProbe<TContext>()` checks
+  cancellations do not (`DbContextSignalOptions.IsDatabaseFailure`). `AddDbContextProbe<TContext>(o => ...)` (`DbContextProbeOptions`) checks
   `Database.CanConnectAsync` (`efcore:{context type name}:ping`), also for contexts registered only with
   `AddDbContextFactory`. Any relational
   provider; EF Core 10.
-- `Homeostat.Caching`: `AddMemoryCacheSignals` (hit ratio) and the `PurgeHybridCacheTags`, `RemoveHybridCacheKeys`,
+- `Homeostat.Caching`: `AddMemoryCacheSignals(o => ...)` (hit ratio, `MemoryCacheSignalOptions`) and the `PurgeHybridCacheTags`, `RemoveHybridCacheKeys`,
   `RemoveDistributedCacheKeys` and `CompactMemoryCache` actions.
-- `Homeostat.Redis`: shared store (atomic budget script, capped history) and coordinator (`UseRedis`); `AddRedisSignals` (ping round trip and connection events).
+- `Homeostat.Redis`: shared store (atomic budget script, capped history) and coordinator (`UseRedis`); `AddRedisSignals(o => ...)` (ping round trip and connection events, `RedisSignalOptions.Source`).
 - `Homeostat.MongoDB`: ping latency, primary availability and connection pool timeouts from the driver events
-  (`MongoClientSettings.AddHomeostatSignals`), replication lag (opt-in).
-- `Homeostat.Http`: failure ratio and p95 latency of `IHttpClientFactory` clients as signals; gRPC failures
+  (`MongoClientSettings.AddHomeostatSignals`), replication lag (opt-in); `MongoSignalOptions.Source` sets the prefix.
+- `Homeostat.Http`: failure ratio and p95 latency of `IHttpClientFactory` clients as signals (`MinimumCalls`,
+  `IsFailure` with the default `HttpClientSignalOptions.IsServiceFailure`); gRPC failures
   (grpc-status Unknown, DeadlineExceeded, ResourceExhausted, Internal, Unavailable, DataLoss in response headers) are
   counted by `AddHomeostatSignals` through `HttpClientSignalOptions.IsGrpcFailure`.
 - `Homeostat.Grpc`: `AddHomeostatGrpcSignals()` on the builder of `AddGrpcClient` publishes the failure ratio of a
@@ -120,7 +142,9 @@ stable through 1.0.0.
   start. A second call on the same client updates the settings, never adds a second interceptor.
   `HomeostatGrpcInterceptor` for channels built without the client factory.
 - `Homeostat.Polly`: Polly v8 circuit breaker state as signals, `CircuitControl` and the `IsolateCircuit` action
-  (manual isolation driven by a switch), `ChaosEnabledBySwitch` for chaos strategies during game days.
+  (manual isolation driven by a switch), `ChaosEnabledBySwitch` for chaos strategies during game days;
+  `TrackCircuitBreaker`, `CircuitControl` and `ChaosEnabledBySwitch` are in `Homeostat.Polly.HomeostatPollyServices`
+  (`using Homeostat.Polly;`).
 - `Homeostat.FeatureManagement` (`Homeostat.Switch` feature filter) and `Homeostat.OpenFeature`
   (`HomeostatSwitchProvider`): feature flags driven by switches.
 
@@ -129,12 +153,13 @@ stable through 1.0.0.
 - Pausable consumers in the core: `IPausableConsumer`, `IHomeostatConsumers`, `AddPausableConsumer`, the plan step
   `PauseConsumer(name)` and the switch `consumer:{name}:paused` (also from the dashboard and the CLI).
 - `PauseGate`: pauses any receive loop (AMQP receivers, change streams, polling workers).
-- `Homeostat.ServiceBus`: active and dead-letter counts of queues and subscriptions as signals; pausable
+- `Homeostat.ServiceBus`: active and dead-letter counts of queues and subscriptions as signals
+  (`servicebus:{queue}:messages`, `servicebus:{topic}:{subscription}:messages`, `:dead-letter`); pausable
   `ServiceBusProcessor` and `ServiceBusSessionProcessor`.
 - `Homeostat.RabbitMQ`: ready messages, consumers and dead letters of a queue as signals (passive declare on a
   short-lived channel); `PausableRabbitMqConsumer`.
 - `Homeostat.Kafka`: consumer lag, broker connections and producer queue use from the client statistics
-  (`SetHomeostatSignals` on consumer and producer builders, `KafkaSignalReporter`); `KafkaPauseGate`, applied on the
+  (`SetHomeostatSignals` on consumer and producer builders, thresholds in `Lag` and `Queue`, `KafkaSignalReporter`); `KafkaPauseGate`, applied on the
   consumer's own thread, and `AddKafkaPauseGate(name)` for a keyed gate that survives restarts.
 - `Homeostat.Artemis`: message and consumer counts of ActiveMQ Artemis queues and their dead-letter queue, through
   the broker's Jolokia management API (no client library).
@@ -143,7 +168,7 @@ stable through 1.0.0.
 
 All actions require approval by default.
 
-- `Homeostat.Kubernetes` (`UseKubernetes`): `RestartPod` (only pods with a controller), `RolloutRestart`,
+- `Homeostat.Kubernetes` (`UseKubernetes`): `RestartPod(gracePeriod)` (only pods with a controller), `RolloutRestart`,
   `ScaleDeployment` (only in the requested direction, conditional update), `CordonNode` (leaves cordoned nodes
   alone); in-cluster REST client trusting the cluster CA, rotating service account token, validated names.
 - `Homeostat.Azure` (`UseAzure` with a token from Azure.Identity): `RestartAppService`, `RestartVirtualMachine`,
@@ -155,7 +180,10 @@ All actions require approval by default.
 - `Homeostat.AspNetCore`: status and control endpoints (`MapHomeostatStatus`, `MapHomeostatControl`), which require an
   authorization policy unless explicitly mapped for anonymous use; `GET /homeostat/history` and
   `GET /homeostat/coverage`. Switch names in the URL are refused when empty, longer than 200 characters or with
-  control characters, by both the `on` and the `off` endpoint.
+  control characters, by both the `on` and the `off` endpoint. `POST /homeostat/switches/{name}/on?scope=instance`
+  turns a switch on for one instance; the control endpoints answer 503 when the store is down.
+- `MapHomeostatStatus`, `MapHomeostatControl` and `MapHomeostatDashboard` overloads that take an inline policy
+  (`p => p.RequireRole("operations")`). The JSON of the endpoints is the contract; the types behind it are internal.
 - `MapHomeostatDashboard`: embedded dashboard with one-click approvals, switches, pause, recent runs, condition
   history and 24-hour coverage panels; strict Content-Security-Policy, text-only rendering.
 - `MapHomeostatAlerts`: receives Prometheus Alertmanager, Grafana and Azure Monitor (common alert schema)
@@ -169,17 +197,20 @@ All actions require approval by default.
 
 #### Notifications and audit
 
-- Audit log in JSON Lines (`AddAuditLog`), webhook notifier (`AddWebhookNotifications`) and a base class for custom
-  sinks (`HomeostatEventSink`, `AddEventSink`); events raised during shutdown are delivered.
-- Notifiers in `Homeostat.Http`: `AddPagerDutyIncidents` (Events API v2), `AddOpsgenieAlerts` (Jira Service Management
+- Audit log in JSON Lines (`AddAuditLog`), webhook notifier (`AddWebhookNotifications`) and custom sinks
+  (`IHomeostatEventSink`, `AddEventSink`): Homeostat queues the events and fills `ApplicationName`; events raised
+  during shutdown are delivered.
+- Notifiers in `Homeostat.Http`: `AddPagerDutyIncidents` (Events API v2), `AddOpsgenieIncidents` (Jira Service Management
   Operations by default, or Opsgenie), `AddSlackNotifications` (Block Kit, optional approval buttons),
-  `AddTeamsNotifications` (Adaptive Cards); only network errors, 408, 429 and 5xx are retried.
+  `AddTeamsNotifications` (Adaptive Cards); only network errors, 408, 429 and 5xx are retried. Named HTTP
+  clients `PagerDutyOptions.HttpClientName`, `OpsgenieOptions.HttpClientName`, `SlackOptions.HttpClientName` and
+  `TeamsOptions.HttpClientName`.
 
 #### Learning and replay
 
 - `Adaptive()` plans: steps with enough attempts of their own are ordered by measured success in the run history;
   new steps keep their position; approval steps are barriers.
-- `RecordSignals`: daily JSON Lines files per instance with retention, owner-only file permissions on Unix, messages
+- `AddSignalRecording`: daily JSON Lines files per instance with retention (`Retention`, 14 days), owner-only file permissions on Unix, messages
   and tags only on request; `RecordedSignal.Read`.
 - `HomeostatReplay` (Homeostat.Testing): replays recordings in enforced dry-run on simulated time, isolated from
   stores, detectors, notifiers, logging providers and telemetry, with a timeline and per-condition summary;
@@ -189,7 +220,8 @@ All actions require approval by default.
 
 #### Tooling: CLI, templates, analyzers, Aspire
 
-- `Homeostat.Cli`: the `homeostat` tool (`status`, `pause`, `resume`, `approve`, `reject`, `switch`, `signal`,
+- `Homeostat.Cli`: the `homeostat` tool (`status`, `pause`, `resume`, `approve`, `reject`, `release`,
+  `switch on|off` with `--instance`, `signal`,
   `history`, `coverage --fail-below`, and `replay` with the application's `HomeostatOptions` and `--max-heals`, exit
   code 5, for pipelines).
 - `Homeostat.Templates`: `homeostat-webapi` and `homeostat-worker`, built in CI from the packed packages.
@@ -227,8 +259,9 @@ All actions require approval by default.
   them); API rules for 1.0 in `CONTRIBUTING.md`; XML documentation for the whole public API.
 - Release workflow on version tags with package validation, an SBOM (SPDX) and a build provenance attestation per
   package (also attached to the release as `.intoto.jsonl`), and package signing when a certificate is configured;
-  every action pinned to a commit, checkouts without persisted credentials, every NuGet package fixed to an exact version; CodeQL and
-  OpenSSF Scorecard workflows; a security policy with coordinated disclosure timelines.
+  publishing to nuget.org with trusted publishing (no stored API key); every action pinned to a commit, checkouts
+  without persisted credentials, every NuGet package fixed to an exact version; CodeQL and OpenSSF Scorecard
+  workflows; a security policy with coordinated disclosure timelines.
 - CodeQL configuration (`.github/codeql/codeql-config.yml`): the security-and-quality suite on the shipped code,
   without tests and benchmarks, and without three style rules and the catch-all rule of the engine's fault isolation,
   each with its reason.
@@ -259,7 +292,10 @@ All actions require approval by default.
   Microsoft.Extensions.TimeProvider.Testing 10.11.0; analyzers on Microsoft.CodeAnalysis.CSharp 5.0.0 (the Roslyn of
   the .NET 10.0.1xx SDK, on purpose); tests on xUnit v3 (VSTest runner, Microsoft Testing Platform off).
 
-### Breaking changes for users of the 0.1.0 previews
+### Changed since earlier builds from source
+
+No version was published before this one. These changes matter only to code built against earlier commits of the
+repository (version `0.1.0` in the project files):
 
 - `AddMongoSignals` and `MongoClientSettings.AddHomeostatSignals` name the deployment `default` when no name is given
   (sources `mongodb:default:ping`...; previously `mongodb:mongodb:ping`).
@@ -277,16 +313,40 @@ All actions require approval by default.
 - `CoverageReport` and `ConditionCoverage` moved to the `Homeostat.Diagnostics` namespace.
 - `IHomeostatControl` gains `GetCoverageAsync`, which custom implementations must add (`GetConditionHistoryAsync` has
   a default implementation).
-- `HomeostatEventSink`: `ExecuteAsync` and `StopAsync` are sealed; `WriteAsync` is the extension point.
-- `InMemoryHomeostatStore.OnChanged` can no longer be overridden outside Homeostat.
+- Custom event sinks implement `IHomeostatEventSink` (`Events`, `WriteAsync`) instead of deriving from the
+  `HomeostatEventSink` base class, which is removed; Homeostat fills `ApplicationName`.
+- `IHomeostatControl.Pause()`, `PauseUntil()` and `Resume()` are `PauseAsync(until, by)` and `ResumeAsync()`;
+  `IHomeostatSwitches.TurnOn`/`TurnOff` are `TurnOnAsync`/`TurnOffAsync`; `IHomeostatApprovals.GetPending`, `Approve`
+  and `Reject` are `GetPendingAsync`, `ApproveAsync` and `RejectAsync`. Custom stores implement the control-state
+  members of `IHomeostatStore`.
+- `TurnOnSwitch(name)` turns the switch off when the condition clears by default (`turnOffWhenCleared: true`), and so
+  does a `switch:` step in configuration without `TurnOffWhenCleared`.
+- `ActionTimeout` and `VerificationTimeout` apply to the previous step, not to the whole plan; in configuration they
+  move from the plan to each step.
+- Names aligned before 1.0: `AddAction` (was `MapAction`), `AddSignalRecording` (`RecordSignals`),
+  `services.AddHomeostatDetector` (`AddSignalDetector`), `RedisStoreOptions` (`RedisHomeostatOptions`),
+  `AddOpsgenieIncidents` (`AddOpsgenieAlerts`), `ChatOptions.Url` (`WebhookUrl`), `HttpClientSignalOptions.MinimumCalls`
+  (`MinimumRequests`), `EventCounterSignalOptions.Interval` (`IntervalSeconds`), `SignalRecordingOptions.Retention`
+  (`RetentionDays`), `RestartPod(gracePeriod)` (`gracePeriodSeconds`), Kafka `Lag.*` and `Queue.*` (`LagDegradedAbove`...).
+- Registrations take an options callback: `AddSqlClientPoolSignal`, `AddNpgsqlPoolSignal`, `AddServerErrorRateSignal`,
+  `AddServerLatencySignal`, `AddMemoryCacheSignals`, `AddRedisSignals`, `AddDbContextProbe<T>` and
+  `AddHealthCheckSignals` (for example `AddSqlClientPoolSignal(o => o.MaxPoolSize = 200)`).
+- Sources: `service:{type}` is `hosted-service:{type}`; Service Bus `:active` is `:messages`
+  (`ServiceBusSignalOptions.Messages`) and subscriptions are `servicebus:{topic}:{subscription}`.
+- `TrackCircuitBreaker`, `CircuitControl` and `ChaosEnabledBySwitch` need `using Homeostat.Polly;`. `CallRecorder.TrackAsync`
+  takes the cancellation token last: pass it by name.
+- `InMemoryHomeostatStore` and `FileHomeostatStore` are sealed, and `FileHomeostatStore` no longer derives from
+  `InMemoryHomeostatStore`; `PlanScope`, `CallRecorder.Options` and the endpoint DTOs (`HomeostatStatus`, `RunInfo`...)
+  are internal; `ChatOptions` and the incident options cannot be derived; `HomeostatOptions` cannot change once
+  Homeostat has started; the `SourcePrefix` of alert ingestion cannot be empty.
 - `ISignalPublisher.TryPublish(source, severity, message)` is a default interface member: implementations need only
   `TryPublish(Signal)`.
 - A verifier that returns a value that is not a `VerificationOutcome` (such as `default`) is logged as an error and
   treated as `Inconclusive`: the run stops instead of escalating.
 - Trend and anomaly conditions no longer clear on a signal without a value (such as a failed probe) or with too
   little history: they clear only on a signal they evaluate as good.
-- A switch that a person turned on (dashboard, CLI, code) is no longer taken over by a plan step that turns it on with
-  `turnOffWhenCleared`, so the condition clearing no longer turns it off.
+- A switch that a person turned on (dashboard, CLI, code) is no longer taken over by a plan step that turns it on, so
+  the condition clearing no longer turns it off.
 - `RestartHostedService<T>()` refuses a plain `BackgroundService` unless the host ignores background service
   failures; workers to be restarted derive from `RestartableBackgroundService`.
 - Homeostat.AspNetCore: the endpoints write JSON with their own source-generated settings (web defaults, enums as
@@ -307,11 +367,21 @@ All actions require approval by default.
   a background service stopped outside a shutdown as failed (`BackgroundServiceExceptionBehavior.StopHost`); see the
   breaking changes above.
 - A condition that cleared while a switch step was running left the switch on: it is now turned off.
-- `AddConditionsFromConfiguration` without any `MapAction` registered its action catalog only when the conditions were
+- `AddConditionsFromConfiguration` without any `AddAction` registered its action catalog only when the conditions were
   first resolved, after the host had made the service collection read-only.
 - A signal that the engine cannot process is logged and skipped instead of stopping the engine.
 - A signed Slack interaction or Teams command with a value of the wrong JSON type is answered 400 instead of 500.
 - `UseRedis(connectionString)` no longer aborts startup when Redis is down.
+- The Redis coordinator declares a lease lost before its key can expire (a margin of a sixth of the lease duration),
+  so a cluster run stops before another instance can take the lease.
+- When the plan state cannot be saved at the end of a cluster run, the lease is kept for the cooldown instead of
+  released, so another instance does not run the plan again at once.
+- Compensating actions (`UndoWith`) obey the pause, maintenance windows and the action budget.
+- A cached hold is read again from the store after a minute, so a hold lifted on another instance applies;
+  `ReleaseHoldAsync` lifts it at once.
+- A pending cause that receives no signal for `max(SustainedFor, 1 minute)` no longer suppresses its symptoms.
+- A condition removed by a configuration reload stops its running plan before the next step.
+- `RestartLimits.Window` is a fixed window starting at the first restart counted in it.
 
 [Unreleased]: https://github.com/engineering87/Homeostat/compare/v1.0.0-rc.1...HEAD
 [1.0.0-rc.1]: https://github.com/engineering87/Homeostat/releases/tag/v1.0.0-rc.1

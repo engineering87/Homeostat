@@ -14,17 +14,17 @@ internal sealed class WebhookSink : HttpEventSink
     public WebhookSink(
         IHttpClientFactory clients,
         IOptions<WebhookOptions> webhook,
-        IOptions<HomeostatOptions> options,
         TimeProvider timeProvider,
-        ILogger<WebhookSink> logger)
-        : base(clients, WebhookOptions.HttpClientName, options.Value.ApplicationName, webhook.Value.Events, timeProvider, logger)
+        ILogger<WebhookSink> logger,
+        Microsoft.Extensions.Hosting.IHostApplicationLifetime? lifetime = null)
+        : base(clients, WebhookOptions.HttpClientName, webhook.Value.Events, timeProvider, logger, lifetime)
         => _options = webhook.Value;
 
     protected override TimeSpan Timeout => _options.Timeout;
 
     protected override int MaxAttempts => _options.MaxAttempts;
 
-    protected override Task WriteAsync(HomeostatEvent homeostatEvent, CancellationToken cancellationToken)
+    public override Task WriteAsync(HomeostatEvent homeostatEvent, CancellationToken cancellationToken)
         => SendAsync(HttpMethod.Post, _options.Url!, ToNode(_options.CreatePayload(homeostatEvent)), _options.Headers, cancellationToken);
 
     /// <summary>

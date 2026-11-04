@@ -42,7 +42,7 @@ builder.Services.AddHealthChecks()
     .AddCheck<AirQualityApiHealthCheck>("air-quality");
 
 builder.Services.AddHomeostat(/* ... */)
-    .AddHealthCheckSignals(period: TimeSpan.FromSeconds(10));
+    .AddHealthCheckSignals(o => o.Period = TimeSpan.FromSeconds(10));
 ```
 
 | Health check | Signal |
@@ -56,9 +56,9 @@ Notes:
 
 - `AddHealthCheckSignals` calls `AddHealthChecks()` for you and plugs into the framework's periodic
   health check publisher.
-- Without `period`, the framework default applies: every **30 seconds**, after an initial delay of
+- Without `Period` (`HealthCheckSignalOptions`), the framework default applies: every **30 seconds**, after an initial delay of
   5 seconds.
-- `period` sets `HealthCheckPublisherOptions.Period`, which is shared by **every** `IHealthCheckPublisher` of the
+- `Period` sets `HealthCheckPublisherOptions.Period`, which is shared by **every** `IHealthCheckPublisher` of the
   application: other publishers (for example one that pushes results to a monitoring service) run at the same
   period. Configure `HealthCheckPublisherOptions` yourself instead if they must differ; the last configuration wins.
 - Keep the period **shorter than the `SustainedFor`** of your conditions (see [Conditions](conditions.md)).
@@ -70,7 +70,7 @@ sources are easier to read in the dashboard and in alerts when they follow it to
 
 | Kind | Pattern | Examples |
 |---|---|---|
-| Integrations with a technology | `{technology}[:{name}][:{metric}]` | `redis`, `http:forecast`, `grpc:ForecastsClient`, `efcore:ReportsDbContext`, `efcore:ReportsDbContext:ping`, `cache:memory`, `sqlclient:pool`, `npgsql:pool`, `http-server:errors`, `http-server:latency`, `rabbitmq:thumbnails:dead-letter`, `mongodb:archive:primary`, `alert:DiskAlmostFull` |
+| Integrations with a technology | `{technology}[:{name}][:{metric}]` | `redis`, `http:forecast`, `grpc:ForecastsClient`, `efcore:ReportsDbContext`, `efcore:ReportsDbContext:ping`, `cache:memory`, `sqlclient:pool`, `npgsql:pool`, `http-server:errors`, `http-server:latency`, `rabbitmq:thumbnails:dead-letter`, `mongodb:archive:primary`, `servicebus:ingest:messages`, `counter:Microsoft.Data.SqlClient.EventSource:hard-connects`, `hosted-service:IngestWorker`, `alert:DiskAlmostFull` |
 | The process's own runtime detectors | a bare name | `threadpool`, `memory`, `exceptions` |
 | Health checks | the health check name | `weather-feed` |
 | Call signals (`AddCallSignals`) | your choice; the pattern above is recommended | `geocoding:api` |

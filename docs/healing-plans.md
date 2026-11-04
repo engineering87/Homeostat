@@ -6,11 +6,14 @@ each followed by verification.
 ```csharp
 .Heal(p => p
     .With<RenewFeedClientAction>()          // step 1
+        .ActionTimeout(TimeSpan.FromSeconds(10))
     .Then<SwitchToBackupProviderAction>()   // step 2, only if step 1 did not heal
-    .VerificationTimeout(TimeSpan.FromSeconds(45))
-    .ActionTimeout(TimeSpan.FromSeconds(10))
+        .VerificationTimeout(TimeSpan.FromSeconds(45))
     .Cooldown(TimeSpan.FromMinutes(10)))
 ```
+
+`ActionTimeout`, `VerificationTimeout`, `RequireApproval` and `UndoWith` apply to the step added just before them.
+`Cooldown`, `CooldownBackoff`, `VerifyWith`, `OncePerCluster` and `Adaptive` apply to the whole plan.
 
 ## How a run works
 
@@ -62,13 +65,15 @@ serves every user, purging a cache that is expensive to rebuild. Mark them, and 
 
 1. Homeostat creates a request (`PendingApproval`, with an `Id` and an expiry), logs it and notifies
    observers through `OnApprovalRequested`; the [webhook notifier](notifications.md) can post it to a chat.
-2. The run waits. A person answers with `IHomeostatApprovals.Approve(id, "name")` or `Reject(id, "name")`,
-   or through the [ASP.NET Core endpoints](aspnetcore.md) (`POST /homeostat/approvals/{id}/approve`).
+2. The run waits. A person answers with `await approvals.ApproveAsync(id, "name")` or
+   `await approvals.RejectAsync(id, "name")` (`IHomeostatApprovals`), through the
+   [ASP.NET Core endpoints](aspnetcore.md) (`POST /homeostat/approvals/{id}/approve`) or with the
+   [CLI](tools.md#command-line-tool) (`homeostat approve <id>`).
 3. **Approved**: Homeostat checks again that it is not paused or suppressed and that the condition is still
    active, then runs the step normally (budget, timeout, verification).
 4. **Rejected**: the run stops with outcome `NotApproved`, without trying further steps, and the plan is
-   **held**: it does not run again, not even after the cooldown, until the condition clears. A person has taken
-   over. **Expired**: the run stops with `NotApproved`; after the cooldown, a new triggering signal starts the
+   **held**: it does not run again, not even after the cooldown, until the condition clears or someone
+   [releases the hold](#releasing-a-hold). A person has taken over. **Expired**: the run stops with `NotApproved`; after the cooldown, a new triggering signal starts the
    plan again from the first step.
 5. **Condition cleared while waiting**: the request is withdrawn (`ApprovalStatus.Canceled`) and the run ends
    with `ConditionCleared`. Requests are also withdrawn when the application stops.
@@ -76,12 +81,35 @@ serves every user, purging a cache that is expensive to rebuild. Mark them, and 
 Things to know:
 
 - The default timeout is `HomeostatOptions.DefaultApprovalTimeout` (15 minutes).
+- Requests live in the [store](persistence-and-clusters.md#shared-control-state): `await approvals.GetPendingAsync()`
+  lists them, and any instance can answer them. With a shared store, the answer reaches the instance whose run waits
+  within `ControlRefreshInterval` (5 seconds by default). Of two answers given at the same time, only the first counts.
+- Built-in platform steps that take `requireApproval: true` (such as `RestartPod`) use the default timeout; call
+  `.RequireApproval(timeout)` after the step to change it.
 - The budget is consumed only when the step actually runs.
 - While waiting, the run gives its concurrency slot back, so other plans can heal in the meantime.
 - The request carries the `TriggeringSignal`, so the approver sees what started the run.
 - In dry-run, the log says the step *would request approval*; no request is created.
 - Approval works well with the gradual rollout: dry-run first, then approval on every risky step, then
   automatic once you trust the plan.
+
+### Releasing a hold
+
+A rejection usually means a person took over. When that person fixed the cause by hand and wants the plan to act
+again without waiting for the condition to clear, release the hold:
+
+```csharp
+await control.ReleaseHoldAsync("weather-feed-down");   // IHomeostatControl; false if no condition with a plan has this name
+```
+
+```bash
+curl -X POST -H "X-Requested-With: curl" https://weather-api.internal/homeostat/conditions/weather-feed-down/release
+homeostat release weather-feed-down
+```
+
+Releasing lifts the hold and restarts the cooldown backoff. For a `OncePerCluster()` plan it releases the shared plan
+state; for an instance plan, the plan state of the instance that answers. The endpoint answers `204`, `404` for an
+unknown condition and `503` when the store cannot be reached.
 
 ## Writing actions
 
@@ -216,8 +244,10 @@ provider that is no better, raising a limit, disabling a feature. Give such a st
 ```
 
 When the step's action completes but verification says `NotHealed`, Homeostat runs the compensating action
-before moving to the next step. It does not consume the budget, has the same timeout as actions, and its
-success is reported in `HealingStepResult.UndoSucceeded`. It does not run when the action itself failed (the
+before moving to the next step. It is an action like any other: it consumes one unit of the action budget, has the
+step's action timeout, and does not run while Homeostat is paused or in a maintenance window, when the budget is
+exhausted or when the store cannot be reached (each case is logged, and `UndoSucceeded` is `false`). Its success is
+reported in `HealingStepResult.UndoSucceeded`. It does not run when the action itself failed (the
 change may not have happened) or when verification is `Inconclusive` (Homeostat cannot tell, and stops).
 
 ## Once per cluster
@@ -244,13 +274,20 @@ by the cluster. It needs a distributed coordinator and store, such as `Homeostat
 
 ## Plan settings
 
+Settings of the previous step:
+
 | Method | Default (from options) | Meaning |
 |---|---|---|
-| `VerificationTimeout(t)` | `DefaultVerificationTimeout` = 1 min | Time allowed for verification after each action |
-| `ActionTimeout(t)` | `DefaultActionTimeout` = 30 s | Maximum duration of each action |
-| `Cooldown(t)` | `DefaultCooldown` = 5 min | Minimum time between the end of a run and the next run of this plan |
+| `ActionTimeout(t)` | `DefaultActionTimeout` = 30 s | Maximum duration of the previous step's action, and of its compensating action |
+| `VerificationTimeout(t)` | `DefaultVerificationTimeout` = 1 min | Time allowed for verification after the previous step's action |
 | `RequireApproval(t?)` | `DefaultApprovalTimeout` = 15 min | The previous step waits for a person's approval |
 | `UndoWith<T>()`, `UndoWith(name, action)` | none | Compensates the previous step when it does not heal |
+
+Called before any step, these methods throw `InvalidOperationException`. Settings of the whole plan:
+
+| Method | Default (from options) | Meaning |
+|---|---|---|
+| `Cooldown(t)` | `DefaultCooldown` = 5 min | Minimum time between the end of a run and the next run of this plan |
 | `CooldownBackoff(multiplier, max)` | no backoff | Grows the cooldown after runs that do not heal |
 | `VerifyWith<T>()` | `ConditionClearedVerifier` | [Verifier](#custom-verifiers) used after every step of the plan |
 | `Adaptive(minimumAttempts)` | declared order; `minimumAttempts` = 5 | Orders steps by measured success before each run ([Adaptive plans](intelligence.md#adaptive-plans)) |

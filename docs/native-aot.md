@@ -49,5 +49,8 @@ warning, and the run checks, without reflection or runtime code generation:
 | `AzureResourceManager(..., body)` | The body is a `JsonNode`. |
 | `RestartHostedService` | Works for services derived from `RestartableBackgroundService` and for plain hosted services. For a plain `BackgroundService` it reads `HostOptions.BackgroundServiceExceptionBehavior` with reflection; if trimming removed that metadata, it assumes the default (`StopHost`) and refuses the restart, which is the safe answer. |
 | `Homeostat.EntityFrameworkCore` | Not marked `IsAotCompatible`: it follows EF Core, whose Native AOT support is still experimental. It works in ordinary (JIT) applications. |
-| `Homeostat.Cli`, `Homeostat.Templates`, `Homeostat.Analyzers`, `Homeostat.Aspire.Hosting` | Tools and build-time packages: not meant for trimmed applications. |
+| `Homeostat.Cli`, `Homeostat.Templates` | Tools: not meant for trimmed applications. |
+| `Homeostat.Aspire.Hosting` | Runs in the Aspire app host, not in the application: not marked AOT compatible. |
 | Integrations with client libraries (Redis, Kafka, RabbitMQ, Service Bus, Artemis, MongoDB, gRPC, FeatureManagement, OpenFeature, Polly) | Homeostat's own code is analyzed and annotated; whether the application can be published with Native AOT also depends on the client library. Check its documentation before turning on `PublishAot`. |
+
+The analyzers ship inside the `Homeostat` package and run in the compiler only.

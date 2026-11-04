@@ -120,7 +120,7 @@ public static partial class HomeostatTeamsEndpointExtensions
         switch (verb)
         {
             case "pending" or "status" or "list":
-                return Reply(Pending(approvals.GetPending()));
+                return Reply(Pending(await approvals.GetPendingAsync(http.RequestAborted)));
 
             case "approve" or "reject" when words.Length == 2:
                 {
@@ -133,7 +133,9 @@ public static partial class HomeostatTeamsEndpointExtensions
                     }
 
                     var by = $"teams:{message.UserName} ({message.UserId ?? "unknown"})";
-                    var answered = approve ? approvals.Approve(approvalId, by) : approvals.Reject(approvalId, by);
+                    var answered = approve
+                        ? await approvals.ApproveAsync(approvalId, by, http.RequestAborted)
+                        : await approvals.RejectAsync(approvalId, by, http.RequestAborted);
                     logger.LogInformation("Teams user {User} {Decision} approval {ApprovalId}: {Result}.",
                         message.UserName, approve ? "approved" : "rejected", approvalId, answered ? "done" : "not pending");
                     return Reply(answered

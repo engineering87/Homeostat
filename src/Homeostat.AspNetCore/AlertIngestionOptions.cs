@@ -86,9 +86,10 @@ public sealed class AlertIngestionOptions
             throw new ArgumentException("SourceLabel and SeverityLabel cannot be empty.");
         }
 
-        if (SourcePrefix is null)
+        if (string.IsNullOrWhiteSpace(SourcePrefix))
         {
-            throw new ArgumentException("SourcePrefix cannot be null.");
+            // Without a prefix, a token holder could publish signals that look like the detectors' own ("threadpool").
+            throw new ArgumentException("SourcePrefix cannot be empty: alerts must not be able to pose as the application's own signals.");
         }
 
         if (Token is not null && Token.Length < 16)

@@ -13,6 +13,7 @@ namespace Homeostat;
 /// </summary>
 [JsonSourceGenerationOptions(JsonSerializerDefaults.Web, UseStringEnumConverter = true)]
 [JsonSerializable(typeof(FileHomeostatStore.Document))]
+[JsonSerializable(typeof(ApprovalRecord))]
 [JsonSerializable(typeof(HealingRunRecord))]
 [JsonSerializable(typeof(ConditionEventRecord))]
 [JsonSerializable(typeof(RecordedSignal))]

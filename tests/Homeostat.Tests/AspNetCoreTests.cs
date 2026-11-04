@@ -152,6 +152,38 @@ public class AspNetCoreTests
     }
 
     [Fact]
+    public async Task Control_changes_answer_503_when_the_store_is_unavailable()
+    {
+        var (app, client) = await StartAsync(h => h
+            .UseStore(_ => new BrokenStore())
+            .AddCondition("feed-down", c => c.ForSource("feed")));
+        await using var _ = app;
+        using var __ = client;
+
+        Assert.Equal(HttpStatusCode.ServiceUnavailable, (await client.PostAsync("/homeostat/pause", null)).StatusCode);
+        Assert.Equal(HttpStatusCode.ServiceUnavailable, (await client.PostAsync("/homeostat/switches/serve-cached/on", null)).StatusCode);
+        Assert.Equal(HttpStatusCode.ServiceUnavailable, (await client.PostAsync("/homeostat/approvals/abc/approve", null)).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await client.PostAsync("/homeostat/approvals/%20/approve", null)).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await client.PostAsync("/homeostat/conditions/%20/release", null)).StatusCode);
+    }
+
+    [Fact]
+    public async Task Holds_are_released_and_switches_scoped_through_the_control_endpoints()
+    {
+        var (app, client) = await StartAsync(h => h.AddCondition("feed-down", c => c.ForSource("feed").Heal(p => p.With("renew", _ => { }))));
+        await using var _ = app;
+        using var __ = client;
+
+        Assert.Equal(HttpStatusCode.NoContent, (await client.PostAsync("/homeostat/conditions/feed-down/release", null)).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await client.PostAsync("/homeostat/conditions/unknown/release", null)).StatusCode);
+
+        Assert.Equal(HttpStatusCode.NoContent, (await client.PostAsync("/homeostat/switches/verbose-tracing/on?scope=instance", null)).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await client.PostAsync("/homeostat/switches/verbose-tracing/on?scope=galaxy", null)).StatusCode);
+        Assert.True(app.Services.GetRequiredService<IHomeostatSwitches>().IsOn("verbose-tracing"));
+        Assert.Empty((await app.Services.GetRequiredService<Homeostat.Persistence.IHomeostatStore>().GetControlStateAsync()).Switches);
+    }
+
+    [Fact]
     public async Task Status_survives_an_unavailable_store()
     {
         var (app, client) = await StartAsync(h => h
@@ -181,6 +213,22 @@ public class AspNetCoreTests
         public ValueTask AppendRunAsync(Homeostat.Persistence.HealingRunRecord run, int maxRuns, CancellationToken cancellationToken = default) => throw Down;
 
         public ValueTask<IReadOnlyList<Homeostat.Persistence.HealingRunRecord>> GetRecentRunsAsync(int maxRuns, CancellationToken cancellationToken = default) => throw Down;
+
+        public ValueTask<Homeostat.Persistence.ControlState> GetControlStateAsync(CancellationToken cancellationToken = default) => throw Down;
+
+        public ValueTask SetPauseAsync(Homeostat.Persistence.PauseState? pause, CancellationToken cancellationToken = default) => throw Down;
+
+        public ValueTask SetSwitchAsync(string name, Homeostat.Persistence.SwitchState? state, CancellationToken cancellationToken = default) => throw Down;
+
+        public ValueTask<bool> TryClaimSwitchAsync(Homeostat.Persistence.SwitchState state, CancellationToken cancellationToken = default) => throw Down;
+
+        public ValueTask<bool> TryReleaseSwitchAsync(string name, string condition, string? instance, CancellationToken cancellationToken = default) => throw Down;
+
+        public ValueTask AddApprovalAsync(Homeostat.Persistence.ApprovalRecord approval, CancellationToken cancellationToken = default) => throw Down;
+
+        public ValueTask<bool> TryResolveApprovalAsync(string id, Homeostat.Healing.ApprovalStatus status, string? resolvedBy, CancellationToken cancellationToken = default) => throw Down;
+
+        public ValueTask RemoveApprovalAsync(string id, CancellationToken cancellationToken = default) => throw Down;
     }
 
     [Fact]

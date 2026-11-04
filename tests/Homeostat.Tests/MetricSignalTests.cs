@@ -177,7 +177,7 @@ public class MetricSignalTests
         // Same meter and instrument names as ASP.NET Core; other tests may add a few real requests, hence the tolerance.
         using var meter = new Meter("Microsoft.AspNetCore.Hosting");
         var duration = meter.CreateHistogram<double>("http.server.request.duration");
-        var (detector, _) = CreateDetector(h => h.AddServerErrorRateSignal(minimumRequests: 100));
+        var (detector, _) = CreateDetector(h => h.AddServerErrorRateSignal(o => o.MinimumRequests = 100));
         using var _ = detector;
         await DetectAsync(detector);   // the first interval is only a baseline
 

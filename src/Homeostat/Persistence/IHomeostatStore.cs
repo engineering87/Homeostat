@@ -1,9 +1,12 @@
+using Homeostat.Healing;
+
 namespace Homeostat.Persistence;
 
 /// <summary>
-/// Where Homeostat keeps the state that must outlive a run: plan state (cooldowns, backoff, holds), the action
-/// budget and the run history. The default store is in memory; a shared store (for example
-/// <c>Homeostat.Redis</c>) makes cooldowns, budget and history survive restarts and span every instance.
+/// Where Homeostat keeps the state that must outlive a run or be the same on every instance: plan state (cooldowns,
+/// backoff, holds), the action budget, the run and condition history, and the control state (pause, application
+/// switches, approval requests). The default store is in memory; a shared store (for example <c>Homeostat.Redis</c>)
+/// makes that state survive restarts and span every instance.
 /// </summary>
 /// <remarks>
 /// Implementations must be thread-safe. When the store fails, Homeostat <b>fails closed</b>: it does not start
@@ -85,4 +88,62 @@ public interface IHomeostatStore
     /// <param name="cancellationToken">Cancellation token.</param>
     ValueTask SetDocumentAsync(string key, string document, CancellationToken cancellationToken = default)
         => ValueTask.CompletedTask;
+
+    /// <summary>The pause, the application switches and the approval requests.</summary>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    ValueTask<ControlState> GetControlStateAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>Sets the pause, or removes it with <c>null</c>.</summary>
+    /// <param name="pause">The pause.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    ValueTask SetPauseAsync(PauseState? pause, CancellationToken cancellationToken = default);
+
+    /// <summary>Turns an application switch on (replacing its previous state) or, with <c>null</c>, off.</summary>
+    /// <param name="name">Name of the switch.</param>
+    /// <param name="state">The switch, or <c>null</c> to turn it off.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    ValueTask SetSwitchAsync(string name, SwitchState? state, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Turns an application switch on for a condition's cluster plan <b>atomically</b>, only if it is off or already
+    /// owned by the same condition (then this state replaces the previous one): a switch a person turned on, or that
+    /// another condition owns, is left as it is.
+    /// </summary>
+    /// <param name="state">The switch, with <see cref="SwitchState.Condition"/> set.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns><c>true</c> if the switch is now owned by the condition.</returns>
+    ValueTask<bool> TryClaimSwitchAsync(SwitchState state, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Turns an application switch off <b>atomically</b>, only if it is still owned by the condition (and, when
+    /// <paramref name="instance"/> is given, was turned on by that instance): a switch a person took over in the
+    /// meantime stays on.
+    /// </summary>
+    /// <param name="name">Name of the switch.</param>
+    /// <param name="condition">The owning condition.</param>
+    /// <param name="instance">The instance that turned it on, or <c>null</c> for any.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns><c>true</c> if the switch was turned off.</returns>
+    ValueTask<bool> TryReleaseSwitchAsync(string name, string condition, string? instance, CancellationToken cancellationToken = default);
+
+    /// <summary>Adds a pending approval request.</summary>
+    /// <param name="approval">The request.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    ValueTask AddApprovalAsync(ApprovalRecord approval, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Answers a request <b>atomically</b>, only if it is still pending: of two answers given at the same time on two
+    /// instances, exactly one wins.
+    /// </summary>
+    /// <param name="id">Request identifier.</param>
+    /// <param name="status">The answer.</param>
+    /// <param name="resolvedBy">Who answered, when known.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns><c>true</c> if this call answered the request.</returns>
+    ValueTask<bool> TryResolveApprovalAsync(string id, ApprovalStatus status, string? resolvedBy, CancellationToken cancellationToken = default);
+
+    /// <summary>Removes a request, once the waiting instance has collected the answer.</summary>
+    /// <param name="id">Request identifier.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    ValueTask RemoveApprovalAsync(string id, CancellationToken cancellationToken = default);
 }

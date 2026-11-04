@@ -94,7 +94,7 @@ host.Publish("weather-feed", SignalSeverity.Unhealthy);
 
 var request = await host.WaitForApprovalAsync("weather-feed-down");
 Assert.Equal(nameof(SwitchToBackupProviderAction), request.StepName);
-host.Approvals.Approve(request.Id, "test");
+await host.Approvals.ApproveAsync(request.Id, "test");
 
 var run = await host.WaitForRunAsync("weather-feed-down");
 Assert.Equal(HealingRunOutcome.Healed, run.Outcome);
@@ -158,7 +158,7 @@ collects signals, then assert on them. To test a detector end to end, register i
 
 ## Replaying recorded signals
 
-`HomeostatReplay` runs recorded signals (`RecordSignals`) through the conditions and plans you pass in, in dry-run on
+`HomeostatReplay` runs recorded signals (`AddSignalRecording`) through the conditions and plans you pass in, in dry-run on
 simulated time, and reports what would have happened: a regression test on real traffic for a new threshold or plan.
 
 | Method | Signals from | Conditions from |

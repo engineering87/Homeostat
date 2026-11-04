@@ -82,7 +82,7 @@ public class IncidentTests
     {
         var handler = new RecordingHandler();
         await using var host = await StartAsync(
-            h => h.AddOpsgenieAlerts(o => { o.ApiKey = "api-key"; o.Tags.Add("weather"); }),
+            h => h.AddOpsgenieIncidents(o => { o.ApiKey = "api-key"; o.Tags.Add("weather"); }),
             "Homeostat.Opsgenie", handler);
 
         host.Publish("feed", SignalSeverity.Unhealthy);
@@ -130,7 +130,7 @@ public class IncidentTests
 
         var json = JsonDocument.Parse(SlackSink.Payload(approval, new SlackOptions
         {
-            WebhookUrl = new Uri("https://hooks.slack.com/services/x"),
+            Url = new Uri("https://hooks.slack.com/services/x"),
             ApprovalButtons = true,
             DashboardUrl = new Uri("https://weather-api.internal/homeostat/dashboard"),
         }).ToJsonString(HttpEventSink.Json)).RootElement;
@@ -152,7 +152,7 @@ public class IncidentTests
             Notifications.HomeostatEventKind.ConditionActivated, DateTimeOffset.UnixEpoch, "weather-api", "feed-down",
             string.Concat(Enumerable.Repeat("a > b & c < d ", 400)));
 
-        var json = JsonDocument.Parse(SlackSink.Payload(e, new SlackOptions { WebhookUrl = new Uri("https://hooks.slack.com/x") }).ToJsonString(HttpEventSink.Json)).RootElement;
+        var json = JsonDocument.Parse(SlackSink.Payload(e, new SlackOptions { Url = new Uri("https://hooks.slack.com/x") }).ToJsonString(HttpEventSink.Json)).RootElement;
         var section = json.GetProperty("blocks")[0].GetProperty("text").GetProperty("text").GetString()!;
 
         Assert.True(section.Length <= 3000);
@@ -186,7 +186,7 @@ public class IncidentTests
 
         var json = JsonDocument.Parse(TeamsSink.Payload(e, new TeamsOptions
         {
-            WebhookUrl = new Uri("https://example.webhook.office.com/x"),
+            Url = new Uri("https://example.webhook.office.com/x"),
             DashboardUrl = new Uri("https://weather-api.internal/homeostat/dashboard"),
         }).ToJsonString(HttpEventSink.Json)).RootElement;
 
@@ -202,7 +202,7 @@ public class IncidentTests
     public async Task Notifier_settings_are_validated_at_startup()
     {
         await Assert.ThrowsAnyAsync<Exception>(() => HomeostatTestHost.StartAsync(h => h.AddPagerDutyIncidents(_ => { })));
-        await Assert.ThrowsAnyAsync<Exception>(() => HomeostatTestHost.StartAsync(h => h.AddOpsgenieAlerts(o => o.Url = new Uri("/relative", UriKind.Relative))));
+        await Assert.ThrowsAnyAsync<Exception>(() => HomeostatTestHost.StartAsync(h => h.AddOpsgenieIncidents(o => o.Url = new Uri("/relative", UriKind.Relative))));
         await Assert.ThrowsAnyAsync<Exception>(() => HomeostatTestHost.StartAsync(h => h.AddSlackNotifications(_ => { })));
         await Assert.ThrowsAnyAsync<Exception>(() => HomeostatTestHost.StartAsync(h => h.AddTeamsNotifications(o => o.MaxAttempts = 0)));
     }

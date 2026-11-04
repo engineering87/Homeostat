@@ -26,8 +26,8 @@ public static class HomeostatIncidentExtensions
     /// </summary>
     /// <param name="builder">The Homeostat builder.</param>
     /// <param name="configure">Sets the API key and, optionally, the endpoint and when alerts are created.</param>
-    /// <example><code>.AddOpsgenieAlerts(o => o.ApiKey = builder.Configuration["Jsm:ApiKey"])</code></example>
-    public static HomeostatBuilder AddOpsgenieAlerts(this HomeostatBuilder builder, Action<OpsgenieOptions> configure)
+    /// <example><code>.AddOpsgenieIncidents(o => o.ApiKey = builder.Configuration["Jsm:ApiKey"])</code></example>
+    public static HomeostatBuilder AddOpsgenieIncidents(this HomeostatBuilder builder, Action<OpsgenieOptions> configure)
         => Register<OpsgenieOptions, OpsgenieSink>(builder, configure, OpsgenieSink.HttpClientName, o => o.Validate());
 
     /// <summary>
@@ -53,7 +53,7 @@ public static class HomeostatIncidentExtensions
     private static HomeostatBuilder Register<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicParameterlessConstructor)] TOptions, [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] TSink>(
         HomeostatBuilder builder, Action<TOptions> configure, string clientName, Action<TOptions> validate)
         where TOptions : class
-        where TSink : Notifications.HomeostatEventSink
+        where TSink : class, Notifications.IHomeostatEventSink
     {
         ArgumentNullException.ThrowIfNull(builder);
         ArgumentNullException.ThrowIfNull(configure);

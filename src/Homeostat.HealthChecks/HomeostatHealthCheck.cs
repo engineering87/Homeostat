@@ -24,16 +24,17 @@ internal sealed class HomeostatHealthCheck : IHealthCheck
     {
         var active = _control.GetConditions().Where(c => c.Status == ConditionStatus.Active).Select(c => c.Name).ToArray();
         Guardrails.ActionBudgetStatus budget;
+        int pending;
         try
         {
             budget = await _control.GetBudgetAsync(cancellationToken).ConfigureAwait(false);
+            pending = (await _approvals.GetPendingAsync(cancellationToken).ConfigureAwait(false)).Count;
         }
         catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
         {
             return new HealthCheckResult(_attentionStatus, "The Homeostat store is unavailable.", ex);
         }
 
-        var pending = _approvals.GetPending().Count;
 
         var data = new Dictionary<string, object>
         {

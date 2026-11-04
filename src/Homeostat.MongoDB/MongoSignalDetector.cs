@@ -29,10 +29,10 @@ internal sealed class MongoSignalDetector(MongoClientEvents events, IEnumerable<
             }
 
             _published[registration.Name] = now;
-            MongoSignals.PublishPrimary(signals, registration.Name, state, now);
+            MongoSignals.PublishPrimary(signals, registration.Prefix, state, now);
 
             var timeouts = state.TakeTimeouts();
-            signals.TryPublish(new Signal(MongoSignals.Source(registration.Name, "pool"),
+            signals.TryPublish(new Signal($"{registration.Prefix}:pool",
                 timeouts > registration.Options.PoolTimeoutsUnhealthyAbove ? SignalSeverity.Unhealthy : SignalSeverity.Healthy, now)
             {
                 Value = timeouts,
@@ -45,20 +45,25 @@ internal sealed class MongoSignalDetector(MongoClientEvents events, IEnumerable<
     }
 }
 
-internal sealed record MongoRegistration(string Name, MongoSignalOptions Options);
+internal sealed record MongoRegistration(string Name, MongoSignalOptions Options)
+{
+    /// <summary>Source prefix of this client's signals.</summary>
+    public string Prefix => MongoSignals.Prefix(Name, Options);
+}
 
 internal static class MongoSignals
 {
-    public static string Source(string name, string signal) => $"mongodb:{name}:{signal}";
+    public static string Prefix(string name, MongoSignalOptions options)
+        => string.IsNullOrWhiteSpace(options.Source) ? $"mongodb:{name}" : options.Source;
 
-    public static void PublishPrimary(ISignalPublisher signals, string name, MongoClientEvents.State state, DateTimeOffset at)
+    public static void PublishPrimary(ISignalPublisher signals, string prefix, MongoClientEvents.State state, DateTimeOffset at)
     {
         if (state.Writable is not { } writable)
         {
             return;
         }
 
-        signals.TryPublish(new Signal(Source(name, "primary"), writable ? SignalSeverity.Healthy : SignalSeverity.Unhealthy, at)
+        signals.TryPublish(new Signal($"{prefix}:primary", writable ? SignalSeverity.Healthy : SignalSeverity.Unhealthy, at)
         {
             Value = state.ConnectedServers,
             Message = writable ? null : "No writable server (primary) is connected: writes fail until one is elected or reachable.",

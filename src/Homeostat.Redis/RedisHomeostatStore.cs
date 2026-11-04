@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using Homeostat.Healing;
 using Homeostat.Persistence;
 using Microsoft.Extensions.Options;
 using StackExchange.Redis;
@@ -47,12 +48,14 @@ internal sealed class RedisHomeostatStore : IHomeostatStore
         """;
 
     private readonly IConnectionMultiplexer _redis;
-    private readonly RedisHomeostatOptions _options;
+    private readonly RedisStoreOptions _options;
     private readonly string _budgetKey;
+    private readonly TimeProvider _timeProvider;
 
-    public RedisHomeostatStore(IConnectionMultiplexer redis, IOptions<RedisHomeostatOptions> options, IOptions<HomeostatOptions> homeostat)
+    public RedisHomeostatStore(IConnectionMultiplexer redis, IOptions<RedisStoreOptions> options, IOptions<HomeostatOptions> homeostat, TimeProvider? timeProvider = null)
     {
         _redis = redis;
+        _timeProvider = timeProvider ?? TimeProvider.System;
         _options = options.Value;
         _budgetKey = _options.ShareBudget
             ? $"{_options.KeyPrefix}budget"
@@ -216,6 +219,188 @@ internal sealed class RedisHomeostatStore : IHomeostatStore
         await Db.StringSetAsync($"{_options.KeyPrefix}doc:{key}", document, _options.DocumentRetention).ConfigureAwait(false);
     }
 
+    public async ValueTask<ControlState> GetControlStateAsync(CancellationToken cancellationToken = default)
+    {
+        var batch = Db.CreateBatch();
+        var pause = batch.StringGetAsync(ControlKey("pause"));
+        var switches = batch.HashGetAllAsync(ControlKey("switches"));
+        var approvals = batch.HashGetAllAsync(ControlKey("approvals"));
+        var answers = batch.HashGetAllAsync(ControlKey("answers"));
+        batch.Execute();
+        await Task.WhenAll(pause, switches, approvals, answers).ConfigureAwait(false);
+
+        var answered = (await answers.ConfigureAwait(false)).ToDictionary(e => (string)e.Name!, e => (string?)e.Value, StringComparer.Ordinal);
+        var records = new List<ApprovalRecord>();
+        var abandoned = new List<RedisValue>();
+        var now = _timeProvider.GetUtcNow();
+        foreach (var entry in await approvals.ConfigureAwait(false))
+        {
+            // Unreadable (for example written by a newer version during a rolling upgrade): left for its writer.
+            if (Read(entry.Value, RedisJsonContext.Default.ApprovalRecord) is not { } record)
+            {
+                continue;
+            }
+
+            // A request whose instance stopped before collecting the answer: drop it a day after it expired.
+            if (record.Request.ExpiresAt < now - TimeSpan.FromDays(1))
+            {
+                abandoned.Add(entry.Name);
+                continue;
+            }
+
+            if (answered.TryGetValue(record.Request.Id, out var answer) && answer is not null)
+            {
+                // An answer this version does not know leaves the request pending: it then expires, and the step does not run.
+                var separator = answer.IndexOf('\n', StringComparison.Ordinal);
+                if (Enum.TryParse<ApprovalStatus>(separator < 0 ? answer : answer[..separator], ignoreCase: false, out var status)
+                    && Enum.IsDefined(status))
+                {
+                    var by = separator < 0 || separator == answer.Length - 1 ? null : answer[(separator + 1)..];
+                    record = new ApprovalRecord { Request = record.Request, Instance = record.Instance, Status = status, ResolvedBy = by };
+                }
+            }
+
+            records.Add(record);
+        }
+
+        if (abandoned.Count > 0)
+        {
+            await Db.HashDeleteAsync(ControlKey("approvals"), [.. abandoned]).ConfigureAwait(false);
+            await Db.HashDeleteAsync(ControlKey("answers"), [.. abandoned]).ConfigureAwait(false);
+        }
+
+        var pauseValue = await pause.ConfigureAwait(false);
+        return new ControlState
+        {
+            Pause = pauseValue.HasValue ? Read(pauseValue, RedisJsonContext.Default.PauseState) : null,
+            Switches = (await switches.ConfigureAwait(false))
+                .Select(e => Read(e.Value, RedisJsonContext.Default.SwitchState))
+                .OfType<SwitchState>()
+                .OrderBy(x => x.Name, StringComparer.Ordinal)
+                .ToArray(),
+            Approvals = records.OrderBy(r => r.Request.RequestedAt).ToArray(),
+        };
+    }
+
+    public async ValueTask SetPauseAsync(PauseState? pause, CancellationToken cancellationToken = default)
+    {
+        if (pause is null)
+        {
+            await Db.KeyDeleteAsync(ControlKey("pause")).ConfigureAwait(false);
+        }
+        else
+        {
+            await Db.StringSetAsync(ControlKey("pause"), JsonSerializer.Serialize(pause, RedisJsonContext.Default.PauseState)).ConfigureAwait(false);
+        }
+    }
+
+    public async ValueTask SetSwitchAsync(string name, SwitchState? state, CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(name);
+        if (state is null)
+        {
+            await Db.HashDeleteAsync(ControlKey("switches"), name).ConfigureAwait(false);
+        }
+        else
+        {
+            await Db.HashSetAsync(ControlKey("switches"), name, JsonSerializer.Serialize(state, RedisJsonContext.Default.SwitchState)).ConfigureAwait(false);
+        }
+    }
+
+    // KEYS[1] = switches; ARGV[1] = name, ARGV[2] = state (JSON), ARGV[3] = condition. Sets the switch only if it is off
+    // or owned by the same condition.
+    private const string ClaimSwitchScript = """
+        local current = redis.call('HGET', KEYS[1], ARGV[1])
+        if current then
+          local ok, state = pcall(cjson.decode, current)
+          if not ok or type(state) ~= 'table' or state['condition'] ~= ARGV[3] then
+            return 0
+          end
+        end
+        redis.call('HSET', KEYS[1], ARGV[1], ARGV[2])
+        return 1
+        """;
+
+    // KEYS[1] = switches; ARGV[1] = name, ARGV[2] = condition, ARGV[3] = instance ('' any). Removes the switch only if
+    // that condition (and instance) still owns it.
+    private const string ReleaseSwitchScript = """
+        local current = redis.call('HGET', KEYS[1], ARGV[1])
+        if not current then
+          return 0
+        end
+        local ok, state = pcall(cjson.decode, current)
+        if not ok or type(state) ~= 'table' or state['condition'] ~= ARGV[2] or (ARGV[3] ~= '' and state['instance'] ~= ARGV[3]) then
+          return 0
+        end
+        redis.call('HDEL', KEYS[1], ARGV[1])
+        return 1
+        """;
+
+    public async ValueTask<bool> TryClaimSwitchAsync(SwitchState state, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(state);
+        ArgumentException.ThrowIfNullOrWhiteSpace(state.Condition);
+        var result = await Db.ScriptEvaluateAsync(
+            ClaimSwitchScript,
+            [ControlKey("switches")],
+            [state.Name, JsonSerializer.Serialize(state, RedisJsonContext.Default.SwitchState), state.Condition]).ConfigureAwait(false);
+        return (int)result == 1;
+    }
+
+    public async ValueTask<bool> TryReleaseSwitchAsync(string name, string condition, string? instance, CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(name);
+        ArgumentException.ThrowIfNullOrWhiteSpace(condition);
+        var result = await Db.ScriptEvaluateAsync(ReleaseSwitchScript, [ControlKey("switches")], [name, condition, instance ?? string.Empty]).ConfigureAwait(false);
+        return (int)result == 1;
+    }
+
+    public async ValueTask AddApprovalAsync(ApprovalRecord approval, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(approval);
+        await Db.HashSetAsync(ControlKey("approvals"), approval.Request.Id, JsonSerializer.Serialize(approval, RedisJsonContext.Default.ApprovalRecord))
+            .ConfigureAwait(false);
+    }
+
+    // KEYS[1] = approvals, KEYS[2] = answers; ARGV[1] = id, ARGV[2] = answer. Answers only an existing, unanswered request.
+    private const string ResolveApprovalScript = """
+        if redis.call('HEXISTS', KEYS[1], ARGV[1]) == 1 and redis.call('HSETNX', KEYS[2], ARGV[1], ARGV[2]) == 1 then
+          return 1
+        end
+        return 0
+        """;
+
+    public async ValueTask<bool> TryResolveApprovalAsync(string id, ApprovalStatus status, string? resolvedBy, CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(id);
+        var answer = $"{status}\n{resolvedBy}";
+        var result = await Db.ScriptEvaluateAsync(ResolveApprovalScript, [ControlKey("approvals"), ControlKey("answers")], [id, answer]).ConfigureAwait(false);
+        return (int)result == 1;
+    }
+
+    public async ValueTask RemoveApprovalAsync(string id, CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(id);
+        await Db.HashDeleteAsync(ControlKey("approvals"), id).ConfigureAwait(false);
+        await Db.HashDeleteAsync(ControlKey("answers"), id).ConfigureAwait(false);
+    }
+
+    // One hash tag for all the control keys: on Redis Cluster they share a slot, so the approval script can use two of them.
+    private RedisKey ControlKey(string name) => $"{_options.KeyPrefix}{{control}}:{name}";
+
+    private static T? Read<T>(RedisValue value, System.Text.Json.Serialization.Metadata.JsonTypeInfo<T> typeInfo)
+        where T : class
+    {
+        try
+        {
+            return value.HasValue ? JsonSerializer.Deserialize((string)value!, typeInfo) : null;
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
+
     private RedisKey PlanKey(string key) => $"{_options.KeyPrefix}plan:{key}";
 
     private static PlanState ToState(RedisValue[] values)
@@ -239,4 +424,7 @@ internal sealed class RedisHomeostatStore : IHomeostatStore
 [JsonSourceGenerationOptions(JsonSerializerDefaults.Web, UseStringEnumConverter = true)]
 [JsonSerializable(typeof(HealingRunRecord))]
 [JsonSerializable(typeof(ConditionEventRecord))]
+[JsonSerializable(typeof(PauseState))]
+[JsonSerializable(typeof(SwitchState))]
+[JsonSerializable(typeof(ApprovalRecord))]
 internal sealed partial class RedisJsonContext : JsonSerializerContext;

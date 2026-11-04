@@ -8,7 +8,7 @@ exercised.
 | Heal before a threshold is crossed | `WhenProjectedAbove`, `WhenProjectedBelow` | `Homeostat` |
 | Anomalies for the time of day or week | `WhenSeasonallyHigh`, `WhenSeasonallyLow` ([Conditions](conditions.md#seasonal-anomalies-whenseasonallyhigh-and-whenseasonallylow)) | `Homeostat` |
 | Run first the step that usually works | `Adaptive()` | `Homeostat` |
-| Record signals, replay them against new rules | `RecordSignals`, `HomeostatReplay`, `homeostat replay` | `Homeostat`, `Homeostat.Testing`, `Homeostat.Cli` |
+| Record signals, replay them against new rules | `AddSignalRecording`, `HomeostatReplay`, `homeostat replay` | `Homeostat`, `Homeostat.Testing`, `Homeostat.Cli` |
 | See what was exercised (game days) | `GetCoverageAsync`, `GET /homeostat/coverage`, `homeostat coverage` | `Homeostat`, `Homeostat.AspNetCore`, `Homeostat.Cli` |
 
 ## Predictive conditions
@@ -39,7 +39,7 @@ h.AddCondition("workers-draining", c => c
   the condition clears when the current value is on the safe side of the threshold and either the projection is safe
   again or the latest `minimumSamples` values no longer move toward the threshold. A signal without a value never
   clears it.
-- The verification of a plan step sees the same rule: set the plan's `VerificationTimeout` to at least
+- The verification of a plan step sees the same rule: set the step's `VerificationTimeout` to at least
   `minimumSamples` signal intervals, so that the latest values can show the new direction before the step is judged.
 - Use `ClearAfter` so the condition does not flap while the trend wobbles around the horizon.
 
@@ -73,10 +73,10 @@ attempts, smoothed as (healed + 1) / (attempts + 2), so one lucky run does not d
 Record the signals Homeostat receives:
 
 ```csharp
-h.RecordSignals(o =>
+h.AddSignalRecording(o =>
 {
     o.Path = "/var/log/weather-api/signals-{instance}-{date}.jsonl";   // one file per instance and UTC day
-    o.RetentionDays = 7;                                                // older files are deleted (default 14)
+    o.Retention = TimeSpan.FromDays(7);                                 // older files are deleted (default 14 days)
     // o.Sources.Add("weather-feed");                                    // only some sources
     // o.IncludeDetails = true;                                          // also messages and tags
 });
@@ -154,7 +154,7 @@ var report = await HomeostatReplay.RunAsync(records, h => h.AddCondition(/* ... 
 | `SignalRecordingOptions` | Default | Meaning |
 |---|---|---|
 | `Path` | `signals/homeostat-signals-{instance}-{date}.jsonl` | File path; `{instance}` and `{date}` (UTC) are replaced |
-| `RetentionDays` | 14 | Days of files kept; older files of this instance are deleted; `0` keeps everything |
+| `Retention` | 14 days | How long files are kept, rounded up to whole days; older files of this instance are deleted; `TimeSpan.Zero` keeps everything |
 | `Sources` | empty: every source | Sources to record |
 | `IncludeDetails` | `false` | Also records messages and tags |
 | `BufferCapacity` | 10000 | Signals queued for writing; the oldest are dropped when full |

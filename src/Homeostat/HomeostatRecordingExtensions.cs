@@ -15,14 +15,14 @@ public static class HomeostatRecordingExtensions
     /// </summary>
     /// <param name="builder">The Homeostat builder.</param>
     /// <param name="configure">Changes the path, sources, retention and details.</param>
-    /// <example><code>h.RecordSignals(o => o.Path = "/var/log/weather-api/signals-{instance}-{date}.jsonl")</code></example>
-    public static HomeostatBuilder RecordSignals(this HomeostatBuilder builder, Action<SignalRecordingOptions>? configure = null)
+    /// <example><code>h.AddSignalRecording(o => o.Path = "/var/log/weather-api/signals-{instance}-{date}.jsonl")</code></example>
+    public static HomeostatBuilder AddSignalRecording(this HomeostatBuilder builder, Action<SignalRecordingOptions>? configure = null)
     {
         ArgumentNullException.ThrowIfNull(builder);
 
         var options = builder.Services.AddOptions<SignalRecordingOptions>()
             .Validate(o => !string.IsNullOrWhiteSpace(o.Path), "SignalRecordingOptions.Path is required.")
-            .Validate(o => o.RetentionDays >= 0, "SignalRecordingOptions.RetentionDays cannot be negative.")
+            .Validate(o => o.Retention >= TimeSpan.Zero, "SignalRecordingOptions.Retention cannot be negative.")
             .Validate(o => o.BufferCapacity > 0, "SignalRecordingOptions.BufferCapacity must be positive.")
             .ValidateOnStart();
         if (configure is not null)

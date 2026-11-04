@@ -9,27 +9,25 @@ public static class HomeostatCachingExtensions
 {
     /// <summary>
     /// Publishes the hit ratio (0 to 1) of a memory cache over each detection interval as the value of a signal from
-    /// <paramref name="source"/>. The cache must track statistics (<c>MemoryCacheOptions.TrackStatistics = true</c>).
+    /// <see cref="MemoryCacheSignalOptions.Source"/> (<c>cache:memory</c>). The cache must track statistics (<c>MemoryCacheOptions.TrackStatistics = true</c>).
     /// A falling hit ratio often explains a latency spike on the dependency behind the cache.
     /// </summary>
     /// <param name="builder">The Homeostat builder.</param>
-    /// <param name="source">Source of the published signals. Defaults to <c>"cache:memory"</c>.</param>
-    /// <param name="configure">Changes thresholds and the minimum number of lookups.</param>
-    /// <param name="cache">Selects the cache; defaults to the <see cref="IMemoryCache"/> registered in the container.</param>
+    /// <param name="configure">Source, cache, thresholds and the minimum number of lookups; optional.</param>
     /// <example>
     /// <code>
     /// builder.Services.AddMemoryCache(o => o.TrackStatistics = true);
-    /// h.AddMemoryCacheSignals("lookup-cache", o => o.DegradedBelow = 0.6);
+    /// h.AddMemoryCacheSignals(o => { o.Source = "lookup-cache"; o.DegradedBelow = 0.6; });
     /// </code>
     /// </example>
-    public static HomeostatBuilder AddMemoryCacheSignals(
-        this HomeostatBuilder builder,
-        string source = "cache:memory",
-        Action<MemoryCacheSignalOptions>? configure = null,
-        Func<IServiceProvider, IMemoryCache>? cache = null)
+    public static HomeostatBuilder AddMemoryCacheSignals(this HomeostatBuilder builder, Action<MemoryCacheSignalOptions>? configure = null)
     {
         ArgumentNullException.ThrowIfNull(builder);
-        ArgumentException.ThrowIfNullOrWhiteSpace(source);
+        var options = new MemoryCacheSignalOptions();
+        configure?.Invoke(options);
+        ArgumentException.ThrowIfNullOrWhiteSpace(options.Source, nameof(MemoryCacheSignalOptions.Source));
+        var source = options.Source;
+        options.Validate(source);
 
         if (builder.Services.Any(d => d.ImplementationInstance is MemoryCacheWatch existing
             && string.Equals(existing.Source, source, StringComparison.Ordinal)))
@@ -37,12 +35,8 @@ public static class HomeostatCachingExtensions
             throw new InvalidOperationException($"Memory cache signals with source '{source}' are already registered.");
         }
 
-        var options = new MemoryCacheSignalOptions();
-        configure?.Invoke(options);
-        options.Validate(source);
-
         builder.Services.AddSingleton(new MemoryCacheWatch(
-            source, cache ?? (static sp => sp.GetRequiredService<IMemoryCache>()), options));
+            source, options.Cache ?? (static sp => sp.GetRequiredService<IMemoryCache>()), options));
         builder.AddDetector<MemoryCacheSignalDetector>();
         return builder;
     }

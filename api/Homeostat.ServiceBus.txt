@@ -13,8 +13,8 @@ namespace Homeostat.ServiceBus
     public System.Threading.Tasks.Task ResumeAsync(System.Threading.CancellationToken cancellationToken)
   public sealed class ServiceBusSignalOptions
     public ServiceBusSignalOptions()
-    public Homeostat.Probes.ProbeOptions Active { get; }
     public System.Func<System.IServiceProvider, Azure.Messaging.ServiceBus.Administration.ServiceBusAdministrationClient>? Client { get; set; }
     public Homeostat.Probes.ProbeOptions DeadLetter { get; }
     public System.TimeSpan Interval { get; set; }
+    public Homeostat.Probes.ProbeOptions Messages { get; }
     public string? Source { get; set; }

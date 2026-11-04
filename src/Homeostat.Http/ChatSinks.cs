@@ -8,7 +8,7 @@ namespace Homeostat.Http;
 /// <summary>Posts events to Slack with Block Kit, with optional approval buttons.</summary>
 internal sealed class SlackSink : HttpEventSink
 {
-    internal const string HttpClientName = "Homeostat.Slack";
+    internal const string HttpClientName = SlackOptions.HttpClientName;
     internal const string ApproveAction = "homeostat_approve";
     internal const string RejectAction = "homeostat_reject";
     private readonly SlackOptions _options;
@@ -16,18 +16,18 @@ internal sealed class SlackSink : HttpEventSink
     public SlackSink(
         IHttpClientFactory clients,
         IOptions<SlackOptions> slack,
-        IOptions<HomeostatOptions> options,
         TimeProvider timeProvider,
-        ILogger<SlackSink> logger)
-        : base(clients, HttpClientName, options.Value.ApplicationName, slack.Value.Events, timeProvider, logger)
+        ILogger<SlackSink> logger,
+        Microsoft.Extensions.Hosting.IHostApplicationLifetime? lifetime = null)
+        : base(clients, HttpClientName, slack.Value.Events, timeProvider, logger, lifetime)
         => _options = slack.Value;
 
     protected override TimeSpan Timeout => _options.Timeout;
 
     protected override int MaxAttempts => _options.MaxAttempts;
 
-    protected override Task WriteAsync(HomeostatEvent e, CancellationToken cancellationToken)
-        => SendAsync(HttpMethod.Post, _options.WebhookUrl!, Payload(e, _options), null, cancellationToken);
+    public override Task WriteAsync(HomeostatEvent e, CancellationToken cancellationToken)
+        => SendAsync(HttpMethod.Post, _options.Url!, Payload(e, _options), null, cancellationToken);
 
     internal static JsonObject Payload(HomeostatEvent e, SlackOptions options)
     {
@@ -118,24 +118,24 @@ internal sealed class SlackSink : HttpEventSink
 /// <summary>Posts events to Microsoft Teams as Adaptive Cards, through a Teams workflow webhook.</summary>
 internal sealed class TeamsSink : HttpEventSink
 {
-    internal const string HttpClientName = "Homeostat.Teams";
+    internal const string HttpClientName = TeamsOptions.HttpClientName;
     private readonly TeamsOptions _options;
 
     public TeamsSink(
         IHttpClientFactory clients,
         IOptions<TeamsOptions> teams,
-        IOptions<HomeostatOptions> options,
         TimeProvider timeProvider,
-        ILogger<TeamsSink> logger)
-        : base(clients, HttpClientName, options.Value.ApplicationName, teams.Value.Events, timeProvider, logger)
+        ILogger<TeamsSink> logger,
+        Microsoft.Extensions.Hosting.IHostApplicationLifetime? lifetime = null)
+        : base(clients, HttpClientName, teams.Value.Events, timeProvider, logger, lifetime)
         => _options = teams.Value;
 
     protected override TimeSpan Timeout => _options.Timeout;
 
     protected override int MaxAttempts => _options.MaxAttempts;
 
-    protected override Task WriteAsync(HomeostatEvent e, CancellationToken cancellationToken)
-        => SendAsync(HttpMethod.Post, _options.WebhookUrl!, Payload(e, _options), null, cancellationToken);
+    public override Task WriteAsync(HomeostatEvent e, CancellationToken cancellationToken)
+        => SendAsync(HttpMethod.Post, _options.Url!, Payload(e, _options), null, cancellationToken);
 
     internal static JsonObject Payload(HomeostatEvent e, TeamsOptions options)
     {

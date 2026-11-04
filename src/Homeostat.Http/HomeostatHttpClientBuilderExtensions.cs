@@ -38,7 +38,7 @@ public static class HomeostatHttpClientBuilderExtensions
         builder.Services.AddSingleton(new HttpClientSignalRegistration(clientName, options));
         builder.Services.TryAddSingleton<HttpClientSignalCatalog>();
         builder.Services.TryAddSingleton(TimeProvider.System);
-        builder.Services.AddSignalDetector<HttpClientSignalDetector>();
+        builder.Services.AddHomeostatDetector<HttpClientSignalDetector>();
 
         if (!alreadyInstrumented)
         {

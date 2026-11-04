@@ -43,19 +43,21 @@ public static class HomeostatKubernetesExtensions
 
     /// <summary>
     /// Appends a step that deletes this application's own pod, so its controller (Deployment, StatefulSet) starts a
-    /// fresh one: a restart that can also land on another node. The pod gets <paramref name="gracePeriodSeconds"/> to
+    /// fresh one: a restart that can also land on another node. The pod gets <paramref name="gracePeriod"/> to
     /// stop gracefully. The step refuses a pod without a controller, and applies <see cref="RestartGuard"/> (minimum
     /// uptime, restarts per window counted in the store): the new pod has a new name, so without those limits a plan
     /// could delete pod after pod. The step ends the run: put it last. Needs <c>get</c> and <c>delete</c> on <c>pods</c>.
     /// </summary>
     /// <param name="plan">The plan builder.</param>
-    /// <param name="gracePeriodSeconds">Graceful termination period, at least 1; defaults to 30 seconds.</param>
+    /// <param name="gracePeriod">Graceful termination period, in whole seconds, at least 1 second; defaults to 30 seconds.</param>
     /// <param name="requireApproval">Whether a person approves first; defaults to <c>true</c>.</param>
     /// <param name="limits">Minimum uptime and restarts per window; defaults to <see cref="RestartLimits.Default"/>.</param>
-    public static HealingPlanBuilder RestartPod(this HealingPlanBuilder plan, int gracePeriodSeconds = 30, bool requireApproval = true, RestartLimits? limits = null)
+    public static HealingPlanBuilder RestartPod(this HealingPlanBuilder plan, TimeSpan? gracePeriod = null, bool requireApproval = true, RestartLimits? limits = null)
     {
         ArgumentNullException.ThrowIfNull(plan);
-        ArgumentOutOfRangeException.ThrowIfLessThan(gracePeriodSeconds, 1);
+        var grace = gracePeriod ?? TimeSpan.FromSeconds(30);
+        ArgumentOutOfRangeException.ThrowIfLessThan(grace, TimeSpan.FromSeconds(1), nameof(gracePeriod));
+        var gracePeriodSeconds = (int)Math.Ceiling(grace.TotalSeconds);
         var effective = limits ?? RestartLimits.Default;
         return Approval(plan.With("Restart this pod", (c, ct) => KubernetesActions.RestartPodAsync(c, gracePeriodSeconds, effective, ct)), requireApproval);
     }

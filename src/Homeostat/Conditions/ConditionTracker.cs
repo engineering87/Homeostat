@@ -24,7 +24,9 @@ internal sealed class ConditionTracker
     private DateTimeOffset? _activeSince;
     private DateTimeOffset? _clearingSince;
     private DateTimeOffset? _lastSignalAt;
+    private DateTimeOffset? _lastTriggeredAt;
     private Signal? _lastSignal;
+    private bool _retired;
 
     private volatile ConditionDefinition _definition;
 
@@ -55,11 +57,17 @@ internal sealed class ConditionTracker
 
         lock (_gate)
         {
+            if (_retired)
+            {
+                return ConditionTransition.None;
+            }
+
             _lastSignalAt = signal.Timestamp;
             _lastSignal = signal;
 
             if (triggered)
             {
+                _lastTriggeredAt = signal.Timestamp;
                 switch (_status)
                 {
                     case ConditionStatus.Inactive:
@@ -97,6 +105,34 @@ internal sealed class ConditionTracker
             }
 
             return ConditionTransition.None;
+        }
+    }
+
+    /// <summary>
+    /// The condition was removed (configuration reload): it becomes inactive for good, so a run still in progress
+    /// stops before its next step and releases what it turns on.
+    /// </summary>
+    public void Retire()
+    {
+        lock (_gate)
+        {
+            _retired = true;
+            _status = ConditionStatus.Inactive;
+            _pendingSince = null;
+            _activeSince = null;
+            _clearingSince = null;
+        }
+    }
+
+    /// <summary>When a signal last met the trigger (a cause stays Pending only while such signals keep coming).</summary>
+    public DateTimeOffset? LastTriggeredAt
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return _lastTriggeredAt;
+            }
         }
     }
 

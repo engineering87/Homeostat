@@ -12,3 +12,4 @@ namespace Homeostat.MongoDB
     public Homeostat.Probes.ProbeOptions Ping { get; }
     public int PoolTimeoutsUnhealthyAbove { get; set; }
     public bool ReplicationLag { get; set; }
+    public string? Source { get; set; }

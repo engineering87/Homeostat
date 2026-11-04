@@ -21,7 +21,7 @@ builder.Services.AddHomeostat(h => h
     .AddCondition("forecast-api-failing", c => c
         .ForSource("http:forecast")
         .SustainedFor(TimeSpan.FromSeconds(30))
-        .Heal(p => p.TurnOnSwitch("serve-cached-forecast", turnOffWhenCleared: true))));
+        .Heal(p => p.TurnOnSwitch("serve-cached-forecast"))));
 
 var app = builder.Build();
 await Api.Instance.SetProviderAsync(new HomeostatSwitchProvider(app.Services.GetRequiredService<IHomeostatSwitches>()));

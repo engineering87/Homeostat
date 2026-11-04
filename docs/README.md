@@ -21,7 +21,7 @@ New to Homeostat? Read the pages in this order: each one builds on the previous.
 | [Healing plans](healing-plans.md) | Escalation, human approval, compensation, backoff, once per cluster, verification, outcomes |
 | [Actions](actions.md) | Built-in actions, restartable background services, switches for degraded mode, inline lambdas, action classes |
 | [Guardrails](guardrails.md) | Dry-run, budget, cooldown, concurrency, timeouts, kill switch, maintenance windows, all options |
-| [Persistence and clusters](persistence-and-clusters.md) | File and Redis stores, several instances, plans that run once per cluster, custom stores and coordinators |
+| [Persistence and clusters](persistence-and-clusters.md) | File and Redis stores, shared pause, switches and approvals, several instances, plans that run once per cluster, custom stores and coordinators |
 
 ### Integrations
 

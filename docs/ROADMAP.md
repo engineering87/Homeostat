@@ -69,7 +69,7 @@ feedback: open an issue to discuss priorities.
 
 - [x] Adaptive plans: steps ordered by measured success, approval steps as barriers (`Adaptive()`)
 - [x] Predictive healing from trends (`WhenProjectedAbove`, `WhenProjectedBelow`, also from configuration)
-- [x] Signal recording (`RecordSignals`) and replay (`HomeostatReplay`): "what would the plans have done yesterday?"
+- [x] Signal recording (`AddSignalRecording`) and replay (`HomeostatReplay`): "what would the plans have done yesterday?"
 - [x] Coverage reports for game days (`GetCoverageAsync`, `GET /homeostat/coverage`, `homeostat coverage --fail-below`)
 - [x] Seasonality-aware anomalies (`WhenSeasonallyHigh`, `WhenSeasonallyLow`): daily and weekly baselines kept in the store
 - [x] Replay from the command line (`homeostat replay`) and coverage in the dashboard
@@ -83,6 +83,7 @@ feedback: open an issue to discuss priorities.
 - [x] Source names, status JSON with enums as names, `Canceled` spelling: last breaking adjustments before 1.0
 - [x] Templates built in CI; Native AOT smoke test covering the Slack and Teams endpoints and the PagerDuty and Opsgenie notifiers
 - [x] Adoption: starter presets (`AddWebApiDefaults`, `AddWorkerDefaults`) with observe-only conditions for the usual problems
+- [x] Trusted publishing to nuget.org: short-lived keys from the release workflow's identity, no stored API key
 - [ ] Package validation baseline set to the first stable version, once it is published
 - [ ] .NET Foundation application
 

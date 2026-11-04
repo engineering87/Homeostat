@@ -22,7 +22,7 @@ builder.Services.AddSingleton(sp => new ConsumerBuilder<string, byte[]>(new Cons
         GroupId = "telemetry",
         StatisticsIntervalMs = 30_000,                   // required: the signals come from the statistics
     })
-    .SetHomeostatSignals(sp, "telemetry", o => o.LagUnhealthyAbove = 100_000)   // kafka:telemetry:lag, :brokers
+    .SetHomeostatSignals(sp, "telemetry", o => o.Lag.UnhealthyAbove = 100_000)   // kafka:telemetry:lag, :brokers
     .Build());
 
 builder.Services.AddHomeostat(h => h

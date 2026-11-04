@@ -67,13 +67,13 @@ builder.Services.AddSingleton<WeatherFeedClient>();
 builder.Services.AddHealthChecks().AddCheck<WeatherFeedHealthCheck>("weather-feed");
 
 builder.Services.AddHomeostat(h => h
-    .AddHealthCheckSignals()                               // health check results become signals
+    .AddHealthCheckSignals(o => o.Period = TimeSpan.FromSeconds(10))  // health check results become signals
     .AddCondition("weather-feed-down", c => c
         .ForSource("weather-feed")                         // the health check's name
         .SustainedFor(TimeSpan.FromSeconds(30))            // ignore short blips
         .Heal(p => p
             .With<RenewFeedClientAction>()                 // try this first
-            .TurnOnSwitch("serve-cached-forecast", turnOffWhenCleared: true))));  // then degrade gracefully
+            .TurnOnSwitch("serve-cached-forecast"))));  // then degrade gracefully
 
 var app = builder.Build();
 app.Run();
@@ -185,7 +185,7 @@ The [package index](docs/packages.md) lists the install command and entry points
 | Concurrency | 1 run at a time | Two plans acting on the system together |
 | Step timeout | 30 seconds | A stuck step holding up the run |
 | Verification | after every step | Escalating blindly, or stopping without knowing |
-| Kill switch | `POST /homeostat/pause`, the dashboard, the CLI or `IHomeostatControl.Pause()` | Interventions during an incident or maintenance |
+| Kill switch | `POST /homeostat/pause`, the dashboard, the CLI or `IHomeostatControl.PauseAsync()`; with a shared store, for every instance | Interventions during an incident or maintenance |
 | Approval | per step, on by default for infrastructure actions | Risky steps running without a person agreeing |
 | Suppression | per condition | Healing the symptoms of a failure instead of its cause |
 | Fail closed | always | Acting when the cooldown or budget cannot be checked |

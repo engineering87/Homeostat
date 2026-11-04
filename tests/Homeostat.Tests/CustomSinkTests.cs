@@ -48,9 +48,10 @@ public class CustomSinkTests
         }
     }
 
-    internal sealed class IncidentSink(IncidentStore store, IOptions<HomeostatOptions> options, TimeProvider time, ILogger<IncidentSink> logger)
-        : HomeostatEventSink(options.Value.ApplicationName, [HomeostatEventKind.RunCompleted], time, logger)
+    internal sealed class IncidentSink(IncidentStore store) : IHomeostatEventSink
     {
-        protected override Task WriteAsync(HomeostatEvent e, CancellationToken cancellationToken) => store.AddAsync(e.Summary);
+        public IReadOnlyCollection<HomeostatEventKind>? Events => [HomeostatEventKind.RunCompleted];
+
+        public Task WriteAsync(HomeostatEvent e, CancellationToken cancellationToken) => store.AddAsync(e.Summary);
     }
 }

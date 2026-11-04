@@ -58,20 +58,25 @@ public static class HomeostatServiceCollectionExtensions
             .Validate(o => o.ConditionHistorySize >= 0, "ConditionHistorySize cannot be negative.")
             .Validate(o => !string.IsNullOrWhiteSpace(o.InstanceId), "InstanceId cannot be empty.")
             .Validate(o => Guardrails.TimerLimits.IsValid(o.ClusterLeaseDuration) && o.ClusterLeaseDuration >= TimeSpan.FromSeconds(1), "ClusterLeaseDuration must be at least one second.")
-            .Validate(o => Guardrails.TimerLimits.IsValid(o.DetectionInterval), "DetectionInterval must be positive and at most about 49 days.");
+            .Validate(o => Guardrails.TimerLimits.IsValid(o.DetectionInterval), "DetectionInterval must be positive and at most about 49 days.")
+            .Validate(o => Guardrails.TimerLimits.IsValid(o.ControlRefreshInterval), "ControlRefreshInterval must be positive and at most about 49 days.");
 
         services.TryAddSingleton(TimeProvider.System);
         services.TryAddSingleton<SignalChannel>();
         services.TryAddSingleton<ISignalPublisher>(sp => sp.GetRequiredService<SignalChannel>());
         services.TryAddSingleton(sp => new ConditionSet(
             sp.GetServices<ConditionDefinition>()
-                .Concat(sp.GetServices<Configuration.ConfigurationConditionSource>().SelectMany(s => s.Load()))));
+                .Concat(sp.GetServices<Configuration.ConfigurationConditionSource>().SelectMany(s => s.Load())),
+            sp.GetRequiredService<TimeProvider>()));
         services.TryAddSingleton<IHomeostatStore, InMemoryHomeostatStore>();
         services.TryAddSingleton<MaintenanceWindows>();
         services.TryAddSingleton<IHomeostatCoordinator, InMemoryCoordinator>();
         services.TryAddSingleton<HomeostatControl>();
         services.TryAddSingleton<IHomeostatControl>(sp => sp.GetRequiredService<HomeostatControl>());
-        services.TryAddSingleton<IHomeostatSwitches, HomeostatSwitches>();
+        services.TryAddSingleton<SharedControl>();
+        services.TryAddSingleton<PlanStateCache>();
+        services.TryAddSingleton<HomeostatSwitches>();
+        services.TryAddSingleton<IHomeostatSwitches>(sp => sp.GetRequiredService<HomeostatSwitches>());
         HomeostatConsumerExtensions.AddConsumerServices(services);
         services.TryAddSingleton<ObserverNotifier>();
         services.TryAddSingleton<SwitchOwnership>();
@@ -83,6 +88,9 @@ public static class HomeostatServiceCollectionExtensions
         services.TryAddTransient<ConditionClearedVerifier>();
         services.TryAddSingleton<Diagnostics.ConditionHistory>();
         services.TryAddSingleton<Conditions.SeasonalBaselineKeeper>();
+
+        // First, so the pause and the switches set before this instance started apply from its first signal.
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IHostedService, SharedControlRefresher>());
 
         // Registered before the engine, so they stop after it: the last events and baselines are written.
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IHostedService, Diagnostics.ConditionHistory>(sp => sp.GetRequiredService<Diagnostics.ConditionHistory>()));

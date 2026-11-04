@@ -7,7 +7,7 @@ message into the dead-letter queue.
 
 | Broker | Package | Signals | Pausable consumer |
 |---|---|---|---|
-| Azure Service Bus | `Homeostat.ServiceBus` | `servicebus:{queue}:active`, `:dead-letter` (also for subscriptions) | `ServiceBusProcessor`, `ServiceBusSessionProcessor` |
+| Azure Service Bus | `Homeostat.ServiceBus` | `servicebus:{queue}:messages`, `:dead-letter` (subscriptions: `servicebus:{topic}:{subscription}:messages`, `:dead-letter`) | `ServiceBusProcessor`, `ServiceBusSessionProcessor` |
 | RabbitMQ | `Homeostat.RabbitMQ` | `rabbitmq:{queue}:messages`, `:consumers`, `:dead-letter` | `PausableRabbitMqConsumer` |
 | Apache Kafka | `Homeostat.Kafka` | `kafka:{name}:lag`, `:brokers`, `:queue` (producers) | `KafkaPauseGate` |
 | Apache ActiveMQ Artemis | `Homeostat.Artemis` | `artemis:{queue}:messages`, `:consumers`, `:dead-letter` | `PauseGate` in the receive loop |
@@ -64,10 +64,10 @@ builder.Services.AddSingleton(sp => sp.GetRequiredService<ServiceBusClient>().Cr
 builder.Services.AddHomeostat(h => h
     .AddServiceBusQueueSignals("ingest", o =>
     {
-        o.Active.UnhealthyAbove = 10_000;          // backlog
+        o.Messages.UnhealthyAbove = 10_000;        // backlog: servicebus:ingest:messages
         o.Interval = TimeSpan.FromSeconds(30);
     })
-    .AddServiceBusSubscriptionSignals("events", "audit")
+    .AddServiceBusSubscriptionSignals("events", "audit")   // servicebus:events:audit:messages, :dead-letter
     .AddPausableServiceBusProcessor("ingest")      // the ServiceBusProcessor in the services
     .AddCondition("ingest-dead-letters", c => c
         .ForSource("servicebus:ingest:dead-letter")
@@ -88,9 +88,9 @@ builder.Services.AddHomeostat(h => h
 
 | `ServiceBusSignalOptions` | Default | Meaning |
 |---|---|---|
-| `Source` | `servicebus:{queue}` or `servicebus:{topic}/{subscription}` | Prefix of the `:active` and `:dead-letter` sources |
+| `Source` | `servicebus:{queue}` or `servicebus:{topic}:{subscription}` | Prefix of the `:messages` and `:dead-letter` sources |
 | `Interval` | 30 seconds | How often the counts are read |
-| `Active` | no thresholds | Thresholds of the active message count (the backlog) |
+| `Messages` | no thresholds | Thresholds of the active message count (the backlog) |
 | `DeadLetter` | no thresholds | Thresholds of the dead-letter count |
 | `Client` | the registered `ServiceBusAdministrationClient` | Returns the administration client, for example one per namespace: `o.Client = sp => sp.GetRequiredKeyedService<ServiceBusAdministrationClient>("ingest-ns")` |
 
@@ -167,7 +167,7 @@ var consumer = new ConsumerBuilder<string, byte[]>(new ConsumerConfig
         GroupId = "telemetry",
         StatisticsIntervalMs = 30_000,             // required: no statistics, no signal
     })
-    .SetHomeostatSignals(services, "telemetry", o => o.LagUnhealthyAbove = 100_000)
+    .SetHomeostatSignals(services, "telemetry", o => o.Lag.UnhealthyAbove = 100_000)
     .Build();
 
 var producer = new ProducerBuilder<string, byte[]>(new ProducerConfig { BootstrapServers = "kafka:9092", StatisticsIntervalMs = 30_000 })
@@ -178,8 +178,8 @@ var producer = new ProducerBuilder<string, byte[]>(new ProducerConfig { Bootstra
 | Signal | Client | Value | Severity |
 |---|---|---|---|
 | `kafka:{name}:brokers` | both | brokers connected (`UP`) among those leading the client's partitions (the client connects to the others only when needed); before any partition, any broker up | Unhealthy when none is up, Degraded when some are down, after two statistics documents in a row |
-| `kafka:{name}:lag` | consumer | messages behind, summed over the partitions | `LagDegradedAbove`, `LagUnhealthyAbove` |
-| `kafka:{name}:queue` | producer | share of the local queue in use: the fuller of messages (`msg_cnt / msg_max`) and bytes (`msg_size / msg_size_max`) | Degraded above 0.8, Unhealthy above 0.95 |
+| `kafka:{name}:lag` | consumer | messages behind, summed over the partitions | `Lag.DegradedAbove`, `Lag.UnhealthyAbove` |
+| `kafka:{name}:queue` | producer | share of the local queue in use: the fuller of messages (`msg_cnt / msg_max`) and bytes (`msg_size / msg_size_max`) | `Queue.DegradedAbove`, `Queue.UnhealthyAbove` (0.8, 0.95) |
 
 A producer whose brokers are down keeps accepting messages into its local queue until it is full, then `Produce`
 fails with "Local: Queue full": the queue signal shows it coming, in time to turn on a degraded mode.
@@ -187,9 +187,9 @@ fails with "Local: Queue full": the queue signal shows it coming, in time to tur
 | `KafkaSignalOptions` | Default | Meaning |
 |---|---|---|
 | `Source` | `kafka:{name}` | Prefix of the `:lag`, `:brokers` and `:queue` sources |
-| `LagDegradedAbove`, `LagUnhealthyAbove` | none | Consumer lag thresholds, in messages |
+| `Lag.DegradedAbove`, `Lag.UnhealthyAbove` | none | Consumer lag thresholds, in messages (`KafkaThresholds`) |
 | `FromCommittedOffsets` | `false` | Measures the lag from the committed offsets instead of the stored ones |
-| `QueueDegradedAbove`, `QueueUnhealthyAbove` | 0.8, 0.95 | Producer queue thresholds, as a share of `queue.buffering.max.messages` (and of the byte limit) in use |
+| `Queue.DegradedAbove`, `Queue.UnhealthyAbove` | 0.8, 0.95 | Producer queue thresholds (`KafkaThresholds`), as a share of `queue.buffering.max.messages` (and of the byte limit) in use |
 
 - `kafka:{name}:lag` is the total lag over the partitions in the statistics with a known lag, from the **stored**
   offsets (set `FromCommittedOffsets` to use the committed ones). By default the client stores an offset when `Consume`

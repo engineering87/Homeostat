@@ -39,7 +39,7 @@ public sealed record RecordedSignal(
     public Signal ToSignal() => new(Source, Severity, Timestamp) { Value = Value, Message = Message, Tags = Tags };
 
     /// <summary>Reads a recording file, skipping lines that are not valid recorded signals.</summary>
-    /// <param name="path">A file written by <c>RecordSignals</c>.</param>
+    /// <param name="path">A file written by <c>AddSignalRecording</c>.</param>
     public static IEnumerable<RecordedSignal> Read(string path)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
@@ -221,7 +221,7 @@ internal sealed class SignalRecorder : IHostedLifecycleService
     private void Cleanup()
     {
         var today = _timeProvider.GetUtcNow().UtcDateTime.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture);
-        if (_options.RetentionDays <= 0 || !_path.Contains("{date}", StringComparison.Ordinal) || _lastCleanupDate == today)
+        if (_options.Retention <= TimeSpan.Zero || !_path.Contains("{date}", StringComparison.Ordinal) || _lastCleanupDate == today)
         {
             return;
         }
@@ -237,7 +237,7 @@ internal sealed class SignalRecorder : IHostedLifecycleService
         }
 
         var (prefix, suffix) = (name[..at], name[(at + "{date}".Length)..]);
-        var oldest = _timeProvider.GetUtcNow().UtcDateTime.Date.AddDays(-_options.RetentionDays);
+        var oldest = _timeProvider.GetUtcNow().UtcDateTime.Date.AddDays(-Math.Ceiling(_options.Retention.TotalDays));
         IEnumerable<string> files;
         try
         {

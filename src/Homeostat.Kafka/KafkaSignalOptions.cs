@@ -6,11 +6,8 @@ public sealed class KafkaSignalOptions
     /// <summary>Source prefix of the signals: <c>{prefix}:lag</c>, <c>{prefix}:brokers</c>, <c>{prefix}:queue</c>. Defaults to <c>kafka:{name}</c>.</summary>
     public string? Source { get; set; }
 
-    /// <summary>Consumer lag (messages behind, over the partitions) above which <c>{prefix}:lag</c> is Degraded.</summary>
-    public double? LagDegradedAbove { get; set; }
-
-    /// <summary>Consumer lag above which <c>{prefix}:lag</c> is Unhealthy.</summary>
-    public double? LagUnhealthyAbove { get; set; }
+    /// <summary>Thresholds of the consumer lag (messages behind, over the partitions) of <c>{prefix}:lag</c>; none by default.</summary>
+    public KafkaThresholds Lag { get; } = new();
 
     /// <summary>
     /// Measures the lag from the stored offsets (the default) or from the committed offsets (what a restarted consumer
@@ -21,19 +18,27 @@ public sealed class KafkaSignalOptions
     public bool FromCommittedOffsets { get; set; }
 
     /// <summary>
-    /// Share of the producer queue in use (<c>queue.buffering.max.messages</c>) above which <c>{prefix}:queue</c> is
-    /// Degraded; defaults to 0.8. When the queue is full, <c>Produce</c> fails with "Local: Queue full".
+    /// Thresholds of the share of the producer queue in use (<c>queue.buffering.max.messages</c>) of
+    /// <c>{prefix}:queue</c>; Degraded above 0.8 and Unhealthy above 0.95 by default. When the queue is full,
+    /// <c>Produce</c> fails with "Local: Queue full".
     /// </summary>
-    public double QueueDegradedAbove { get; set; } = 0.8;
-
-    /// <summary>Share of the producer queue in use above which <c>{prefix}:queue</c> is Unhealthy; defaults to 0.95.</summary>
-    public double QueueUnhealthyAbove { get; set; } = 0.95;
+    public KafkaThresholds Queue { get; } = new() { DegradedAbove = 0.8, UnhealthyAbove = 0.95 };
 
     internal void Validate()
     {
-        if (LagDegradedAbove > LagUnhealthyAbove || QueueDegradedAbove > QueueUnhealthyAbove)
+        if (Lag.DegradedAbove > Lag.UnhealthyAbove || Queue.DegradedAbove > Queue.UnhealthyAbove)
         {
             throw new ArgumentException("A Degraded threshold cannot be greater than the Unhealthy one.");
         }
     }
+}
+
+/// <summary>Upper thresholds of one Kafka signal.</summary>
+public sealed class KafkaThresholds
+{
+    /// <summary>Value above which the signal is Degraded; <c>null</c> for none.</summary>
+    public double? DegradedAbove { get; set; }
+
+    /// <summary>Value above which the signal is Unhealthy; <c>null</c> for none.</summary>
+    public double? UnhealthyAbove { get; set; }
 }

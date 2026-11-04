@@ -24,7 +24,7 @@ builder.Services.AddHomeostat(h => h
         p.DegradedAbove = 200;      // ms to open a connection and run SELECT 1
         p.UnhealthyAbove = 2_000;
     })
-    .AddSqlClientPoolSignal(maxPoolSize: 100)   // source "sqlclient:pool"
+    .AddSqlClientPoolSignal(o => o.MaxPoolSize = 100)   // source "sqlclient:pool"
     .AddCondition("reports-db-stale", c => c
         .ForSource("reports-db")
         .SustainedFor(TimeSpan.FromSeconds(30))

@@ -185,7 +185,7 @@ public class MessagingTests
         using var source = new PoolEventSource { Active = 90 };
         var signals = new CollectingPublisher();
         var registration = new EventCounterRegistration("Homeostat-Tests-Pool", "active-connections", "pool",
-            new EventCounterSignalOptions { IntervalSeconds = 1, Transform = v => v / 100, DegradedAbove = 0.8, UnhealthyAbove = 0.95 });
+            new EventCounterSignalOptions { Interval = TimeSpan.FromSeconds(1), Transform = v => v / 100, DegradedAbove = 0.8, UnhealthyAbove = 0.95 });
 
         using (new EventCounterSignalListener([registration], signals, TimeProvider.System, Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance))
         {
@@ -202,14 +202,14 @@ public class MessagingTests
     public void SqlClient_pool_signal_reads_the_active_connections_as_a_share_of_the_pool()
     {
         var services = new ServiceCollection();
-        services.AddHomeostat(h => h.AddSqlClientPoolSignal(maxPoolSize: 200));
+        services.AddHomeostat(h => h.AddSqlClientPoolSignal(o => o.MaxPoolSize = 200));
 
         var registration = Assert.Single(services.Select(d => d.ImplementationInstance).OfType<EventCounterRegistration>());
         Assert.Equal(("Microsoft.Data.SqlClient.EventSource", "number-of-active-connections", "sqlclient:pool"),
             (registration.EventSource, registration.Counter, registration.Source));
         Assert.Equal(0.5, registration.Options.Transform!(100));
         Assert.Equal(SignalSeverity.Unhealthy, registration.Options.SeverityOf(0.96));
-        Assert.Throws<ArgumentOutOfRangeException>(() => new ServiceCollection().AddHomeostat(h => h.AddEventCounterSignal("s", "c", o => o.IntervalSeconds = 0)));
+        Assert.Throws<ArgumentOutOfRangeException>(() => new ServiceCollection().AddHomeostat(h => h.AddEventCounterSignal("s", "c", o => o.Interval = TimeSpan.Zero)));
     }
 
     // ---------------------------------------------------------------- Service Bus
@@ -221,7 +221,7 @@ public class MessagingTests
         var (services, detector) = ProbeTests.Build(h =>
         {
             var options = new ServiceBusSignalOptions();
-            options.Active.UnhealthyAbove = 1_000;
+            options.Messages.UnhealthyAbove = 1_000;
             HomeostatServiceBusExtensions.AddCountSignals(h, "servicebus:ingest", options, (_, _) =>
             {
                 Interlocked.Increment(ref reads);
@@ -233,7 +233,7 @@ public class MessagingTests
 
         await detector.DetectAsync(signals, CancellationToken.None);
 
-        var active = signals.Signals.Single(s => s.Source == "servicebus:ingest:active");
+        var active = signals.Signals.Single(s => s.Source == "servicebus:ingest:messages");
         var deadLetter = signals.Signals.Single(s => s.Source == "servicebus:ingest:dead-letter");
         Assert.Equal((5_000d, SignalSeverity.Unhealthy), (active.Value!.Value, active.Severity));
         Assert.Equal((12d, SignalSeverity.Healthy), (deadLetter.Value!.Value, deadLetter.Severity));
@@ -415,7 +415,7 @@ public class MessagingTests
         Assert.Null(KafkaSignalReporter.Read("""{ "type": "consumer", "topics": {} }""", fromCommitted: false).Lag);
 
         var signals = new CollectingPublisher();
-        var reporter = new KafkaSignalReporter(signals, "telemetry", new KafkaSignalOptions { LagDegradedAbove = 100, LagUnhealthyAbove = 1_000 });
+        var reporter = new KafkaSignalReporter(signals, "telemetry", new KafkaSignalOptions { Lag = { DegradedAbove = 100, UnhealthyAbove = 1_000 } });
         reporter.Report(Statistics);
         reporter.Report("not json");
         var lag = signals.Signals.Single(s => s.Source == "kafka:telemetry:lag");

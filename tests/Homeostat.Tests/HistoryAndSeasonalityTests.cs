@@ -226,6 +226,24 @@ public class HistoryAndSeasonalityTests
         public ValueTask AppendRunAsync(HealingRunRecord run, int maxRuns, CancellationToken cancellationToken = default) => _inner.AppendRunAsync(run, maxRuns, cancellationToken);
 
         public ValueTask<IReadOnlyList<HealingRunRecord>> GetRecentRunsAsync(int maxRuns, CancellationToken cancellationToken = default) => _inner.GetRecentRunsAsync(maxRuns, cancellationToken);
+
+        public ValueTask<ControlState> GetControlStateAsync(CancellationToken cancellationToken = default) => _inner.GetControlStateAsync(cancellationToken);
+
+        public ValueTask SetPauseAsync(PauseState? pause, CancellationToken cancellationToken = default) => _inner.SetPauseAsync(pause, cancellationToken);
+
+        public ValueTask SetSwitchAsync(string name, SwitchState? state, CancellationToken cancellationToken = default) => _inner.SetSwitchAsync(name, state, cancellationToken);
+
+        public ValueTask<bool> TryClaimSwitchAsync(SwitchState state, CancellationToken cancellationToken = default) => _inner.TryClaimSwitchAsync(state, cancellationToken);
+
+        public ValueTask<bool> TryReleaseSwitchAsync(string name, string condition, string? instance, CancellationToken cancellationToken = default)
+            => _inner.TryReleaseSwitchAsync(name, condition, instance, cancellationToken);
+
+        public ValueTask AddApprovalAsync(ApprovalRecord approval, CancellationToken cancellationToken = default) => _inner.AddApprovalAsync(approval, cancellationToken);
+
+        public ValueTask<bool> TryResolveApprovalAsync(string id, Homeostat.Healing.ApprovalStatus status, string? resolvedBy, CancellationToken cancellationToken = default)
+            => _inner.TryResolveApprovalAsync(id, status, resolvedBy, cancellationToken);
+
+        public ValueTask RemoveApprovalAsync(string id, CancellationToken cancellationToken = default) => _inner.RemoveApprovalAsync(id, cancellationToken);
     }
 
     [Fact]
@@ -282,7 +300,7 @@ public class HistoryAndSeasonalityTests
     public async Task Redis_store_keeps_condition_history_and_documents()
     {
         using var redis = RedisFixture.Connect();
-        var store = new RedisHomeostatStore(redis, Options.Create(new RedisHomeostatOptions { KeyPrefix = RedisFixture.Prefix() }), Options.Create(new HomeostatOptions()));
+        var store = new RedisHomeostatStore(redis, Options.Create(new RedisStoreOptions { KeyPrefix = RedisFixture.Prefix() }), Options.Create(new HomeostatOptions()));
 
         Assert.True(((IHomeostatStore)store).SupportsConditionHistory);
         for (var i = 0; i < 4; i++)
@@ -576,6 +594,24 @@ public class HistoryAndSeasonalityTests
 
         public ValueTask<IReadOnlyList<ConditionEventRecord>> GetConditionEventsAsync(int maxEvents, CancellationToken cancellationToken = default)
             => Failing ? throw new IOException("store down") : _inner.GetConditionEventsAsync(maxEvents, cancellationToken);
+
+        public ValueTask<ControlState> GetControlStateAsync(CancellationToken cancellationToken = default) => _inner.GetControlStateAsync(cancellationToken);
+
+        public ValueTask SetPauseAsync(PauseState? pause, CancellationToken cancellationToken = default) => _inner.SetPauseAsync(pause, cancellationToken);
+
+        public ValueTask SetSwitchAsync(string name, SwitchState? state, CancellationToken cancellationToken = default) => _inner.SetSwitchAsync(name, state, cancellationToken);
+
+        public ValueTask<bool> TryClaimSwitchAsync(SwitchState state, CancellationToken cancellationToken = default) => _inner.TryClaimSwitchAsync(state, cancellationToken);
+
+        public ValueTask<bool> TryReleaseSwitchAsync(string name, string condition, string? instance, CancellationToken cancellationToken = default)
+            => _inner.TryReleaseSwitchAsync(name, condition, instance, cancellationToken);
+
+        public ValueTask AddApprovalAsync(ApprovalRecord approval, CancellationToken cancellationToken = default) => _inner.AddApprovalAsync(approval, cancellationToken);
+
+        public ValueTask<bool> TryResolveApprovalAsync(string id, Homeostat.Healing.ApprovalStatus status, string? resolvedBy, CancellationToken cancellationToken = default)
+            => _inner.TryResolveApprovalAsync(id, status, resolvedBy, cancellationToken);
+
+        public ValueTask RemoveApprovalAsync(string id, CancellationToken cancellationToken = default) => _inner.RemoveApprovalAsync(id, cancellationToken);
     }
 
     [Fact]

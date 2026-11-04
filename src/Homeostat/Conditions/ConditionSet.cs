@@ -3,10 +3,16 @@ namespace Homeostat.Conditions;
 /// <summary>Holds a tracker for every registered condition, validated as a whole.</summary>
 internal sealed class ConditionSet
 {
+    // A pending cause without any signal for this long (or for its SustainedFor, if longer) no longer suppresses: its
+    // source stopped reporting, and it would otherwise hold its symptoms back for ever.
+    private static readonly TimeSpan StalePendingAfter = TimeSpan.FromMinutes(1);
+
+    private readonly TimeProvider _timeProvider;
     private volatile State _state;
 
-    public ConditionSet(IEnumerable<ConditionDefinition> definitions)
+    public ConditionSet(IEnumerable<ConditionDefinition> definitions, TimeProvider? timeProvider = null)
     {
+        _timeProvider = timeProvider ?? TimeProvider.System;
         _state = Build(definitions.ToList(), existing: null);
     }
 
@@ -57,9 +63,24 @@ internal sealed class ConditionSet
         var byName = _state.ByName;
         foreach (var name in definition.SuppressedBy)
         {
-            if (byName.TryGetValue(name, out var cause) && cause.Snapshot().Status != ConditionStatus.Inactive)
+            if (!byName.TryGetValue(name, out var cause))
+            {
+                continue;
+            }
+
+            var snapshot = cause.Snapshot();
+            if (snapshot.Status == ConditionStatus.Active)
             {
                 return name;
+            }
+
+            if (snapshot.Status == ConditionStatus.Pending && cause.LastTriggeredAt is { } last)
+            {
+                var staleAfter = cause.Definition.SustainFor > StalePendingAfter ? cause.Definition.SustainFor : StalePendingAfter;
+                if (_timeProvider.GetUtcNow() - last < staleAfter)
+                {
+                    return name;
+                }
             }
         }
 

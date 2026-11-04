@@ -61,11 +61,13 @@ alive but idle, with `IsRunning = false` and the exception in `LastError`, inste
 `AddBackgroundServiceSignals()` turns that into a signal, so a condition can restart it:
 
 ```csharp
-h.AddBackgroundServiceSignals()                        // source: service:{type name}
+h.AddBackgroundServiceSignals()                        // source: hosted-service:{type name}
  .AddCondition("poller-crashed", c => c
-     .ForSource("service:ForecastPoller")
+     .ForSource("hosted-service:ForecastPoller")
      .Heal(p => p.RestartHostedService<ForecastPoller>()));
 ```
+
+`AddBackgroundServiceSignals(o => o.SourcePrefix = "worker")` changes the prefix (`worker:ForecastPoller`).
 
 | Member | Purpose |
 |---|---|
@@ -112,11 +114,17 @@ public sealed class ForecastService(ForecastClient client, ForecastCache cache, 
 }
 ```
 
-To go back automatically when the condition clears, ask for it:
+By default (`turnOffWhenCleared: true`) the switch goes back off automatically when the condition clears. To keep it
+on until someone turns it off, pass `false`:
 
 ```csharp
-.Heal(p => p.TurnOnSwitch("serve-cached-forecast", turnOffWhenCleared: true))
+.Heal(p => p.TurnOnSwitch("serve-cached-forecast", turnOffWhenCleared: false))
 ```
+
+In a `OncePerCluster()` plan the step turns on an **application** switch, on every instance, owned by the condition:
+it is turned off when the condition clears on the instance that ran the plan (the one whose recovery the plan
+waited for). A switch a person turned on is never taken over. In other plans it turns on a switch for the instance
+that runs the plan. See [Shared control state](persistence-and-clusters.md#shared-control-state).
 
 When the condition clears, Homeostat turns the switch off and logs it, but only a switch that this plan actually
 turned on (not in dry-run, not one you turned on by hand), and only when no other active condition that turned
@@ -129,13 +137,23 @@ it on still needs it. Two cautions:
 - Combine it with [`ClearAfter`](conditions.md#how-long-recovery-must-last-clearafter-hysteresis) so that
   a provider that is barely back does not get the full traffic at the first good answer.
 
-Without `turnOffWhenCleared`, turning the switch off is up to you, for example from the
-[control endpoints](aspnetcore.md) (`POST /homeostat/switches/{name}/off`) or your own code:
+With `turnOffWhenCleared: false`, turning the switch off is up to you, for example from the
+[control endpoints](aspnetcore.md) (`POST /homeostat/switches/{name}/off`), the CLI (`homeostat switch off`) or your
+own code:
 
 ```csharp
-switches.TurnOff("serve-cached-forecast");
+await switches.TurnOffAsync("serve-cached-forecast");
 ```
 
+Your code can turn switches on too. `TurnOnAsync` turns on an application switch by default, kept in the store and on
+for every instance that shares it; `SwitchScope.Instance` turns it on for this instance only:
+
+```csharp
+await switches.TurnOnAsync("serve-cached-forecast", by: "on-call");
+await switches.TurnOnAsync("verbose-client-logs", SwitchScope.Instance);
+```
+
+`IsOn` reads the instance's view of the store and never waits, so it is cheap enough for every request.
 `IHomeostatSwitches.GetActive()` lists the switches that are on, handy for a status page.
 
 To react when a switch changes instead of reading it on every call, subscribe to `Changed`:
@@ -151,7 +169,8 @@ switches.Changed += (_, e) =>
 ```
 
 `SwitchChangedEventArgs` carries the switch `Name` and `IsOn`. The event is raised after a switch is turned on or
-off, not when a call leaves it unchanged. Handlers run synchronously on the thread that changed the switch, so keep
+off, not when a call leaves it unchanged, including application switches changed on other instances (seen at the next
+refresh of the control state). Handlers run synchronously on the thread that changed the switch or refreshed the state, so keep
 them quick; an exception thrown by a handler is logged and does not reach the caller. Under concurrent changes,
 events for the same switch can arrive out of order: read `IsOn(name)` in the handler when the current state matters.
 The [feature flag integrations](integrations.md#feature-flags) use this event.

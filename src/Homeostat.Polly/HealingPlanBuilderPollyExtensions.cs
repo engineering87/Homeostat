@@ -8,7 +8,7 @@ public static class HealingPlanBuilderPollyExtensions
 {
     /// <summary>
     /// Appends a step that isolates the circuit breakers attached to the manual control <paramref name="control"/>
-    /// (see <see cref="HomeostatPollyExtensions.CircuitControl"/>), so calls to a dependency known to be down fail
+    /// (see <see cref="Polly.HomeostatPollyServices.CircuitControl"/>), so calls to a dependency known to be down fail
     /// fast instead of waiting for timeouts. It turns on the switch <c>circuit:{control}:isolated</c>.
     /// </summary>
     /// <param name="plan">The plan builder.</param>

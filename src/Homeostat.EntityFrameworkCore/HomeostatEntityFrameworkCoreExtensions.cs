@@ -84,15 +84,16 @@ public static class HomeostatEntityFrameworkCoreExtensions
     /// probe then creates a context from the factory and disposes it).
     /// </typeparam>
     /// <param name="builder">The Homeostat builder.</param>
-    /// <param name="source">Signal source; <c>efcore:{context type name}:ping</c> when <c>null</c>.</param>
-    /// <param name="configure">Interval, timeout and latency thresholds (see <see cref="ProbeOptions"/>); optional.</param>
+    /// <param name="configure">Source, interval, timeout and latency thresholds; optional.</param>
     /// <returns>The builder.</returns>
-    /// <example><code>h.AddDbContextProbe&lt;ReportsDbContext&gt;(configure: p => p.DegradedAbove = 200)</code></example>
-    public static HomeostatBuilder AddDbContextProbe<TContext>(this HomeostatBuilder builder, string? source = null, Action<ProbeOptions>? configure = null)
+    /// <example><code>h.AddDbContextProbe&lt;ReportsDbContext&gt;(p => p.DegradedAbove = 200)</code></example>
+    public static HomeostatBuilder AddDbContextProbe<TContext>(this HomeostatBuilder builder, Action<DbContextProbeOptions>? configure = null)
         where TContext : DbContext
     {
         ArgumentNullException.ThrowIfNull(builder);
-        var name = string.IsNullOrWhiteSpace(source) ? $"efcore:{typeof(TContext).Name}:ping" : source;
+        var options = new DbContextProbeOptions();
+        configure?.Invoke(options);
+        var name = string.IsNullOrWhiteSpace(options.Source) ? $"efcore:{typeof(TContext).Name}:ping" : options.Source;
         return builder.AddLatencyProbe(name, async (sp, ct) =>
         {
             // Probes run in their own scope: the context is a fresh one, never shared with requests.
@@ -103,7 +104,7 @@ public static class HomeostatEntityFrameworkCoreExtensions
             {
                 throw new InvalidOperationException($"{typeof(TContext).Name} cannot connect to its database.");
             }
-        }, configure);
+        }, options.CopyTo);
     }
 
     private static async Task<bool> CanConnectThroughFactoryAsync<TContext>(IServiceProvider services, CancellationToken cancellationToken)

@@ -34,10 +34,13 @@ internal sealed class HealingRunner
     private readonly ConcurrentDictionary<string, object> _running = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<Task, byte> _inFlight = new();
 
-    // Last known plan state, so triggering signals during a cooldown or a hold do not hit the store each time.
-    private readonly ConcurrentDictionary<string, PlanState> _knownState = new(StringComparer.Ordinal);
+    // Last known plan state (see PlanStateCache). Another instance (or an operator) may lift a hold, so a cached hold
+    // is trusted only for a while.
+    private readonly ConcurrentDictionary<string, PlanState> _knownState;
+    private readonly ConcurrentDictionary<string, DateTimeOffset> _heldReadAt;
+    private static readonly TimeSpan HeldRecheckInterval = TimeSpan.FromMinutes(1);
 
-    private readonly IHomeostatSwitches _switches;
+    private readonly HomeostatSwitches _switches;
 
     // Plans whose condition cleared, while the reset is being written to the store.
     private readonly ConcurrentDictionary<string, byte> _pendingResets = new(StringComparer.Ordinal);
@@ -57,9 +60,12 @@ internal sealed class HealingRunner
         SwitchOwnership ownership,
         TimeProvider timeProvider,
         ILogger<HealingRunner> logger,
-        IHomeostatSwitches switches)
+        HomeostatSwitches switches,
+        PlanStateCache planStates)
     {
         _switches = switches;
+        _knownState = planStates.Known;
+        _heldReadAt = planStates.HeldReadAt;
         _scopeFactory = scopeFactory;
         _options = options.Value;
         _store = store;
@@ -104,7 +110,10 @@ internal sealed class HealingRunner
         }
 
         var key = StateKey(plan);
-        if (_knownState.TryGetValue(key, out var known) && Blocked(plan, known, _timeProvider.GetUtcNow()) is { } reason)
+        var now = _timeProvider.GetUtcNow();
+        if (_knownState.TryGetValue(key, out var known)
+            && !(known.Held && (!_heldReadAt.TryGetValue(key, out var readAt) || now - readAt >= HeldRecheckInterval))
+            && Blocked(plan, known, now) is { } reason)
         {
             _logger.LogDebug("Condition {Condition}: not starting, {Reason}.", name, reason);
             return false;
@@ -228,7 +237,17 @@ internal sealed class HealingRunner
         {
             if (plan.Scope == PlanScope.Cluster)
             {
-                lease = await _coordinator.TryAcquireAsync($"plan:{name}", _options.ClusterLeaseDuration, cancellationToken).ConfigureAwait(false);
+                try
+                {
+                    lease = await _coordinator.TryAcquireAsync($"plan:{name}", _options.ClusterLeaseDuration, cancellationToken).ConfigureAwait(false);
+                }
+                catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
+                {
+                    // Fail closed, like the store: without the lease another instance could run the same plan.
+                    LogStoreFailure(name, ex, "Condition {Condition}: the coordinator is unavailable; not starting the cluster plan.");
+                    return;
+                }
+
                 if (lease is null)
                 {
                     _logger.LogDebug("Condition {Condition}: the plan is running on another instance.", name);
@@ -249,13 +268,16 @@ internal sealed class HealingRunner
                 return;
             }
 
-            if (_pendingResets.ContainsKey(key) && _knownState.TryGetValue(key, out var pending))
+            if (_pendingResets.ContainsKey(key) && _knownState.TryGetValue(key, out var pending)
+                && (plan.Scope != PlanScope.Cluster || string.Equals(state.LastRunBy, _options.InstanceId, StringComparison.Ordinal)))
             {
-                // The reset of a clear is still being written: trust the local view for the fields it changes.
+                // The reset of a clear is still being written: trust the local view for the fields it changes. For a
+                // cluster plan only when this instance ran it last, as the reset itself requires.
                 state = state with { Held = pending.Held, ConsecutiveFailures = pending.ConsecutiveFailures };
             }
 
             _knownState[key] = state;
+            _heldReadAt[key] = _timeProvider.GetUtcNow();
             if (Blocked(plan, state, _timeProvider.GetUtcNow()) is { } reason)
             {
                 _logger.LogDebug("Condition {Condition}: not starting, {Reason}.", name, reason);
@@ -264,7 +286,14 @@ internal sealed class HealingRunner
 
             // A cluster run stops before its next step if the lease may have been lost.
             runCts = lease is null ? null : CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, lease.Lost);
-            await RunAsync(tracker, plan, trigger, key, run, runCts?.Token ?? cancellationToken).ConfigureAwait(false);
+            var saved = await RunAsync(tracker, plan, trigger, key, run, runCts?.Token ?? cancellationToken).ConfigureAwait(false);
+            if (!saved && lease is not null && !lease.Lost.IsCancellationRequested)
+            {
+                // The cooldown exists only in this instance's memory: releasing the lease now would let another
+                // instance run the plan again at once. Keep holding it for the cooldown instead.
+                KeepLeaseForCooldown(lease, plan, name, cancellationToken);
+                lease = null;
+            }
 
             if (lease is not null && lease.Lost.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
             {
@@ -298,7 +327,35 @@ internal sealed class HealingRunner
         }
     }
 
-    private async Task RunAsync(ConditionTracker tracker, HealingPlan plan, Signal trigger, string key, object run, CancellationToken cancellationToken)
+    private void KeepLeaseForCooldown(IHomeostatLease lease, HealingPlan plan, string name, CancellationToken stoppingToken)
+    {
+        var cooldown = EffectiveCooldown(plan, _knownState.TryGetValue(StateKey(plan), out var known) ? known : PlanState.Empty);
+        _logger.LogWarning("Condition {Condition}: the plan state was not saved; keeping the cluster lease for the cooldown ({Cooldown}).", name, cooldown);
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                using var stop = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken, lease.Lost);
+                await Task.Delay(cooldown, _timeProvider, stop.Token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                // Stopping, or the lease was lost anyway.
+            }
+
+            try
+            {
+                await lease.DisposeAsync().ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Condition {Condition}: could not release the cluster lease; it will expire.", name);
+            }
+        }, CancellationToken.None);
+    }
+
+    /// <summary>Runs the plan and records the outcome; <c>false</c> when the plan state could not be saved.</summary>
+    private async Task<bool> RunAsync(ConditionTracker tracker, HealingPlan plan, Signal trigger, string key, object run, CancellationToken cancellationToken)
     {
         var name = plan.ConditionName;
         var startedAt = _timeProvider.GetUtcNow();
@@ -352,6 +409,7 @@ internal sealed class HealingRunner
 
         var completedAt = _timeProvider.GetUtcNow();
         var result = new HealingRunResult(name, outcome, steps.ToArray(), startedAt, completedAt);
+        var saved = true;
 
         // Persist before notifying, so a test or an operator who sees the run also sees its cooldown. Use a fresh
         // token: the outcome of a run canceled by the shutdown is still worth recording.
@@ -377,6 +435,7 @@ internal sealed class HealingRunner
                 // Keep the cooldown locally at least, so the plan does not repeat at once.
                 _knownState[key] = update.ApplyTo(_knownState.TryGetValue(key, out var known) ? known : PlanState.Empty);
                 _logger.LogError(ex, "Condition {Condition}: could not save the plan state.", name);
+                saved = false;
             }
 
             try
@@ -392,6 +451,7 @@ internal sealed class HealingRunner
         // Free the slot before observers hear about the run, so a new triggering signal can start the next one.
         _running.TryRemove(new KeyValuePair<string, object>(name, run));
         _notifier.Notify(o => o.OnRunCompleted(result));
+        return saved;
     }
 
     /// <summary>The steps of this run: the declared order, or the learned one for an adaptive plan.</summary>
@@ -518,6 +578,7 @@ internal sealed class HealingRunner
                 name, trigger, i, step.Name, _timeProvider.GetUtcNow(), scope.ServiceProvider, tracker.Snapshot)
             {
                 ClearAfter = tracker.Definition.ClearAfter,
+                IsClusterPlan = plan.Scope == PlanScope.Cluster,
             };
 
             _logger.LogWarning(
@@ -526,8 +587,11 @@ internal sealed class HealingRunner
             RecordAction(name, step.Name, dryRun: false);
 
             // A switch that was already on without any condition owning it was turned on by a person: the step
-            // must not take it over, or the condition clearing would turn it off against their decision.
-            var turnedOnByHand = step.SwitchToResetOnClear is { } resettable && _switches.IsOn(resettable) && !_ownership.IsOwned(resettable);
+            // must not take it over, or the condition clearing would turn it off against their decision. (A cluster
+            // plan's switch is an application switch, whose owner the store records: see HomeostatSwitches.)
+            var cluster = plan.Scope == PlanScope.Cluster;
+            var turnedOnByHand = !cluster && step.SwitchToResetOnClear is { } resettable && _switches.IsOn(resettable)
+                && !_ownership.IsOwned(resettable) && _switches.GetShared(resettable)?.Condition is null;
 
             var (executed, error) = await TryExecuteAsync(context, step, plan, scope.ServiceProvider, cancellationToken).ConfigureAwait(false);
             context.ActionCompletedAt = _timeProvider.GetUtcNow();
@@ -541,26 +605,26 @@ internal sealed class HealingRunner
             if (step.SwitchToResetOnClear is { } switchName && !turnedOnByHand)
             {
                 // Only switches Homeostat actually turned on are turned off when the condition clears.
-                _ownership.Claim(switchName, name);
+                if (!cluster)
+                {
+                    _ownership.Claim(switchName, name);
+                }
 
                 // The condition may have cleared while the step ran (after the engine released its switches): then
                 // nobody would turn this one off.
                 if (tracker.Snapshot().Status != ConditionStatus.Active)
                 {
-                    foreach (var free in _ownership.Release(name))
+                    var released = cluster ? await TryReleaseSharedAsync(name).ConfigureAwait(false) : ReleaseLocal(name);
+                    foreach (var free in released)
                     {
-                        if (_switches.IsOn(free))
-                        {
-                            _switches.TurnOff(free);
-                            _logger.LogInformation("Condition {Condition} cleared while step {Step} ran: switch {Switch} turned off.", name, step.Name, free);
-                        }
+                        _logger.LogInformation("Condition {Condition} cleared while step {Step} ran: switch {Switch} turned off.", name, step.Name, free);
                     }
                 }
             }
 
             var verifierType = plan.VerifierType ?? typeof(ConditionClearedVerifier);
             var verifier = (IHealingVerifier)scope.ServiceProvider.GetRequiredService(verifierType);
-            var timeout = plan.VerificationTimeout ?? _options.DefaultVerificationTimeout;
+            var timeout = step.VerificationTimeout ?? _options.DefaultVerificationTimeout;
             VerificationOutcome verification;
             Exception? verificationError = null;
             try
@@ -624,7 +688,30 @@ internal sealed class HealingRunner
         IServiceProvider services,
         CancellationToken cancellationToken)
     {
-        var timeout = plan.ActionTimeout ?? _options.DefaultActionTimeout;
+        // The compensating action is an action like any other: it obeys the pause, the maintenance windows and the budget.
+        if (_control.PauseReason is { } paused)
+        {
+            _logger.LogWarning("Condition {Condition}: {Action} did not heal, but {Undo} is not run: Homeostat is {Reason}.",
+                context.ConditionName, step.Name, step.UndoName, paused);
+            return false;
+        }
+
+        try
+        {
+            if (!await _store.TryConsumeBudgetAsync(
+                _timeProvider.GetUtcNow(), _options.MaxActionsPerWindow, _options.ActionBudgetWindow, cancellationToken).ConfigureAwait(false))
+            {
+                _logger.LogError("Condition {Condition}: action budget exhausted; compensating action {Undo} not run.", context.ConditionName, step.UndoName);
+                return false;
+            }
+        }
+        catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
+        {
+            LogStoreFailure(context.ConditionName, ex, "Condition {Condition}: the store is unavailable; the compensating action is not run.");
+            return false;
+        }
+
+        var timeout = step.ActionTimeout ?? _options.DefaultActionTimeout;
         using var timeoutCts = new CancellationTokenSource(timeout, _timeProvider);
         using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeoutCts.Token);
 
@@ -672,7 +759,17 @@ internal sealed class HealingRunner
         var timeout = step.ApprovalTimeout ?? _options.DefaultApprovalTimeout;
         var requestedAt = _timeProvider.GetUtcNow();
         var request = new PendingApproval(Guid.NewGuid().ToString("N"), name, index, step.Name, requestedAt, requestedAt + timeout, trigger);
-        var decision = _approvals.Register(request);
+        Task<(ApprovalStatus Status, string? By)> decision;
+        try
+        {
+            decision = await _approvals.RegisterAsync(request, cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
+        {
+            // Nobody could answer a request the store does not have: fail closed, the step does not run.
+            LogStoreFailure(name, ex, "Condition {Condition}: the store is unavailable; the approval cannot be requested.");
+            return ApprovalStatus.Canceled;
+        }
 
         _logger.LogWarning(
             "Condition {Condition}: step {Step}/{Total} {Action} is waiting for approval {ApprovalId} until {ExpiresAt}.",
@@ -687,17 +784,18 @@ internal sealed class HealingRunner
             // Each call is a no-op if someone answered first; the decision task then carries the answer.
             if (cancellationToken.IsCancellationRequested)
             {
-                _approvals.Cancel(request.Id);
+                await _approvals.CancelAsync(request.Id).ConfigureAwait(false);
             }
-            else
+            else if (!decision.IsCompleted)
             {
-                _approvals.Expire(request.Id);
+                await _approvals.ExpireAsync(request.Id).ConfigureAwait(false);
             }
 
             delayCts.Cancel();
         }
 
         var (status, by) = await decision.ConfigureAwait(false);
+        await _approvals.ForgetAsync(request.Id).ConfigureAwait(false);
 
         // Notify before anything else, so every request in the audit trail is closed, even on shutdown.
         var resolution = new ApprovalResolution(request, status, by, _timeProvider.GetUtcNow());
@@ -754,7 +852,7 @@ internal sealed class HealingRunner
         IServiceProvider services,
         CancellationToken cancellationToken)
     {
-        var timeout = plan.ActionTimeout ?? _options.DefaultActionTimeout;
+        var timeout = step.ActionTimeout ?? _options.DefaultActionTimeout;
 
         // The timeout follows the TimeProvider, so it can be tested with simulated time.
         using var timeoutCts = new CancellationTokenSource(timeout, _timeProvider);
@@ -777,6 +875,37 @@ internal sealed class HealingRunner
             _logger.LogError(ex, "Condition {Condition}: {Action} threw an exception.", context.ConditionName, step.Name);
             return (false, ex);
         }
+    }
+
+    /// <summary>Turns off the application switches this condition's cluster plan turned on here; a store failure is logged.</summary>
+    private async Task<IReadOnlyList<string>> TryReleaseSharedAsync(string condition)
+    {
+        try
+        {
+            return await _switches.ReleaseSharedAsync(condition, CancellationToken.None).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            // The step worked: a store failure here must not turn a healed run into a failed one.
+            _logger.LogError(ex, "Condition {Condition} cleared, but its application switches could not be turned off in the store.", condition);
+            return [];
+        }
+    }
+
+    /// <summary>Turns off the instance switches only this condition held; returns them.</summary>
+    private IReadOnlyList<string> ReleaseLocal(string condition)
+    {
+        var released = new List<string>();
+        foreach (var free in _ownership.Release(condition))
+        {
+            if (_switches.IsOn(free))
+            {
+                _switches.TurnOffLocal(free);
+                released.Add(free);
+            }
+        }
+
+        return released;
     }
 
     private void Report(List<HealingStepResult> results, HealingStepResult result)

@@ -16,7 +16,7 @@ public class RedisSignalTests
         var (services, detector) = ProbeTests.Build(h =>
         {
             h.Services.AddSingleton<IConnectionMultiplexer>(redis);
-            h.AddRedisSignals("session-cache", o => { o.DegradedAbove = 5_000; o.PublishConnectionEvents = false; });
+            h.AddRedisSignals(o => { o.Source = "session-cache"; o.DegradedAbove = 5_000; o.PublishConnectionEvents = false; });
         });
         await using var _ = services;
         var signals = new CollectingPublisher();

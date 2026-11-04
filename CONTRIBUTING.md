@@ -107,8 +107,10 @@ Maintainers only.
    configured, produces an SBOM and a build provenance attestation, pushes the packages to NuGet and creates a GitHub
    release with the packages and the SBOM. Versions with a suffix (`-preview.1`) are marked as pre-releases.
 
-The workflow needs a repository secret `NUGET_API_KEY` (a NuGet API key scoped to the `Homeostat*`
-packages) and runs in the `nuget` environment, where you can require a manual approval. To author-sign the packages,
+The workflow publishes with nuget.org [trusted publishing](https://learn.microsoft.com/nuget/nuget-org/trusted-publishing),
+so no API key is stored: on nuget.org, add a trusted publishing policy (owner `engineering87`, repository `Homeostat`,
+workflow `release.yml`, environment `nuget`), and save the nuget.org profile name as the repository secret
+`NUGET_USER`. The workflow runs in the `nuget` environment, where you can require a manual approval. To author-sign the packages,
 add `NUGET_SIGNING_CERTIFICATE` (the code signing certificate as a base64 PFX) and `NUGET_SIGNING_PASSWORD`, and
 register the certificate on the nuget.org account first.
 After the first release, set `PackageValidationBaselineVersion` in `Directory.Build.props` to the latest

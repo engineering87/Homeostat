@@ -40,7 +40,7 @@ public sealed class CallRecorder
     public string Source { get; }
 
     /// <summary>The thresholds (a copy of those passed to the constructor).</summary>
-    public CallSignalOptions Options { get; }
+    internal CallSignalOptions Options { get; }
 
     /// <summary>Records one call.</summary>
     /// <param name="failed">Whether the call failed because of the dependency (not because of a wrong request).</param>
@@ -99,17 +99,17 @@ public sealed class CallRecorder
     /// <param name="cancellationToken">Passed to the call.</param>
     /// <param name="isFailure">Decides which exceptions count as failures of the dependency; optional.</param>
     /// <returns>The task of the call.</returns>
-    /// <example><code>await recorder.TrackAsync(ct => geocoder.LookupAsync(address, ct), cancellationToken);</code></example>
-    public async Task TrackAsync(Func<CancellationToken, Task> call, CancellationToken cancellationToken = default, Func<Exception, bool>? isFailure = null)
+    /// <example><code>await recorder.TrackAsync(ct => geocoder.LookupAsync(address, ct), cancellationToken: cancellationToken);</code></example>
+    public async Task TrackAsync(Func<CancellationToken, Task> call, Func<Exception, bool>? isFailure = null, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(call);
-        await TrackAsync<bool>(async ct => { await call(ct).ConfigureAwait(false); return true; }, cancellationToken, isFailure).ConfigureAwait(false);
+        await TrackAsync<bool>(async ct => { await call(ct).ConfigureAwait(false); return true; }, isFailure, cancellationToken).ConfigureAwait(false);
     }
 
-    /// <inheritdoc cref="TrackAsync(Func{CancellationToken, Task}, CancellationToken, Func{Exception, bool}?)"/>
+    /// <inheritdoc cref="TrackAsync(Func{CancellationToken, Task}, Func{Exception, bool}?, CancellationToken)"/>
     /// <typeparam name="T">The result type.</typeparam>
     /// <returns>The result of the call.</returns>
-    public async Task<T> TrackAsync<T>(Func<CancellationToken, Task<T>> call, CancellationToken cancellationToken = default, Func<Exception, bool>? isFailure = null)
+    public async Task<T> TrackAsync<T>(Func<CancellationToken, Task<T>> call, Func<Exception, bool>? isFailure = null, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(call);
         var started = _timeProvider.GetTimestamp();

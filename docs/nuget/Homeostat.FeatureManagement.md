@@ -22,7 +22,7 @@ builder.Services.AddHomeostat(h => h
     .AddCondition("forecast-maps-slow", c => c
         .ForSource("http:maps")
         .SustainedFor(TimeSpan.FromMinutes(1))
-        .Heal(p => p.TurnOnSwitch("shed-forecast-maps", turnOffWhenCleared: true))));
+        .Heal(p => p.TurnOnSwitch("shed-forecast-maps"))));
 
 // appsettings.json:
 // "FeatureManagement": {

@@ -95,8 +95,9 @@ public class ProbeOptions
     }
 
     /// <summary>
-    /// Copies the probe settings of this instance to <paramref name="target"/>. Integration packages whose options
-    /// derive from <see cref="ProbeOptions"/> use it to register a probe with their settings.
+    /// Copies the probe settings of this instance (the members of <see cref="ProbeOptions"/> only, not those of a
+    /// derived class) to <paramref name="target"/>. Integration packages whose options derive from
+    /// <see cref="ProbeOptions"/> use it to register a probe with their settings.
     /// </summary>
     /// <param name="target">The settings to overwrite.</param>
     public void CopyTo(ProbeOptions target)

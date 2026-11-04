@@ -28,7 +28,8 @@ Homeostat follows coordinated disclosure:
 ## Verifying a release
 
 Every release is built from a tag by the [release workflow](.github/workflows/release.yml), on GitHub-hosted runners,
-and carries:
+and pushed to nuget.org with trusted publishing: the workflow's identity is exchanged for a key valid for one hour, so
+no long-lived NuGet API key exists. Each release carries:
 
 - **Build provenance** for each package: a signed statement, stored by GitHub, that the package was built by that
   workflow from that commit. Check a package downloaded from nuget.org with the GitHub CLI:

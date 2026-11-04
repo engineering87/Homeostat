@@ -17,10 +17,17 @@ app.MapHomeostatControl("operations");    // POST /homeostat/pause, /resume, ...
 `"operations"` is an [authorization policy](https://learn.microsoft.com/aspnet/core/security/authorization/policies)
 of your application, for example "members of the on-call group". **Both methods require one**: called without a
 policy, they throw at startup. Only for local demos and tests, `allowAnonymous: true` maps them without
-authorization.
+authorization. To build the policy inline instead of registering it by name, pass a lambda:
+
+```csharp
+app.MapHomeostatStatus(p => p.RequireRole("operations"));
+app.MapHomeostatControl(p => p.RequireRole("operations"));
+app.MapHomeostatDashboard(p => p.RequireRole("operations"));
+```
 
 Both take an optional route prefix (`"/homeostat"` by default) and return a `RouteGroupBuilder`, so the usual
-endpoint conventions apply (rate limiting, OpenAPI tags, CORS).
+endpoint conventions apply (rate limiting, OpenAPI tags, CORS). The JSON they return is the contract; the .NET types
+behind it are internal.
 
 ## Status
 
@@ -29,7 +36,7 @@ endpoint conventions apply (rate limiting, OpenAPI tags, CORS).
 ```json
 {
   "application": "weather-api",
-  "instance": "weather-api-7d9f8:1",
+  "instance": "weather-api-7d9f8",
   "paused": false,
   "pauseReason": null,
   "dryRun": false,
@@ -66,7 +73,7 @@ endpoint conventions apply (rate limiting, OpenAPI tags, CORS).
       "startedAt": "2030-01-01T09:12:00+00:00",
       "completedAt": "2030-01-01T09:12:09+00:00",
       "steps": [ { "name": "RenewFeedClientAction", "succeeded": true, "verification": "Healed", "error": null, "undoSucceeded": null } ],
-      "instance": "weather-api-7d9f8:1"
+      "instance": "weather-api-7d9f8"
     }
   ]
 }
@@ -76,10 +83,11 @@ Enums are written as names (`"Unhealthy"`, `"Healed"`), never as numbers, and pr
 shape of this document, and of the history and coverage documents below, is part of the public contract: fields
 are added in minor versions, never renamed or removed before a major version (see [Versioning](versioning.md)).
 
-If the store cannot be read, the endpoint still answers: `budget` is `null`, `recentRuns` is empty and
-`storeError` says why. Times are those of the application's `TimeProvider`. Conditions and switches are those of the instance that
-answers; budget and runs come from the [store](persistence-and-clusters.md), so with a shared store they cover
-every instance. The endpoint is read-only but reveals condition names,
+If the store cannot be read, the endpoint still answers: `budget` is `null`, `recentRuns` and `pendingApprovals` are
+empty and `storeError` says why. Times are those of the application's `TimeProvider`. Conditions are those of the
+instance that answers; `switches` lists the application switches and the switches of that instance. Budget, runs and
+pending approvals come from the [store](persistence-and-clusters.md), so with a shared store they cover
+every instance, and so do the pause and the application switches. The endpoint is read-only but reveals condition names,
 error messages and approval ids, which is why it needs a policy too.
 
 ## Coverage and history
@@ -102,16 +110,22 @@ error messages and approval ids, which is why it needs a policy too.
 
 | Endpoint | Effect | Response |
 |---|---|---|
-| `POST /homeostat/pause` | Kill switch on: no new step starts | `204` |
-| `POST /homeostat/pause?for=00:30:00` | Paused for a duration, then resumes by itself (for deployment scripts) | `204`, or `400` for an invalid duration |
+| `POST /homeostat/pause` | Kill switch on: no new step starts, on every instance that shares the store | `204` |
+| `POST /homeostat/pause?for=00:30:00` | Paused for a duration (at most 30 days), then resumes by itself (for deployment scripts) | `204`, or `400` for an invalid duration |
 | `POST /homeostat/resume` | Kill switch off | `204` |
-| `POST /homeostat/approvals/{id}/approve` | Approves a pending step | `204`, or `404` if the request does not exist (any more) |
-| `POST /homeostat/approvals/{id}/reject` | Rejects it: the run stops | `204` or `404` |
-| `POST /homeostat/switches/{name}/on` | Turns a switch on | `204`, or `400` for names over 200 characters |
-| `POST /homeostat/switches/{name}/off` | Turns a switch off | `204` |
+| `POST /homeostat/approvals/{id}/approve` | Approves a pending step, on any instance | `204`, or `404` if the request does not exist (any more) |
+| `POST /homeostat/approvals/{id}/reject` | Rejects it: the run stops and the plan is held | `204` or `404` |
+| `POST /homeostat/conditions/{name}/release` | Lifts the hold of the condition's plan after a rejection ([details](healing-plans.md#releasing-a-hold)) | `204`, or `404` for an unknown condition or one without a plan |
+| `POST /homeostat/switches/{name}/on` | Turns an application switch on, for every instance | `204`, or `400` for names over 200 characters |
+| `POST /homeostat/switches/{name}/on?scope=instance` | Turns the switch on for the instance that answers only | `204`, or `400` for an invalid `scope` |
+| `POST /homeostat/switches/{name}/off` | Turns a switch off, for the application and the instance that answers | `204` |
 
-The name of the authenticated user (`User.Identity.Name`) is recorded as the approver, in logs, events and the
-audit log.
+Pause, approvals and switches are kept in the [store](persistence-and-clusters.md#shared-control-state): every
+endpoint above answers `503` when the store cannot be reached, and the change is not made. Changes reach the other
+instances within `ControlRefreshInterval` (5 seconds by default).
+
+The name of the authenticated user (`User.Identity.Name`) is recorded as the approver in logs, events and the audit
+log, and with the pause and the switches it turns on: who paused appears in `pauseReason`.
 
 Security notes:
 
@@ -119,8 +133,8 @@ Security notes:
   group), not "any authenticated user", especially in an application with end-user accounts.
 - The application must use authentication and authorization (`app.UseAuthorization()`).
 - Against cross-site request forgery, every control request must carry an `Authorization: Bearer` token or the
-  `X-Requested-With` header (any value), and requests that the browser marks as cross-site (`Sec-Fetch-Site`) are
-  refused with `403`. A page on another site cannot add those headers, so users signed in with cookies, Windows
+  `X-Requested-With` header (any value), and requests that the browser marks as cross-site or same-site
+  (`Sec-Fetch-Site`) are refused with `403`. A page on another site cannot add those headers, so users signed in with cookies, Windows
   authentication, Basic or client certificates are protected. The dashboard and the `homeostat` CLI send the header;
   with curl, add `-H "X-Requested-With: curl"`.
 - The [security guide](security.md) collects these rules with the other hardening steps.

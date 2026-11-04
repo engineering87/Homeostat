@@ -43,15 +43,15 @@ flowchart LR
 |---|---|
 | `DetectorHost` | A `BackgroundService` that calls every `ISignalDetector` at `DetectionInterval`, on `TimeProvider`. Runtime detectors, metric and event counter signals, HTTP client signals and probes are detectors. Probes start their calls and return at once, so a slow dependency never delays the loop |
 | `SignalChannel` | The in-memory buffer behind `ISignalPublisher`: bounded (`SignalBufferCapacity`), drops the oldest signal when full, never blocks the publisher |
-| `HomeostatEngine` | A `BackgroundService`, the only reader of the channel. It records the signal (when `RecordSignals` is on), feeds every relevant condition tracker, and hands activations to the runner |
+| `HomeostatEngine` | A `BackgroundService`, the only reader of the channel. It records the signal (when `AddSignalRecording` is on), feeds every relevant condition tracker, and hands activations to the runner |
 | `ConditionSet` | One `ConditionTracker` per condition, validated as a whole; composite conditions are evaluated after the conditions they depend on |
 | `ConditionReloader` | Rebuilds the conditions defined in configuration when it changes, keeping the state of conditions whose definition did not change |
 | `HealingRunner` | Applies the guardrails, runs plans on the thread pool, asks for approvals, consumes the budget, runs actions and verifiers, and records the outcome |
-| `IHomeostatStore` | Plan state (cooldown, backoff, hold), action budget, run history, condition history and documents. In memory by default; file and Redis stores are built in |
+| `IHomeostatStore` | Plan state (cooldown, backoff, hold), action budget, run history, condition history, documents and the control state (pause, application switches, approval requests). In memory by default; file and Redis stores are built in |
 | `IHomeostatCoordinator` | Leases that make `OncePerCluster()` plans run on one instance at a time. In process by default; Redis for real clusters |
-| `IHomeostatSwitches` | Named flags that plans turn on and code reads. Pausable consumers, the feature flag integrations and Polly circuit isolation follow switches through the `Changed` event |
-| `ObserverNotifier` | Calls `IHealingObserver` implementations in registration order. Event sinks (`HomeostatEventSink`) are observers that queue events and deliver them in the background |
-| Control surface | `IHomeostatControl` (pause, state, history, coverage) and `IHomeostatApprovals`, exposed by the ASP.NET Core endpoints, the dashboard, the CLI and the Aspire commands |
+| `IHomeostatSwitches` | Named flags that plans turn on and code reads, for the application (in the store) or for one instance. Pausable consumers, the feature flag integrations and Polly circuit isolation follow switches through the `Changed` event |
+| `ObserverNotifier` | Calls `IHealingObserver` implementations in registration order. Event sinks (`IHomeostatEventSink`) are delivered by observers that queue events and write them in the background |
+| Control surface | `IHomeostatControl` (pause, release of holds, state, history, coverage) and `IHomeostatApprovals`, exposed by the ASP.NET Core endpoints, the dashboard, the CLI and the Aspire commands |
 
 ## A healing run
 
@@ -68,11 +68,12 @@ HealingRunner.TryStart(condition, triggering signal)
       approval required? → wait (slot released) → stop if rejected or expired
       budget (store) → action (own DI scope, timeout) → verifier
         Healed → stop
-        NotHealed → compensate (UndoWith) → next step
+        NotHealed → compensate (UndoWith: pause, maintenance windows, budget) → next step
         action failed → next step
         Inconclusive, or a verifier error → stop
       cluster lease lost? → stop before the next step (outcome Canceled)
     store ← run record, plan state;  observers ← steps, run
+    plan state not saved (cluster run)? → keep the lease for the cooldown
 ```
 
 ## Principles
@@ -82,9 +83,10 @@ HealingRunner.TryStart(condition, triggering signal)
 2. **Never escalate blindly.** Escalation needs evidence that the previous step did not work.
    Without evidence (`Inconclusive`) the run stops and logs.
 3. **Easy to adopt.** One package, one `AddHomeostat` call, plain DI classes for actions, verifiers and detectors,
-   no attributes and no required infrastructure. Two base classes exist where they remove real pitfalls, and both are
-   optional: `RestartableBackgroundService`, for workers that must be restarted without stopping the host, and
-   `HomeostatEventSink`, for sinks that need a background queue and correct shutdown.
+   no attributes and no required infrastructure. One base class exists where it removes real pitfalls, and it is
+   optional: `RestartableBackgroundService`, for workers that must be restarted without stopping the host. Event sinks
+   implement a two-member interface, `IHomeostatEventSink`; Homeostat provides the background queue and correct
+   shutdown.
 4. **Observable.** Every decision is logged and traced; metrics cover runs, actions, outcomes and duration, and
    gauges the current state.
 5. **Testable.** Time comes from `TimeProvider`; actions, verifiers, stores and coordinators are ordinary DI
@@ -109,10 +111,10 @@ HealingRunner.TryStart(condition, triggering signal)
 |---|---|---|
 | `IHomeostatStore` | `UseStore<T>()`, `UseStore(factory)`, `UseFileStore(path)` | In memory, file, Redis (`Homeostat.Redis`) |
 | `IHomeostatCoordinator` | `UseCoordinator<T>()`, `UseCoordinator(factory)` | In process, Redis |
-| `ISignalDetector` | `AddDetector<T>()`, `services.AddSignalDetector<T>()` | Runtime, metrics, probes, integrations |
-| `IHealingAction`, `IHealingVerifier` | `With<T>()`, `Then<T>()`, `VerifyWith<T>()`, `MapAction<T>(name)` | Built-in actions, `ConditionClearedVerifier` |
+| `ISignalDetector` | `AddDetector<T>()`, `services.AddHomeostatDetector<T>()` | Runtime, metrics, probes, integrations |
+| `IHealingAction`, `IHealingVerifier` | `With<T>()`, `Then<T>()`, `VerifyWith<T>()`, `AddAction<T>(name)` | Built-in actions, `ConditionClearedVerifier` |
 | `IHealingObserver` | `AddObserver<T>()` | Event sinks (below) |
-| `HomeostatEventSink` | `AddEventSink<T>()` | Audit log, webhook, PagerDuty, Opsgenie, Slack, Teams |
+| `IHomeostatEventSink` | `AddEventSink<T>()` | Audit log, webhook, PagerDuty, Opsgenie, Slack, Teams |
 | `IPausableConsumer` | `AddPausableConsumer(factory)`, `IHomeostatConsumers.Register` | `PauseGate`, Service Bus, RabbitMQ, Kafka adapters |
 
 See [Persistence and clusters](persistence-and-clusters.md) for writing a store or a coordinator.

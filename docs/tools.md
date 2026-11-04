@@ -19,7 +19,9 @@ homeostat pause --for 30m             # kill switch with automatic resume: 30m, 
 homeostat resume
 homeostat approve 4f1c...             # ids are shown by 'homeostat status'
 homeostat reject 4f1c...
-homeostat switch on serve-cached-forecast
+homeostat release weather-feed-down   # lift the hold of a plan after a rejection
+homeostat switch on serve-cached-forecast              # for the whole application
+homeostat switch on verbose-client-logs --instance     # only for the instance that answers
 homeostat switch off circuit:forecast:isolated
 homeostat signal disk-almost-full Degraded -m "rehearsal"   # through MapHomeostatAlerts (source alert:disk-almost-full)
 homeostat signal ingest-backlog Healthy --value 120         # with a value, for value and trend rules
@@ -42,6 +44,12 @@ Exit codes: `0` success, `1` failure (unreachable, not allowed, not found, inval
 `--fail-on-active`, `4` coverage below `--fail-below`, `5` a plan that would run more than `--max-heals` times in a
 replay. `status`, `coverage` and `history` need the status endpoints (`MapHomeostatStatus`), `signal` the alert endpoints,
 the other commands but `replay` the control endpoints.
+
+`pause`, `resume`, `approve`, `reject`, `release` and `switch` change the [shared control
+state](persistence-and-clusters.md#shared-control-state): with a shared store, they apply to every instance, whichever
+instance answers the request (`switch on --instance` excepted). When the store is down the endpoint answers `503` and
+the command exits with `1`. `homeostat release <condition>` lifts the hold of a plan after a rejected approval, without
+waiting for the condition to clear: see [Releasing a hold](healing-plans.md#releasing-a-hold).
 
 `homeostat coverage --last 4h [--fail-below 0.8] [--json]` shows which conditions activated, which plans ran and which
 steps never ran (exit code `4` below the threshold): see [Learning and foresight](intelligence.md#coverage).

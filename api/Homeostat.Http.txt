@@ -2,7 +2,7 @@ namespace Homeostat
   public static class HomeostatHttpClientBuilderExtensions
     public static Microsoft.Extensions.DependencyInjection.IHttpClientBuilder AddHomeostatSignals(this Microsoft.Extensions.DependencyInjection.IHttpClientBuilder builder, System.Action<Homeostat.Http.HttpClientSignalOptions>? configure = null)
   public static class HomeostatIncidentExtensions
-    public static Homeostat.HomeostatBuilder AddOpsgenieAlerts(this Homeostat.HomeostatBuilder builder, System.Action<Homeostat.Http.OpsgenieOptions> configure)
+    public static Homeostat.HomeostatBuilder AddOpsgenieIncidents(this Homeostat.HomeostatBuilder builder, System.Action<Homeostat.Http.OpsgenieOptions> configure)
     public static Homeostat.HomeostatBuilder AddPagerDutyIncidents(this Homeostat.HomeostatBuilder builder, System.Action<Homeostat.Http.PagerDutyOptions> configure)
     public static Homeostat.HomeostatBuilder AddSlackNotifications(this Homeostat.HomeostatBuilder builder, System.Action<Homeostat.Http.SlackOptions> configure)
     public static Homeostat.HomeostatBuilder AddTeamsNotifications(this Homeostat.HomeostatBuilder builder, System.Action<Homeostat.Http.TeamsOptions> configure)
@@ -10,25 +10,24 @@ namespace Homeostat
     public static Homeostat.HomeostatBuilder AddWebhookNotifications(this Homeostat.HomeostatBuilder builder, System.Action<Homeostat.Http.WebhookOptions> configure)
 namespace Homeostat.Http
   public abstract class ChatOptions
-    protected ChatOptions()
     public System.Uri? DashboardUrl { get; set; }
     public System.Collections.Generic.ISet<Homeostat.Notifications.HomeostatEventKind> Events { get; }
     public int MaxAttempts { get; set; }
     public System.TimeSpan Timeout { get; set; }
-    public System.Uri? WebhookUrl { get; set; }
+    public System.Uri? Url { get; set; }
   public sealed class HttpClientSignalOptions
     public HttpClientSignalOptions()
     public bool CountCancellationsAsFailures { get; set; }
     public double DegradedFailureRatio { get; set; }
     public System.TimeSpan? DegradedLatency { get; set; }
     public System.Func<System.Net.Http.HttpResponseMessage, bool> IsFailure { get; set; }
-    public int MinimumRequests { get; set; }
+    public int MinimumCalls { get; set; }
     public string? Source { get; set; }
     public double UnhealthyFailureRatio { get; set; }
     public System.TimeSpan? UnhealthyLatency { get; set; }
     public static bool IsGrpcFailure(System.Net.Http.HttpResponseMessage response)
+    public static bool IsServiceFailure(System.Net.Http.HttpResponseMessage response)
   public abstract class IncidentOptions
-    protected IncidentOptions()
     public int MaxAttempts { get; set; }
     public bool OnApprovalRequested { get; set; }
     public bool OnConditionActivated { get; set; }
@@ -36,6 +35,7 @@ namespace Homeostat.Http
     public bool ResolveWhenCleared { get; set; }
     public System.TimeSpan Timeout { get; set; }
   public sealed class OpsgenieOptions : Homeostat.Http.IncidentOptions
+    public const string HttpClientName = "Homeostat.Opsgenie"
     public static readonly System.Uri JiraServiceManagement
     public static readonly System.Uri Opsgenie
     public static readonly System.Uri OpsgenieEu
@@ -45,15 +45,18 @@ namespace Homeostat.Http
     public System.Collections.Generic.ISet<string> Tags { get; }
     public System.Uri Url { get; set; }
   public sealed class PagerDutyOptions : Homeostat.Http.IncidentOptions
+    public const string HttpClientName = "Homeostat.PagerDuty"
     public PagerDutyOptions()
     public string? Component { get; set; }
     public string? Group { get; set; }
     public string? RoutingKey { get; set; }
     public System.Uri Url { get; set; }
   public sealed class SlackOptions : Homeostat.Http.ChatOptions
+    public const string HttpClientName = "Homeostat.Slack"
     public SlackOptions()
     public bool ApprovalButtons { get; set; }
   public sealed class TeamsOptions : Homeostat.Http.ChatOptions
+    public const string HttpClientName = "Homeostat.Teams"
     public TeamsOptions()
     public string? ApprovalCommand { get; set; }
   public sealed class WebhookOptions

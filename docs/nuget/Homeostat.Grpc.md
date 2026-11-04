@@ -22,7 +22,7 @@ builder.Services.AddHomeostat(h => h
     .AddCondition("forecasts-failing", c => c
         .ForSource("grpc:ForecastsClient")
         .SustainedFor(TimeSpan.FromMinutes(1))
-        .Heal(p => p.TurnOnSwitch("serve-cached-forecast", turnOffWhenCleared: true))));
+        .Heal(p => p.TurnOnSwitch("serve-cached-forecast"))));
 ```
 
 Use it instead of the HTTP-level `AddHomeostatSignals` of Homeostat.Http on the same client: that one sees only the response headers.

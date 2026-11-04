@@ -2,9 +2,18 @@ using Homeostat.Notifications;
 
 namespace Homeostat.Http;
 
-/// <summary>When Homeostat opens and resolves incidents; shared by the PagerDuty and Opsgenie notifiers.</summary>
+/// <summary>
+/// When Homeostat opens and resolves incidents; shared by the PagerDuty and Opsgenie notifiers. These are decisions,
+/// not event kinds (an incident opens when healing gives up, a run outcome; it resolves when the condition clears), so
+/// they are flags rather than an <c>Events</c> set as on the chat and webhook notifiers.
+/// </summary>
 public abstract class IncidentOptions
 {
+    /// <summary>Only the built-in options derive from this class: a derived class could not be registered.</summary>
+    private protected IncidentOptions()
+    {
+    }
+
     /// <summary>
     /// Opens an incident when healing gives up and a person is needed: the run ended as not healed, inconclusive,
     /// out of budget or not approved. Defaults to <c>true</c>.

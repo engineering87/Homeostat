@@ -60,13 +60,14 @@ public static class HomeostatMongoExtensions
             to.Origin ??= "mongodb";
         }
 
-        builder.AddLatencyProbe(MongoSignals.Source(name, "ping"),
+        var prefix = MongoSignals.Prefix(name, options);
+        builder.AddLatencyProbe($"{prefix}:ping",
             (sp, ct) => client(sp).GetDatabase("admin").RunCommandAsync<BsonDocument>(new BsonDocument("ping", 1), cancellationToken: ct),
             p => Settings(options.Ping, p));
 
         if (options.ReplicationLag)
         {
-            builder.AddProbe(MongoSignals.Source(name, "replication-lag"), async (sp, ct) =>
+            builder.AddProbe($"{prefix}:replication-lag", async (sp, ct) =>
             {
                 var status = await client(sp).GetDatabase("admin")
                     .RunCommandAsync<BsonDocument>(new BsonDocument("replSetGetStatus", 1), cancellationToken: ct).ConfigureAwait(false);
@@ -81,7 +82,7 @@ public static class HomeostatMongoExtensions
         }
 
         builder.Services.AddSingleton(new MongoRegistration(name, options));
-        builder.Services.AddSignalDetector<MongoSignalDetector>();
+        builder.Services.AddHomeostatDetector<MongoSignalDetector>();
         return builder;
     }
 
@@ -104,7 +105,8 @@ public static class HomeostatMongoExtensions
         ArgumentNullException.ThrowIfNull(services);
         ArgumentException.ThrowIfNullOrWhiteSpace(name);
         var events = services.GetService<MongoClientEvents>();
-        if (events is null || !services.GetServices<MongoRegistration>().Any(r => r.Name == name))
+        var registration = services.GetServices<MongoRegistration>().LastOrDefault(r => r.Name == name);
+        if (events is null || registration is null)
         {
             throw new InvalidOperationException($"Call AddMongoSignals(\"{name}\") in AddHomeostat to publish the MongoDB signals.");
         }
@@ -137,7 +139,7 @@ public static class HomeostatMongoExtensions
                 // A lost primary is published at once, not at the next interval.
                 if (state.ClusterChanged(e.ClusterId.Value, writable, connected))
                 {
-                    MongoSignals.PublishPrimary(publisher, name, state, time.GetUtcNow());
+                    MongoSignals.PublishPrimary(publisher, registration.Prefix, state, time.GetUtcNow());
                 }
             });
         });

@@ -68,7 +68,7 @@ public class HttpSignalTests
         services.AddHttpClient("forecast")
             .ConfigurePrimaryHttpMessageHandler(() => new FaultInjectingHandler(fault))
             .AddHomeostatSignals()
-            .AddHomeostatSignals(o => o.MinimumRequests = 5);   // a second call must not count requests twice
+            .AddHomeostatSignals(o => o.MinimumCalls = 5);   // a second call must not count requests twice
 
         await using var provider = services.BuildServiceProvider();
         var client = provider.GetRequiredService<IHttpClientFactory>().CreateClient("forecast");

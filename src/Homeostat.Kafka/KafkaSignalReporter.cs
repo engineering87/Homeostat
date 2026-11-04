@@ -80,8 +80,8 @@ public sealed class KafkaSignalReporter
 
         if (statistics.Lag is { } lag)
         {
-            var severity = lag.Total > _options.LagUnhealthyAbove ? SignalSeverity.Unhealthy
-                : lag.Total > _options.LagDegradedAbove ? SignalSeverity.Degraded
+            var severity = lag.Total > _options.Lag.UnhealthyAbove ? SignalSeverity.Unhealthy
+                : lag.Total > _options.Lag.DegradedAbove ? SignalSeverity.Degraded
                 : SignalSeverity.Healthy;
             Publish($"{_source}:lag", severity, lag.Total, now, new()
             {
@@ -92,8 +92,8 @@ public sealed class KafkaSignalReporter
 
         if (statistics.QueueShare is { } share)
         {
-            var severity = share > _options.QueueUnhealthyAbove ? SignalSeverity.Unhealthy
-                : share > _options.QueueDegradedAbove ? SignalSeverity.Degraded
+            var severity = share > _options.Queue.UnhealthyAbove ? SignalSeverity.Unhealthy
+                : share > _options.Queue.DegradedAbove ? SignalSeverity.Degraded
                 : SignalSeverity.Healthy;
             Publish($"{_source}:queue", severity, share, now, []);
         }

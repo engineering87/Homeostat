@@ -7,8 +7,8 @@ namespace Homeostat.ServiceBus;
 public sealed class ServiceBusSignalOptions
 {
     /// <summary>
-    /// Source prefix of the signals: <c>{prefix}:active</c> (messages waiting) and <c>{prefix}:dead-letter</c>.
-    /// Defaults to <c>servicebus:{queue}</c> or <c>servicebus:{topic}/{subscription}</c>.
+    /// Source prefix of the signals: <c>{prefix}:messages</c> (messages waiting) and <c>{prefix}:dead-letter</c>.
+    /// Defaults to <c>servicebus:{queue}</c> or <c>servicebus:{topic}:{subscription}</c>.
     /// </summary>
     public string? Source { get; set; }
 
@@ -16,7 +16,7 @@ public sealed class ServiceBusSignalOptions
     public TimeSpan Interval { get; set; } = TimeSpan.FromSeconds(30);
 
     /// <summary>Thresholds of the active message count (the backlog), for example <c>UnhealthyAbove = 10_000</c>.</summary>
-    public ProbeOptions Active { get; } = new();
+    public ProbeOptions Messages { get; } = new();
 
     /// <summary>
     /// Thresholds of the dead-letter count. Dead letters accumulate until someone handles them, so a growing count

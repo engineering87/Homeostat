@@ -41,7 +41,7 @@ internal sealed class HttpClientSignalDetector : ISignalDetector
         var ratio = (double)sample.Failures / sample.Total;
         SignalSeverity severity;
 
-        if (sample.Total < options.MinimumRequests)
+        if (sample.Total < options.MinimumCalls)
         {
             // Too few requests to judge a ratio: only a clean sample says something.
             if (sample.Failures > 0)

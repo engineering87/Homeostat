@@ -8,6 +8,9 @@ namespace Homeostat.Redis;
 /// </summary>
 public sealed class RedisSignalOptions : ProbeOptions
 {
+    /// <summary>Signal source. Defaults to <c>"redis"</c>.</summary>
+    public string Source { get; set; } = "redis";
+
     /// <summary>
     /// Publishes a signal as soon as the client reports a lost or restored connection, without waiting for the next
     /// ping. Defaults to <c>true</c>.

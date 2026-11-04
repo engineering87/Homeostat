@@ -43,7 +43,7 @@ with NuGet.
 | `Homeostat.Polly` | `Polly.Core` | 8.9.0 |
 | `Homeostat.Grpc` | `Grpc.Net.ClientFactory` | 2.85.0 |
 | `Homeostat.EntityFrameworkCore` | `Microsoft.EntityFrameworkCore.Relational` | 10.0.14 |
-| `Homeostat.Redis` | `StackExchange.Redis` | 3.4.29 |
+| `Homeostat.Redis` | `StackExchange.Redis` | 3.4.31 |
 | `Homeostat.MongoDB` | `MongoDB.Driver` | 3.13.0 |
 | `Homeostat.ServiceBus` | `Azure.Messaging.ServiceBus` | 7.21.0 |
 | `Homeostat.RabbitMQ` | `RabbitMQ.Client` | 7.2.2 |

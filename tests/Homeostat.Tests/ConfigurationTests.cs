@@ -28,7 +28,7 @@ public class ConfigurationTests
 
         await using var host = await HomeostatTestHost.StartAsync(
             h => h
-                .MapAction<EngineTests.RecordingAction>("record")
+                .AddAction<EngineTests.RecordingAction>("record")
                 .AddConditionsFromConfiguration(config.GetSection("Conditions")),
             services => services.AddSingleton<EngineTests.Recorder>());
 
@@ -66,7 +66,7 @@ public class ConfigurationTests
 
         await using var host = await HomeostatTestHost.StartAsync(
             h => h
-                .MapAction<EngineTests.RecordingAction>("record")
+                .AddAction<EngineTests.RecordingAction>("record")
                 .AddConditionsFromConfiguration(config.GetSection("Conditions")),
             services => services.AddSingleton<EngineTests.Recorder>());
 

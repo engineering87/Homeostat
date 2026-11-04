@@ -13,9 +13,61 @@ the state lives) and, for several instances, decide which plans run **once per c
 | **Run history** | `GetRecentRunsAsync()` and the status endpoint show what happened, on every instance, before the restart |
 | **Condition history**: activations and clears, with the signal that caused them | `GetConditionHistoryAsync()`, `GET /homeostat/history`, the dashboard and the coverage reports see every instance, across restarts (`ConditionHistorySize`, 200 events by default). Events written while the store is down are retried every 30 seconds |
 | **Documents**: small JSON documents kept by features, such as the learned baselines of [seasonal rules](conditions.md#seasonal-anomalies-whenseasonallyhigh-and-whenseasonallylow) | A deployment does not throw away weeks of learning |
+| **Pause**: who paused, when, and until when | With a shared store, a pause given on one instance stops every instance |
+| **Application switches**: who turned them on, and the condition that owns them, if any | A switch turned on through any instance is on for all of them |
+| **Approval requests**, pending or answered | Any instance lists and answers them; the answer reaches the instance whose run waits for it |
 
 The current state of the conditions (pending, active, clearing) is **not** stored: it is rebuilt from fresh signals
 within a few detection intervals, which is what you want after a restart. The history of what they did is.
+
+## Shared control state
+
+The pause, the application switches and the approval requests form the **control state**. Every instance keeps a
+view of it in memory, read from the store at startup, every `HomeostatOptions.ControlRefreshInterval` (5 seconds by
+default) and right after every change made on that instance. `IsPaused` and `IsOn` read the view, so they never wait
+for the store. A change made on another instance applies here within one refresh interval; an answer to an approval
+request reaches the waiting instance within the same delay. When the store cannot be read, the instance keeps its
+last known view and logs a warning. Until the view has been read once (at startup, with the store unreachable),
+Homeostat counts as paused, with the reason "waiting for the control state from the store": it cannot know whether a
+pause is in place. A change written here whose read-back fails still applies here at once.
+
+```csharp
+await control.PauseAsync(until: time.GetUtcNow().AddMinutes(20), by: "deploy");   // every instance, within 5 s
+await switches.TurnOnAsync("serve-cached-forecast");                            // SwitchScope.Application
+await switches.TurnOnAsync("verbose-client-logs", SwitchScope.Instance);        // this instance only
+```
+
+Switches have a **scope** (`SwitchScope`):
+
+| Scope | Where it is on | Kept |
+|---|---|---|
+| `Application` (default of `TurnOnAsync`) | Every instance that shares the store | In the store |
+| `Instance` | The instance that turned it on | In its memory, until it stops |
+
+`TurnOffAsync` turns a switch off for the application and for the instance that calls it; a switch that another
+instance turned on for itself stays on there. `IsOn` and `GetActive()` cover both scopes, and `Changed` is raised for
+application switches changed on other instances too.
+
+The [`TurnOnSwitch`](actions.md#turnonswitchname-and-ihomeostatswitches) step picks the scope from the plan:
+
+- in a `OncePerCluster()` plan it turns on an **application** switch, on every instance. With
+  `turnOffWhenCleared: true` (the default) the condition owns the switch, and the switch is turned off when the
+  condition clears on the instance that ran the plan, as for the plan state (if that instance stops first, turn the
+  switch off by hand, or let the plan run again elsewhere: it then takes the switch over). The store claims and
+  releases it atomically, so a switch a person turned on, even a moment before on another instance, stays theirs;
+- in any other plan it turns on an **instance** switch, turned off when the condition clears on that instance.
+
+Which store keeps what:
+
+| Store | Pause | Switches turned on by a person or by code | Switches owned by a condition | Approval requests |
+|---|---|---|---|---|
+| In memory | Until the process stops | Until the process stops | Until the process stops | Until the process stops |
+| File | Across restarts | Across restarts | Not kept: the condition starts again from scratch | Not kept: the run that waits does not survive a restart |
+| Redis | Shared, across restarts | Shared, across restarts | Shared | Shared |
+
+Requests whose instance stopped before collecting the answer are dropped by the Redis store a day after they expired.
+The control endpoints (pause, resume, approvals, switches, release) answer `503` when the store cannot be reached: the
+change was not made (see [ASP.NET Core](aspnetcore.md#control)).
 
 ## Choosing a store
 
@@ -31,7 +83,7 @@ within a few detection intervals, which is what you want after a restart. The hi
 .AddHomeostat(h => h.UseFileStore("data/homeostat.json"))
 
 // Several instances (dotnet add package Homeostat.Redis --prerelease)
-builder.Services.AddSingleton<IConnectionMultiplexer>(_ => ConnectionMultiplexer.Connect("redis:6379"));
+builder.Services.AddSingleton<IConnectionMultiplexer>(_ => ConnectionMultiplexer.Connect("redis:6379,abortConnect=false"));
 builder.Services.AddHomeostat(h => h.UseRedis(o => o.KeyPrefix = "weather-api:homeostat:"));
 ```
 
@@ -55,7 +107,7 @@ the application's user can write.
 creates one. Instances with the same `KeyPrefix` share their state: use one prefix per application and
 environment. `UseRedis` also registers the Redis coordinator, so `OncePerCluster()` plans coordinate every instance.
 
-| `RedisHomeostatOptions` | Default | Meaning |
+| `RedisStoreOptions` | Default | Meaning |
 |---|---|---|
 | `KeyPrefix` | `homeostat:` | Prefix of every key; instances that share it share cooldowns, budget, history and leases |
 | `ShareBudget` | `true` | One action budget for every instance; `false` counts it per instance |
@@ -101,11 +153,19 @@ A cluster plan:
 2. reads and writes a **shared plan state**, so the cooldown applies to the whole cluster;
 3. keeps the lease alive while the run lasts (renewed at a third of `ClusterLeaseDuration`, default 1 minute), and
    releases it at the end. If the instance dies, the lease expires and another instance can take over;
-4. **stops before its next step if the lease may have been lost** (it could not be renewed for a whole lease
-   duration, for example during a long Redis outage or severe thread pool starvation). The run ends `Canceled`.
+4. **stops before its next step if the lease may have been lost**. The run ends `Canceled`. The Redis coordinator
+   declares the lease lost before the key can expire: when it could not renew it and less than a sixth of the lease
+   duration is left (a margin for clock differences and for the run to notice), for example during a long Redis
+   outage or severe thread pool starvation;
+5. if the plan state cannot be saved at the end of the run (the store is down), **keeps the lease for the
+   cooldown** instead of releasing it: the cooldown then exists only in this instance's memory, and releasing the
+   lease would let another instance run the plan again at once.
 
 When the condition clears, only the instance that ran the plan last resets the shared hold and backoff: one
-instance that recovers does not lift a rejection that concerns the whole cluster.
+instance that recovers does not lift a rejection that concerns the whole cluster. To lift a hold earlier, use
+`IHomeostatControl.ReleaseHoldAsync(condition)` (see [Human in the loop](healing-plans.md#human-in-the-loop-requireapproval)).
+Each instance caches a hold it has read and reads it again from the store after a minute, so a hold lifted on another
+instance applies everywhere within a minute; `ReleaseHoldAsync` lifts it at once on the instance that calls it.
 
 Leases are not fencing tokens: an action that is already running when the lease is lost finishes. Keep cluster
 actions idempotent, and keep `ClusterLeaseDuration` well above the time a single step takes.
@@ -151,8 +211,12 @@ The contract:
 
 `HomeostatOptions.InstanceId` defaults to the machine name: stable across restarts (so the file store finds the
 state of instance plans again) and, in containers, the pod or container name. It appears in run records, in the
-status endpoint, in traces (`homeostat.instance`) and in the keys of instance plans. Set it explicitly when
-several processes on the same machine share a store, or when your platform gives instances a better name.
+status endpoint, in traces (`homeostat.instance`), in the keys of instance plans and in approval requests (the
+instance whose run waits for the answer). Set it explicitly when several processes on the same machine share a store,
+or when your platform gives instances a better name.
+
+Keep it **stable across restarts**: a new name starts with an empty cooldown and backoff for its instance plans. In
+Kubernetes, a StatefulSet gives each pod a stable name; a Deployment gives a new name to every new pod.
 
 ## Redis keys
 
@@ -164,14 +228,22 @@ several processes on the same machine share a store, or when your platform gives
 | `{prefix}lease:plan:{condition}` | string | Lease token, with an expiry |
 | `{prefix}conditions` | list | Condition events as JSON, newest first, trimmed to `ConditionHistorySize` |
 | `{prefix}doc:{key}` | string | A document, such as `doc:baseline:{condition}:{cycle}`; expires after `DocumentRetention` (90 days) without updates |
+| `{prefix}{control}:pause` | string | The pause as JSON (`until`, `by`, `at`) |
+| `{prefix}{control}:switches` | hash | Application switches by name, as JSON (`condition`, `instance`, `by`, `at`); a plan claims or releases one with an atomic script |
+| `{prefix}{control}:approvals` | hash | Approval requests by id, as JSON, with the waiting instance |
+| `{prefix}{control}:answers` | hash | Answers by request id, written by an atomic script so that only the first answer wins |
+
+The control keys share the hash tag `{control}`, so on Redis Cluster they are in one slot, as the approval script needs.
 
 Set `ShareBudget = false` to count the budget per instance (`{prefix}budget:{instance}`). The budget uses the
 clock of each instance: keep the clocks synchronized (NTP), as any distributed system expects.
 
 ## Writing your own store
 
-`IHomeostatStore` has six required methods: read and update plan state, consume and count the budget, append and read
-the run history. Five more have default implementations, so a store written for an earlier version keeps compiling:
+`IHomeostatStore` has fourteen required methods: read and update plan state, consume and count the budget, append and
+read the run history, and the control state (`GetControlStateAsync`, `SetPauseAsync`, `SetSwitchAsync`,
+`TryClaimSwitchAsync`, `TryReleaseSwitchAsync`, `AddApprovalAsync`, `TryResolveApprovalAsync`, `RemoveApprovalAsync`, with the types `ControlState`, `PauseState`,
+`SwitchState` and `ApprovalRecord` of `Homeostat.Persistence`). Five more have default implementations:
 
 - `SupportsConditionHistory`, `AppendConditionEventAsync`, `GetConditionEventsAsync`: the condition history. By default
   the store does not keep it (`false`), and Homeostat keeps it in process memory instead.
@@ -181,10 +253,15 @@ the run history. Five more have default implementations, so a store written for 
 
 Requirements:
 
-- **Thread-safe**, and for a shared store, **atomic** plan-state updates and budget consumption across instances
-  (the Redis store uses server-side scripts). `PlanStateUpdate.ApplyTo` defines what an update does: fields left
-  `null` are kept, and `OnlyIfLastRunBy` is a precondition.
+- **Thread-safe**, and for a shared store, **atomic** plan-state updates, budget consumption and answers to approval
+  requests across instances (the Redis store uses server-side scripts). `PlanStateUpdate.ApplyTo` defines what an
+  update does: fields left `null` are kept, and `OnlyIfLastRunBy` is a precondition. `TryResolveApprovalAsync`
+  answers a request only if it is still pending: of two answers given at the same time, exactly one wins.
+  `TryClaimSwitchAsync` sets a switch only if it is off or owned by the same condition, and `TryReleaseSwitchAsync`
+  removes it only if that condition (and instance) still owns it, so a plan never overrides a person's decision.
+- `GetControlStateAsync` skips records it cannot read rather than failing: one bad record must not hide the pause.
 - Return `PlanState.Empty` for unknown plans.
 - Throw on failure: Homeostat handles it (fail closed).
 
-`InMemoryHomeostatStore` is a good reference; `FileHomeostatStore` shows how to persist it.
+`InMemoryHomeostatStore` is a good reference; `FileHomeostatStore` shows how to persist it. Both are sealed: wrap
+them rather than derive from them.

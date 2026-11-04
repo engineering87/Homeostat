@@ -37,12 +37,12 @@ internal sealed class ConfigurationConditionSource
 
     private static readonly HashSet<string> PlanKeys = new(StringComparer.OrdinalIgnoreCase)
     {
-        "Steps", "Cooldown", "CooldownBackoff", "ActionTimeout", "VerificationTimeout", "Scope", "Adaptive",
+        "Steps", "Cooldown", "CooldownBackoff", "Scope", "Adaptive",
     };
 
     private static readonly HashSet<string> StepKeys = new(StringComparer.OrdinalIgnoreCase)
     {
-        "Action", "RequireApproval", "ApprovalTimeout", "UndoAction", "TurnOffWhenCleared",
+        "Action", "RequireApproval", "ApprovalTimeout", "UndoAction", "TurnOffWhenCleared", "ActionTimeout", "VerificationTimeout",
     };
 
     private readonly ConfiguredActions _actions;
@@ -101,7 +101,7 @@ internal sealed class ConfigurationConditionSource
     {
         var name = section.Key;
 
-        // Action classes are registered by MapAction; the builder needs a collection, not the live container.
+        // Action classes are registered by AddAction; the builder needs a collection, not the live container.
         var builder = new ConditionBuilder(name, new ServiceCollection());
 
         try
@@ -308,6 +308,16 @@ internal sealed class ConfigurationConditionSource
                 builder.RequireApproval(Duration(step, "ApprovalTimeout"));
             }
 
+            if (Duration(step, "ActionTimeout") is { } actionTimeout)
+            {
+                builder.ActionTimeout(actionTimeout);
+            }
+
+            if (Duration(step, "VerificationTimeout") is { } verificationTimeout)
+            {
+                builder.VerificationTimeout(verificationTimeout);
+            }
+
             if (step["UndoAction"] is { Length: > 0 } undo)
             {
                 if (!_actions.TryGet(undo, out var mapped))
@@ -348,16 +358,6 @@ internal sealed class ConfigurationConditionSource
                 Duration(backoff, "Max") ?? throw Missing(backoff, "Max"));
         }
 
-        if (Duration(plan, "ActionTimeout") is { } actionTimeout)
-        {
-            builder.ActionTimeout(actionTimeout);
-        }
-
-        if (Duration(plan, "VerificationTimeout") is { } verificationTimeout)
-        {
-            builder.VerificationTimeout(verificationTimeout);
-        }
-
         if (plan["Scope"] is { Length: > 0 } scope && Enum.Parse<PlanScope>(scope, ignoreCase: true) == PlanScope.Cluster)
         {
             builder.OncePerCluster();
@@ -368,7 +368,7 @@ internal sealed class ConfigurationConditionSource
     {
         if (action.StartsWith("switch:", StringComparison.OrdinalIgnoreCase))
         {
-            builder.TurnOnSwitch(action["switch:".Length..], Bool(step, "TurnOffWhenCleared") == true);
+            builder.TurnOnSwitch(action["switch:".Length..], Bool(step, "TurnOffWhenCleared") != false);
         }
         else if (string.Equals(action, "reload-configuration", StringComparison.OrdinalIgnoreCase))
         {
@@ -387,7 +387,7 @@ internal sealed class ConfigurationConditionSource
     private InvalidOperationException Unknown(IConfigurationSection step, string action)
         => new($"Configuration '{step.Path}': unknown action '{action}'. Known actions: switch:<name>, reload-configuration" +
             (_actions.Names.Any() ? ", " + string.Join(", ", _actions.Names.Order()) : string.Empty) +
-            ". Map action classes with MapAction<T>(name).");
+            ". Map action classes with AddAction<T>(name).");
 
     private static InvalidOperationException Missing(IConfigurationSection section, string key)
         => new($"Configuration '{section.Path}:{key}' is required.");

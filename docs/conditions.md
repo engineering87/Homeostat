@@ -137,7 +137,8 @@ While `network-down` is **pending or active**:
 - its plan does not start, and a run already in progress stops before its next step with outcome `Suppressed`.
 
 A pending cause counts too, so a symptom whose `SustainedFor` is shorter than its cause's does not act in the
-meantime. When `network-down` clears, the next triggering signal of `forecast-failing` starts its plan as usual (after
+meantime. A pending cause that receives no signal for its `SustainedFor`, or for one minute if that is longer, no
+longer suppresses: its source stopped reporting, and it would otherwise hold its symptoms back for ever. When `network-down` clears, the next triggering signal of `forecast-failing` starts its plan as usual (after
 the cooldown, if a run happened before). A condition can list several causes. Unknown names, a condition that
 suppresses itself and cycles (`a` suppressed by `b`, `b` by `a`) fail at startup.
 
@@ -243,7 +244,7 @@ own and can have its own plan, which is useful when a combination needs a differ
 .AddCondition("platform-degraded", c => c
     .WhenAllActive("db-slow", "cache-down")
     .SustainedFor(TimeSpan.FromMinutes(1))
-    .Heal(p => p.TurnOnSwitch("read-only-mode", turnOffWhenCleared: true)))
+    .Heal(p => p.TurnOnSwitch("read-only-mode")))   // turned off when the condition clears
 ```
 
 Composites are evaluated after every signal, after the conditions they depend on; they support `SustainedFor`,
@@ -308,6 +309,8 @@ conditions hand over to each other. Remember that only one run executes at a tim
 - `SuppressedBy`, `WhenAllActive` and `WhenAnyActive` must name registered conditions, without self-references
   or cycles.
 - A plan must contain at least one action.
+- `ActionTimeout`, `VerificationTimeout`, `RequireApproval` and `UndoWith` apply to the previous step: called before
+  any step, they throw `InvalidOperationException`.
 - `ActionTimeout` and `VerificationTimeout` must be positive (at most about 49 days, the .NET timer
   limit) and `Cooldown` cannot be negative; invalid
   values throw `ArgumentOutOfRangeException` when the plan is configured.

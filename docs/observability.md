@@ -133,15 +133,17 @@ Useful views:
 
 | Member | Returns |
 |---|---|
-| `IsPaused`, `PauseReason`, `IsDryRun` | Pause state (kill switch, timed pause, maintenance window) and dry-run |
+| `IsPaused`, `PauseReason`, `IsDryRun` | Pause state (kill switch, timed pause, maintenance window) and dry-run; the pause is this instance's view of the [shared control state](persistence-and-clusters.md#shared-control-state) |
 | `GetConditions()` | A `ConditionSnapshot` per condition: status, timestamps, last signal, `ClearingSince`, `SuppressedBy` |
 | `GetRecentRunsAsync()` | The latest completed runs, newest first, from the store (`RunHistorySize`, default 50); with a shared store, of every instance |
 | `GetBudgetAsync()` | Actions used and remaining in the current budget window, from the store |
 | `GetConditionHistoryAsync()` | The latest activations and clears, newest first, with the signal that caused them (`ConditionHistorySize`, default 200); from the store, so with a shared store of every instance |
 | `GetCoverageAsync(since)` | What was exercised in a period: see [Learning and foresight](intelligence.md#coverage) |
 
-`IHomeostatApprovals.GetPending()` lists the steps waiting for approval, and `IHomeostatSwitches.GetActive()`
-the switches that are on.
+`await IHomeostatApprovals.GetPendingAsync()` lists the steps waiting for approval (from the store, so with a shared
+store of every instance), and `IHomeostatSwitches.GetActive()` the switches that are on, for the application or for
+this instance. `PauseAsync`, `ResumeAsync` and `ReleaseHoldAsync` change the state: see [Guardrails](guardrails.md#kill-switch)
+and [Releasing a hold](healing-plans.md#releasing-a-hold).
 
 The quickest way to see all of it is the status endpoint of [Homeostat.AspNetCore](aspnetcore.md):
 `app.MapHomeostatStatus("policy")` maps `GET /homeostat/status`. For `/health`, add Homeostat's own health check with

@@ -2,7 +2,9 @@ name: Release
 
 # Publishes the packages to NuGet and creates a GitHub release when a version tag is pushed:
 #   git tag v1.0.0 && git push origin v1.0.0
-# Requires the secret NUGET_API_KEY (a key scoped to the Homeostat* packages). Optional: NUGET_SIGNING_CERTIFICATE
+# Publishes with nuget.org trusted publishing: no stored API key. Requires a trusted publishing policy on nuget.org
+# (owner engineering87, repository Homeostat, workflow release.yml, environment nuget) and the secret NUGET_USER (the
+# nuget.org profile name of the policy owner). Optional: NUGET_SIGNING_CERTIFICATE
 # (a code signing certificate as base64 PFX, registered on nuget.org) and NUGET_SIGNING_PASSWORD sign the packages.
 # Every release carries an SBOM (SPDX) and a build provenance attestation for each package, also attached to the
 # release as homeostat-<version>.intoto.jsonl: see SECURITY.md.
@@ -24,7 +26,7 @@ jobs:
     environment: nuget
     permissions:
       contents: write      # the GitHub release
-      id-token: write      # signing the provenance attestations
+      id-token: write      # signing the provenance attestations and the nuget.org trusted publishing login
       attestations: write  # storing them
 
     services:
@@ -120,10 +122,17 @@ jobs:
           BUNDLE: ${{ steps.provenance.outputs.bundle-path }}
         run: cp "$BUNDLE" "artifacts/homeostat-$VERSION.intoto.jsonl"
 
+      - name: NuGet login
+        # Exchanges the workflow's OIDC token for an API key valid for one hour, scoped by the nuget.org policy.
+        id: nuget-login
+        uses: NuGet/login@8d196754b4036150537f80ac539e15c2f1028841 # v1.2.0
+        with:
+          user: ${{ secrets.NUGET_USER }}
+
       - name: Push to NuGet
         # Symbol packages (.snupkg) next to the .nupkg files are pushed automatically.
         env:
-          NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
+          NUGET_API_KEY: ${{ steps.nuget-login.outputs.NUGET_API_KEY }}
         run: >
           dotnet nuget push "artifacts/*.nupkg"
           --api-key "$NUGET_API_KEY"

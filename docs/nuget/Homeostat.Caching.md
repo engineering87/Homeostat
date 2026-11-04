@@ -18,7 +18,7 @@ using Homeostat;
 builder.Services.AddMemoryCache(o => o.TrackStatistics = true);   // required for the hit ratio
 
 builder.Services.AddHomeostat(h => h
-    .AddMemoryCacheSignals(configure: o => o.DegradedBelow = 0.6)   // source "cache:memory"
+    .AddMemoryCacheSignals(o => o.DegradedBelow = 0.6)   // source "cache:memory"
     .AddMemoryPressureDetector()
     .AddCondition("memory-high", c => c
         .ForSource("memory")

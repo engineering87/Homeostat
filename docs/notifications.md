@@ -58,7 +58,7 @@ Part of `Homeostat.Http` (`dotnet add package Homeostat.Http --prerelease`), lik
 ```csharp
 .AddWebhookNotifications(o =>
 {
-    o.Url = new Uri(builder.Configuration["Homeostat:WebhookUrl"]!);
+    o.Url = new Uri(builder.Configuration["Homeostat:Url"]!);
     o.Headers["Authorization"] = $"Bearer {builder.Configuration["Homeostat:WebhookToken"]}";
 })
 ```
@@ -120,7 +120,7 @@ repeated triggers update it instead of opening new ones.
 
 ```csharp
 .AddPagerDutyIncidents(o => o.RoutingKey = builder.Configuration["PagerDuty:RoutingKey"])   // Events API v2
-.AddOpsgenieAlerts(o => o.ApiKey = builder.Configuration["Jsm:ApiKey"])                     // Opsgenie alert API
+.AddOpsgenieIncidents(o => o.ApiKey = builder.Configuration["Jsm:ApiKey"])                     // Opsgenie alert API
 ```
 
 | Setting | Default | Meaning |
@@ -147,7 +147,7 @@ expects another scheme.
 ```csharp
 .AddSlackNotifications(o =>
 {
-    o.WebhookUrl = new Uri(builder.Configuration["Slack:WebhookUrl"]!);
+    o.Url = new Uri(builder.Configuration["Slack:Url"]!);
     o.DashboardUrl = new Uri("https://weather-api.internal/homeostat/dashboard");   // optional link
     o.ApprovalButtons = true;                                                      // optional, see below
 })
@@ -164,7 +164,7 @@ with interactivity enabled, and the clicks are received by `MapHomeostatSlackInt
 ```csharp
 .AddTeamsNotifications(o =>
 {
-    o.WebhookUrl = new Uri(builder.Configuration["Teams:WorkflowUrl"]!);
+    o.Url = new Uri(builder.Configuration["Teams:WorkflowUrl"]!);
     o.DashboardUrl = new Uri("https://weather-api.internal/homeostat/dashboard");
 })
 ```
@@ -178,6 +178,11 @@ with `MapHomeostatTeamsCommands` ([ASP.NET Core endpoints](aspnetcore.md#microso
 Both notifiers send the same events as the webhook by default (condition activated and cleared, run completed,
 approval requested and resolved); change `Events` to send fewer.
 
+Like the webhook, the incident and chat notifiers post through named `IHttpClientFactory` clients:
+`PagerDutyOptions.HttpClientName` (`"Homeostat.PagerDuty"`), `OpsgenieOptions.HttpClientName`
+(`"Homeostat.Opsgenie"`), `SlackOptions.HttpClientName` (`"Homeostat.Slack"`) and `TeamsOptions.HttpClientName`
+(`"Homeostat.Teams"`). Configure a proxy or handlers with `AddHttpClient(SlackOptions.HttpClientName)`.
+
 ## Delivery guarantees
 
 - Events are queued in memory (up to 1000; the oldest are dropped if the sink falls behind).
@@ -188,15 +193,18 @@ approval requested and resolved); change `Events` to send fewer.
 
 ## Your own sink
 
-Derive from `HomeostatEventSink` to deliver events anywhere (a message queue, a database, an incident tool)
+Implement `IHomeostatEventSink` to deliver events anywhere (a message queue, a database, an incident tool)
 with the same background queue and shutdown behavior:
 
 ```csharp
-public sealed class IncidentSink(IncidentClient client, IOptions<HomeostatOptions> options, TimeProvider time, ILogger<IncidentSink> logger)
-    : HomeostatEventSink(options.Value.ApplicationName, [HomeostatEventKind.RunCompleted], time, logger)
+public sealed class IncidentSink(IncidentClient client, IHostApplicationLifetime lifetime) : IHomeostatEventSink
 {
-    protected override Task WriteAsync(HomeostatEvent e, CancellationToken cancellationToken)
-        => e.Outcome is "Healed" ? Task.CompletedTask : client.OpenAsync(e.Summary, cancellationToken);   // your code
+    public IReadOnlyCollection<HomeostatEventKind>? Events => [HomeostatEventKind.RunCompleted];   // null (the default): every kind
+
+    public Task WriteAsync(HomeostatEvent e, CancellationToken cancellationToken)
+        => e.Outcome is "Healed"
+            ? Task.CompletedTask
+            : client.OpenAsync(e.Summary, retry: !lifetime.ApplicationStopping.IsCancellationRequested, cancellationToken);   // your code
 }
 ```
 
@@ -204,4 +212,8 @@ public sealed class IncidentSink(IncidentClient client, IOptions<HomeostatOption
 .AddHomeostat(h => h.AddEventSink<IncidentSink>())
 ```
 
-`IsStopping` tells the sink that the application is shutting down, so it can skip retries.
+`AddEventSink<TSink>()` registers the sink once, as a singleton. Homeostat builds the events (with
+`ApplicationName` filled in from `HomeostatOptions`), queues them and calls `WriteAsync` one at a time, in the
+background. An exception from `WriteAsync` is logged and the event is dropped. The token is canceled when the host's
+shutdown timeout expires; a sink that retries should stop retrying once `IHostApplicationLifetime.ApplicationStopping`
+is signaled, as the example does.

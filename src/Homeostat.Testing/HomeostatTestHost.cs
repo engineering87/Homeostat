@@ -203,7 +203,7 @@ public sealed class HomeostatTestHost : IAsyncDisposable
 
         while (!cts.IsCancellationRequested)
         {
-            var pending = Approvals.GetPending().FirstOrDefault(a => a.ConditionName == conditionName);
+            var pending = (await Approvals.GetPendingAsync(cts.Token).ConfigureAwait(false)).FirstOrDefault(a => a.ConditionName == conditionName);
             if (pending is not null)
             {
                 return pending;

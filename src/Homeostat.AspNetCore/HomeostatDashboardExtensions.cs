@@ -18,8 +18,8 @@ public static class HomeostatDashboardExtensions
     /// Maps <c>GET {prefix}/dashboard</c>: a page that shows conditions, pending approvals, switches, the action budget,
     /// recent runs, the condition history and the coverage of the last 24 hours, refreshed every 5 seconds, with buttons to approve or reject steps, pause and resume, and
     /// turn switches on and off. It reads <c>{prefix}/status</c> and calls the control endpoints, so map
-    /// <see cref="HomeostatEndpointRouteBuilderExtensions.MapHomeostatStatus"/> and
-    /// <see cref="HomeostatEndpointRouteBuilderExtensions.MapHomeostatControl"/> with the same prefix (without the
+    /// <see cref="HomeostatEndpointRouteBuilderExtensions.MapHomeostatStatus(IEndpointRouteBuilder, string?, string, bool)"/> and
+    /// <see cref="HomeostatEndpointRouteBuilderExtensions.MapHomeostatControl(IEndpointRouteBuilder, string?, string, bool)"/> with the same prefix (without the
     /// control endpoints, the dashboard is read-only). The page is self-contained (no external scripts, fonts or
     /// images) and served with a strict Content-Security-Policy.
     /// </summary>
@@ -98,5 +98,24 @@ public static class HomeostatDashboardExtensions
         using var copy = new MemoryStream();
         stream.CopyTo(copy);
         return (name, copy.ToArray(), contentType);
+    }
+
+    /// <summary>
+    /// Same as <see cref="MapHomeostatDashboard(IEndpointRouteBuilder, string?, string, bool)"/>, with the authorization policy built
+    /// inline instead of registered by name.
+    /// </summary>
+    /// <param name="endpoints">The endpoint route builder.</param>
+    /// <param name="configurePolicy">Builds the policy, for example <c>p => p.RequireRole("operations")</c>.</param>
+    /// <param name="prefix">Route prefix.</param>
+    /// <example><code>app.MapHomeostatDashboard(p => p.RequireRole("operations"));</code></example>
+    public static RouteGroupBuilder MapHomeostatDashboard(
+        this IEndpointRouteBuilder endpoints,
+        Action<Microsoft.AspNetCore.Authorization.AuthorizationPolicyBuilder> configurePolicy,
+        string prefix = "/homeostat")
+    {
+        ArgumentNullException.ThrowIfNull(configurePolicy);
+        var group = MapHomeostatDashboard(endpoints, policy: null, prefix, allowAnonymous: true);
+        group.RequireAuthorization(configurePolicy);
+        return group;
     }
 }

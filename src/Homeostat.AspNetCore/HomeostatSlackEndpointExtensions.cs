@@ -113,7 +113,20 @@ public static class HomeostatSlackEndpointExtensions
 
         // The user id is stable; the user name can be changed by the user.
         var by = $"slack:{action.UserName} ({action.UserId})";
-        var answered = action.Approve ? approvals.Approve(action.ApprovalId, by) : approvals.Reject(action.ApprovalId, by);
+        bool answered;
+        try
+        {
+            answered = action.Approve
+                ? await approvals.ApproveAsync(action.ApprovalId, by, http.RequestAborted)
+                : await approvals.RejectAsync(action.ApprovalId, by, http.RequestAborted);
+        }
+        catch (Exception ex) when (!http.RequestAborted.IsCancellationRequested)
+        {
+            logger.LogError(ex, "Slack answer to approval {ApprovalId} not recorded: the Homeostat store is unavailable.", action.ApprovalId);
+            await RespondAsync(http, action.ResponseUrl, "Homeostat cannot record the answer now (its store is unavailable). Try again.", replaceOriginal: false, logger);
+            return Results.Ok();
+        }
+
         reply = answered
             ? $"{(action.Approve ? ":white_check_mark: Approved" : ":no_entry: Rejected")} by <@{action.UserId}>."
             : "This approval request is no longer pending (answered, expired or withdrawn).";

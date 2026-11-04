@@ -5,6 +5,7 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
 using Homeostat.Notifications;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 
 namespace Homeostat.Http;
@@ -13,7 +14,7 @@ namespace Homeostat.Http;
 /// Base of the HTTP notifiers: sends JSON with a timeout per attempt and retries network errors, timeouts,
 /// 408, 429 and 5xx answers with a growing delay. Other 4xx answers are not retried: the request itself is wrong.
 /// </summary>
-internal abstract class HttpEventSink : HomeostatEventSink
+internal abstract class HttpEventSink : IHomeostatEventSink
 {
     /// <summary>Writes payloads: no reflection, so the sinks work under trimming and Native AOT.</summary>
     internal static readonly JsonSerializerOptions Json = CreateJsonOptions();
@@ -22,19 +23,35 @@ internal abstract class HttpEventSink : HomeostatEventSink
     private readonly string _clientName;
     private readonly TimeProvider _timeProvider;
 
+    private readonly IHostApplicationLifetime? _lifetime;
+
     protected HttpEventSink(
         IHttpClientFactory clients,
         string clientName,
-        string application,
         IEnumerable<HomeostatEventKind> kinds,
         TimeProvider timeProvider,
-        ILogger logger)
-        : base(application, kinds, timeProvider, logger)
+        ILogger logger,
+        IHostApplicationLifetime? lifetime)
     {
         _clients = clients;
         _clientName = clientName;
         _timeProvider = timeProvider;
+        Logger = logger;
+        Events = kinds.ToArray();
+        _lifetime = lifetime;
     }
+
+    public IReadOnlyCollection<HomeostatEventKind>? Events { get; }
+
+    protected ILogger Logger { get; }
+
+    /// <summary>
+    /// <c>true</c> once the application is stopping: deliver quickly (one short attempt), because the remaining
+    /// shutdown time is shared with every other sink.
+    /// </summary>
+    protected bool IsStopping => _lifetime?.ApplicationStopping.IsCancellationRequested == true;
+
+    public abstract Task WriteAsync(HomeostatEvent homeostatEvent, CancellationToken cancellationToken);
 
     protected abstract TimeSpan Timeout { get; }
 

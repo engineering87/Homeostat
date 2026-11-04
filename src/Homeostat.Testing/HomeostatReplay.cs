@@ -41,7 +41,7 @@ namespace Homeostat.Testing;
 public static class HomeostatReplay
 {
     /// <summary>
-    /// Replays the signals of recording files (written by <c>RecordSignals</c>) in time order, merging the files as they
+    /// Replays the signals of recording files (written by <c>AddSignalRecording</c>) in time order, merging the files as they
     /// are read: the files of several instances, or of several days, form one timeline. Files are streamed, so long
     /// recordings do not need to fit in memory.
     /// </summary>
@@ -218,6 +218,9 @@ public static class HomeostatReplay
         provider.GetRequiredService<SeasonalBaselineKeeper>().SkipLoading();   // learns from the replayed signals only
         var conditions = provider.GetRequiredService<ConditionSet>();
         var engine = (BackgroundService)provider.GetServices<IHostedService>().Single();
+
+        // The refresher is not running: read the (empty) control state once, so Homeostat does not count as paused.
+        await provider.GetRequiredService<SharedControl>().TryRefreshAsync(cancellationToken).ConfigureAwait(false);
         using var processed = new SemaphoreSlim(0);
         channel.ProcessedNotifier = processed;
 
