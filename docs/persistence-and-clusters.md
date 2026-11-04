@@ -66,8 +66,15 @@ Which store keeps what:
 | Redis | Shared, across restarts | Shared, across restarts | Shared | Shared |
 
 Requests whose instance stopped before collecting the answer are dropped by the Redis store a day after they expired.
-The control endpoints (pause, resume, approvals, switches, release) answer `503` when the store cannot be reached: the
-change was not made (see [ASP.NET Core](aspnetcore.md#control)).
+When the store cannot be reached, a change that lets Homeostat act (resume, turn a switch on, answer an approval,
+release a hold) fails, with `503` from the control endpoints: it was not made. A change in the safe direction (pause,
+turn a switch off, release a switch Homeostat turned on) applies at once on the instance where it is made and is
+written to the store when it answers, unless the store shows a newer decision by then (see
+[ASP.NET Core](aspnetcore.md#control)).
+
+A switch that a cluster plan turned on is renewed by the instance that holds it. If that instance stops or crashes,
+another instance turns the switch off as soon as the condition is not active there (at once when the instance
+stopped cleanly, otherwise after 12 refresh intervals, at least one minute). See [Actions](actions.md).
 
 ## Choosing a store
 

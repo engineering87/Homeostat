@@ -453,7 +453,9 @@ Things to know:
   Homeostat turns into increments (so `Rate` and `Sum` mean "since the previous interval").
 - For up-down counters (such as active requests) and observable up-down counters, `Last` is the current
   **level**; for gauges it is the latest value. For instruments with several series (tag combinations), filter
-  with `Where` to the series you mean.
+  with `Where` to the series you mean. At most 10,000 series are tracked per instrument (a tag such as a user or a
+  URL could otherwise grow memory without limit): further series are not counted, and the signal's message says so.
+  Series that stop reporting are forgotten after 10 intervals.
 - Filters and ratio rules run inside the code that records the metric; Homeostat catches their exceptions, so a
   faulty filter only skips measurements. Keep them cheap: they run for every measurement.
 - The listener starts with the application; measurements recorded before it are not seen.

@@ -124,8 +124,8 @@ Pause, approvals and switches are kept in the [store](persistence-and-clusters.m
 store cannot be reached, a change that lets Homeostat act (resume, turn a switch on, answer an approval) answers `503`
 and is not made; a change in the safe direction (pause, turn a switch off) applies at once on the instance that
 answers, answers `204`, and is written to the store as soon as it answers, so an outage never keeps chaos, an
-isolated circuit or a paused consumer on. Changes reach the other instances within `ControlRefreshInterval` (5
-seconds by default).
+isolated circuit or a paused consumer on. A request waits at most 15 seconds for the store; a change that is aborted by
+the client still applies. Changes reach the other instances within `ControlRefreshInterval` (5 seconds by default).
 
 The name of the authenticated user (`User.Identity.Name`) is recorded as the approver in logs, events and the audit
 log, and with the pause and the switches it turns on: who paused appears in `pauseReason`.

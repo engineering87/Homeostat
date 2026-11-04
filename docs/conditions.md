@@ -170,6 +170,9 @@ Things to know:
 - Signals without a value never trigger these rules, and never clear them either (see below).
 - An anomaly that lasts becomes the new baseline, so the condition eventually clears even if the value stays
   high. Combine it with a fixed threshold when a high level must keep the condition active.
+- A window keeps about 8,192 points, whatever the signal rate: a source that publishes more often than every
+  window / 8,192 (about 37 ms for a 5-minute window) keeps the latest value of each such interval, so memory stays bounded
+  (about 128 KB per condition). See [Performance](performance.md#memory).
 - The history of trend, anomaly and projection rules lives in memory and starts empty after a restart, or when the
   condition's own configuration changes (for conditions defined in [configuration](configuration.md)). Seasonal
   baselines are kept in the store instead (below).
