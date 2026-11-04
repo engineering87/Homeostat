@@ -2,6 +2,8 @@ version: 2
 updates:
   - package-ecosystem: "nuget"
     directory: "/"
+    # Version updates go to develop, like every other change (security updates always target the default branch).
+    target-branch: "develop"
     schedule:
       interval: "weekly"
     # Conventional commit messages, accepted by commitlint: "build(deps): bump ..."
@@ -28,6 +30,7 @@ updates:
 
   - package-ecosystem: "github-actions"
     directory: "/"
+    target-branch: "develop"
     schedule:
       interval: "weekly"
     commit-message:
@@ -40,6 +43,7 @@ updates:
   # Repository tooling only (commitlint).
   - package-ecosystem: "npm"
     directory: "/"
+    target-branch: "develop"
     schedule:
       interval: "monthly"
     commit-message:

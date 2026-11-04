@@ -88,6 +88,10 @@ change to those paths and mention the figures in the pull request.
 
 ## Pull requests
 
+Branches: `develop` receives the work, `main` holds what is ready to release. Open pull requests against `develop`;
+maintainers merge `develop` into `main` through a pull request when preparing a release. Both branches are protected
+and run the same checks (`CI`, `CodeQL`, `Commit lint`) on every pull request and push.
+
 - Keep changes focused; one topic per pull request.
 - Give the pull request a Conventional Commits title (see above).
 - Add or update tests for behavior changes. For arithmetic that turns numbers into decisions (ratios, percentiles,
@@ -102,7 +106,8 @@ change to those paths and mention the figures in the pull request.
 Maintainers only.
 
 1. Move the `[Unreleased]` entries of `CHANGELOG.md` under a new version heading.
-2. Push a tag named after the version: `git tag v1.0.0 && git push origin v1.0.0`.
+2. Merge `develop` into `main` with a pull request, then tag `main` with the version:
+   `git tag v1.0.0 origin/main && git push origin v1.0.0`. The `Release` workflow refuses a tag that is not on `main`.
 3. The `Release` workflow builds, tests, packs (with symbols and SourceLink), signs the packages when a certificate is
    configured, produces an SBOM and a build provenance attestation, pushes the packages to NuGet and creates a GitHub
    release with the packages and the SBOM. Versions with a suffix (`-preview.1`) are marked as pre-releases.

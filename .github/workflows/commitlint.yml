@@ -1,13 +1,13 @@
 name: Commit lint
 
 # Commit messages and pull request titles must follow Conventional Commits (see commitlint.config.mjs).
-# The title matters because squash merges use it as the commit message on main.
+# The title matters because squash merges use it as the commit message on develop and main.
 
 on:
   pull_request:
     types: [ opened, edited, synchronize, reopened ]
   push:
-    branches: [ main ]
+    branches: [ main, develop ]
 
 permissions:
   contents: read
