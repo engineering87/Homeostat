@@ -149,15 +149,25 @@ public sealed class HomeostatBuilder
     /// measured as the time a work item waits before running.
     /// </summary>
     public HomeostatBuilder AddThreadPoolStarvationDetector(Action<ThreadPoolDetectorOptions>? configure = null)
-        => AddBuiltInDetector<ThreadPoolStarvationDetector, ThreadPoolDetectorOptions>(configure);
+        => AddBuiltInDetector<ThreadPoolStarvationDetector, ThreadPoolDetectorOptions>(
+            configure,
+            o => !string.IsNullOrWhiteSpace(o.Source) && o.DegradedLatency > TimeSpan.Zero && o.UnhealthyLatency >= o.DegradedLatency
+                && Guardrails.TimerLimits.IsValid(o.UnhealthyLatency),
+            "the source cannot be empty, and the latencies must be positive with UnhealthyLatency at least DegradedLatency.");
 
     /// <summary>Publishes signals about memory load (source <c>"memory"</c> by default).</summary>
     public HomeostatBuilder AddMemoryPressureDetector(Action<MemoryPressureDetectorOptions>? configure = null)
-        => AddBuiltInDetector<MemoryPressureDetector, MemoryPressureDetectorOptions>(configure);
+        => AddBuiltInDetector<MemoryPressureDetector, MemoryPressureDetectorOptions>(
+            configure,
+            o => !string.IsNullOrWhiteSpace(o.Source) && o.DegradedLoad is > 0 and <= 1 && o.UnhealthyLoad is > 0 and <= 1 && o.UnhealthyLoad >= o.DegradedLoad,
+            "the source cannot be empty, and the loads must be between 0 and 1 with UnhealthyLoad at least DegradedLoad.");
 
     /// <summary>Publishes signals about the rate of thrown exceptions (source <c>"exceptions"</c> by default).</summary>
     public HomeostatBuilder AddExceptionRateDetector(Action<ExceptionRateDetectorOptions>? configure = null)
-        => AddBuiltInDetector<ExceptionRateDetector, ExceptionRateDetectorOptions>(configure);
+        => AddBuiltInDetector<ExceptionRateDetector, ExceptionRateDetectorOptions>(
+            configure,
+            o => !string.IsNullOrWhiteSpace(o.Source) && o.DegradedPerSecond > 0 && o.UnhealthyPerSecond >= o.DegradedPerSecond,
+            "the source cannot be empty, and the rates must be positive with UnhealthyPerSecond at least DegradedPerSecond.");
 
     /// <summary>
     /// Publishes the state of every <see cref="RestartableBackgroundService"/> registered with <c>AddHostedService</c>:
@@ -173,7 +183,8 @@ public sealed class HomeostatBuilder
     /// </code>
     /// </example>
     public HomeostatBuilder AddBackgroundServiceSignals(Action<BackgroundServiceSignalOptions>? configure = null)
-        => AddBuiltInDetector<BackgroundServiceSignalDetector, BackgroundServiceSignalOptions>(configure);
+        => AddBuiltInDetector<BackgroundServiceSignalDetector, BackgroundServiceSignalOptions>(
+            configure, o => !string.IsNullOrWhiteSpace(o.SourcePrefix), "the source prefix cannot be empty.");
 
     /// <summary>
     /// Registers a custom <see cref="ISignalDetector"/> (a singleton): the engine calls it at every
@@ -213,11 +224,15 @@ public sealed class HomeostatBuilder
 
     private sealed class ObserverMarker<TObserver>;
 
-    private HomeostatBuilder AddBuiltInDetector<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] TDetector, TOptions>(Action<TOptions>? configure)
+    private HomeostatBuilder AddBuiltInDetector<
+        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] TDetector,
+        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicParameterlessConstructor)] TOptions>(
+        Action<TOptions>? configure, Func<TOptions, bool> valid, string error)
         where TDetector : class, ISignalDetector
         where TOptions : class
     {
-        var options = Services.AddOptions<TOptions>();
+        // Checked at startup: a bad threshold would otherwise fail at every detection.
+        var options = Services.AddOptions<TOptions>().Validate(valid, $"{typeof(TOptions).Name}: {error}").ValidateOnStart();
         if (configure is not null)
         {
             options.Configure(configure);

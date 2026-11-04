@@ -157,6 +157,8 @@ internal sealed class RedisHomeostatStore : IHomeostatStore
 
     public bool SupportsConditionHistory => true;
 
+    public bool SupportsDocuments => true;
+
     public async ValueTask AppendConditionEventAsync(ConditionEventRecord conditionEvent, int maxEvents, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(conditionEvent);

@@ -286,9 +286,9 @@ public sealed class HealingPlanBuilder
     /// </summary>
     public HealingPlanBuilder Cooldown(TimeSpan cooldown)
     {
-        if (cooldown < TimeSpan.Zero)
+        if (cooldown < TimeSpan.Zero || cooldown > Guardrails.TimerLimits.Max)
         {
-            throw new ArgumentOutOfRangeException(nameof(cooldown), "Cooldown cannot be negative.");
+            throw new ArgumentOutOfRangeException(nameof(cooldown), "Cooldown cannot be negative or longer than about 49 days.");
         }
 
         _cooldown = cooldown;
@@ -297,7 +297,7 @@ public sealed class HealingPlanBuilder
 
     /// <summary>
     /// Grows the cooldown after every run in a row that does not heal: cooldown × <paramref name="multiplier"/>^failures,
-    /// up to <paramref name="max"/>. A healed run or the condition clearing resets it.
+    /// up to <paramref name="max"/> (never shorter than the cooldown itself). A healed run or the condition clearing resets it.
     /// </summary>
     /// <param name="multiplier">Growth factor, at least 1.</param>
     /// <param name="max">Upper bound of the cooldown.</param>
@@ -358,7 +358,9 @@ public sealed class HealingPlanBuilder
     /// <summary>
     /// Compensating action for the step added just before this call: it runs when the step's action completed but
     /// verification says <see cref="VerificationOutcome.NotHealed"/>, before escalating, so a change that did not help
-    /// is rolled back. It does not consume the action budget.
+    /// is rolled back. Like any action it consumes one unit of the action budget, and it is not run while Homeostat is
+    /// paused or the budget is exhausted (the step result then reports <see cref="HealingStepResult.UndoSucceeded"/> as
+    /// <c>null</c>).
     /// </summary>
     /// <typeparam name="TAction">The compensating action.</typeparam>
     /// <example><code>.Then&lt;SwitchToBackupProviderAction&gt;().UndoWith&lt;SwitchToPrimaryProviderAction&gt;()</code></example>

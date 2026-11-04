@@ -47,7 +47,7 @@ public enum HealingRunOutcome
 /// <param name="Error">The exception thrown by the action, or a <see cref="TimeoutException"/>.</param>
 /// <param name="UndoSucceeded">
 /// Whether the compensating action (<see cref="HealingPlanBuilder.UndoWith{TAction}"/>) completed; <c>null</c> when
-/// it did not run.
+/// it did not run (no compensating action, or skipped because Homeostat was paused or the budget was exhausted).
 /// </param>
 public sealed record HealingStepResult(
     string ConditionName,

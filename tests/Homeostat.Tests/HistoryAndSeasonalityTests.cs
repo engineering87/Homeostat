@@ -285,11 +285,13 @@ public class HistoryAndSeasonalityTests
     public async Task File_store_keeps_condition_history_and_documents()
     {
         var path = Path.Combine(Directory.CreateTempSubdirectory("homeostat-store-").FullName, "state.json");
-        var store = new FileHomeostatStore(path);
-        await store.AppendConditionEventAsync(new ConditionEventRecord { ConditionName = "feed-down", Kind = ConditionEventKind.Activated, At = Monday, Instance = "web-1", Value = 3.5 }, 10);
-        await store.SetDocumentAsync("baseline:x", "{\"a\":1}");
+        using (var store = new FileHomeostatStore(path))
+        {
+            await store.AppendConditionEventAsync(new ConditionEventRecord { ConditionName = "feed-down", Kind = ConditionEventKind.Activated, At = Monday, Instance = "web-1", Value = 3.5 }, 10);
+            await store.SetDocumentAsync("baseline:x", "{\"a\":1}");
+        }
 
-        var reopened = new FileHomeostatStore(path);
+        using var reopened = new FileHomeostatStore(path);
         var e = Assert.Single(await reopened.GetConditionEventsAsync(10));
         Assert.Equal(("feed-down", ConditionEventKind.Activated, 3.5), (e.ConditionName, e.Kind, e.Value!.Value));
         Assert.Equal("{\"a\":1}", await reopened.GetDocumentAsync("baseline:x"));

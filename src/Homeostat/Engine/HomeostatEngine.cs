@@ -156,16 +156,20 @@ internal sealed class HomeostatEngine : BackgroundService
             var composite = composites[i];
             var definition = composite.Definition;
             var holds = _conditions.CompositeHolds(definition);
-            var synthetic = new Signal(
-                ConditionBuilder.CompositeSource(definition.Name),
-                holds ? SignalSeverity.Unhealthy : SignalSeverity.Healthy,
-                signal.Timestamp)
+            var texts = _compositeTexts.GetValue(definition, static d => new CompositeTexts(
+                ConditionBuilder.CompositeSource(d.Name), $"{d.Composite} of {string.Join(", ", d.DependsOn)} active."));
+            var synthetic = new Signal(texts.Source, holds ? SignalSeverity.Unhealthy : SignalSeverity.Healthy, signal.Timestamp)
             {
-                Message = holds ? $"{definition.Composite} of {string.Join(", ", definition.DependsOn)} active." : null,
+                Message = holds ? texts.Message : null,
             };
             Handle(composite, synthetic, stoppingToken);
         }
     }
+
+    // Per definition, so a reloaded definition gets its own and an old one is collected with it.
+    private readonly System.Runtime.CompilerServices.ConditionalWeakTable<ConditionDefinition, CompositeTexts> _compositeTexts = new();
+
+    private sealed record CompositeTexts(string Source, string Message);
 
     private void Handle(ConditionTracker tracker, Signal signal, CancellationToken stoppingToken)
     {

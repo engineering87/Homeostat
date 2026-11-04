@@ -75,6 +75,8 @@ public sealed class KubernetesTests : IAsyncDisposable
 
     private Task<HomeostatTestHost> StartHostAsync(Uri server, string caPath, Action<HealingPlanBuilder> plan)
         => HomeostatTestHost.StartAsync(h => h
+            // Real HTTPS calls inside the actions: simulated time races ahead of them, so their timeout is long.
+            .Configure(o => o.DefaultActionTimeout = TimeSpan.FromDays(1))
             .UseKubernetes(o =>
             {
                 o.ApiServer = server;

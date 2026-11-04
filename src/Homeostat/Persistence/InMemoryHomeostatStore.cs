@@ -64,4 +64,7 @@ public sealed class InMemoryHomeostatStore : IHomeostatStore
 
     /// <inheritdoc />
     public bool SupportsConditionHistory => true;
+
+    /// <inheritdoc />
+    public bool SupportsDocuments => true;
 }

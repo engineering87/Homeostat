@@ -359,8 +359,12 @@ builder.Services.AddResiliencePipeline("forecast", (pipeline, context) =>
 
 Tags: `state`; `origin` = `circuit-breaker`.
 
-No signal is published for a circuit breaker until its pipeline is built, which usually happens on
-first use.
+Until its pipeline is built (usually on first use), Polly reports the circuit as Closed, so the signal is `Healthy`.
+
+One source follows one pipeline instance: a pipeline rebuilt on reload replaces the previous one. With keyed or
+dynamic pipelines (`AddResiliencePipeline<string, ...>`, a resilience handler that selects a pipeline per authority),
+give each instance its own source, for example `TrackCircuitBreaker($"forecast-circuit:{context.PipelineKey}")`;
+with one source shared by several instances, only the last one built is reported.
 
 Notes:
 

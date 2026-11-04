@@ -35,8 +35,9 @@ public interface IHomeostatSwitches
     /// itself stays on there).
     /// </summary>
     /// <param name="name">Name of the switch.</param>
+    /// <param name="by">Who turned it off, recorded in the log.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
-    ValueTask TurnOffAsync(string name, CancellationToken cancellationToken = default);
+    ValueTask TurnOffAsync(string name, string? by = null, CancellationToken cancellationToken = default);
 
     /// <summary>Names of the switches currently on, for the application or for this instance.</summary>
     IReadOnlyCollection<string> GetActive();

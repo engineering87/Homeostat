@@ -323,7 +323,11 @@ internal sealed class Client : IDisposable
             baseUri = new Uri(baseUri.AbsoluteUri + "/");
         }
 
-        _http = handler is null ? new HttpClient() : new HttpClient(handler, disposeHandler: false);
+        // Redirects are not followed: a sign-in or access-denied redirect would turn a POST into a GET answered 200, and
+        // the CLI would report a change that never happened.
+        _http = handler is null
+            ? new HttpClient(new SocketsHttpHandler { AllowAutoRedirect = false })
+            : new HttpClient(handler, disposeHandler: false);
         _http.BaseAddress = baseUri;
         _base = baseUri;
         _http.DefaultRequestHeaders.Add("X-Requested-With", "homeostat-cli");
@@ -381,6 +385,9 @@ internal sealed class Client : IDisposable
             HttpStatusCode.Forbidden => "Not allowed: the token does not satisfy the endpoint's policy.",
             HttpStatusCode.NotFound => $"Not found ({response.RequestMessage?.RequestUri?.AbsolutePath}): the request may have been answered already, or the endpoint is not mapped with this prefix.",
             HttpStatusCode.BadRequest => $"Rejected: {body.Trim('"')}",
+            >= HttpStatusCode.MultipleChoices and < HttpStatusCode.BadRequest =>
+                $"The application redirected the request ({(int)response.StatusCode}, to {response.Headers.Location}), usually to a sign-in page: "
+                + "nothing was changed. Pass a token with --token or HOMEOSTAT_TOKEN.",
             _ => $"The application answered {(int)response.StatusCode} ({response.StatusCode}).",
         });
     }

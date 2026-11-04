@@ -61,7 +61,7 @@ public static class HomeostatIncidentExtensions
         builder.Services.AddOptions<TOptions>().Configure(configure).ValidateOnStart();
         builder.Services.TryAddEnumerable(ServiceDescriptor.Singleton<IValidateOptions<TOptions>>(new ThrowingValidator<TOptions>(validate)));
         // The default HttpClient logging writes the request URL, and webhook URLs carry their secret in the path.
-        builder.Services.AddHttpClient(clientName).RemoveAllLoggers();
+        builder.Services.AddHttpClient(clientName).RemoveAllLoggers().ConfigurePrimaryHttpMessageHandler(HomeostatHttpHandlers.WithoutRedirects);
         builder.Services.TryAddSingleton(TimeProvider.System);
         builder.AddEventSink<TSink>();
         return builder;

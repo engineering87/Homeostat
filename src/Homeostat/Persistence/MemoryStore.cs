@@ -108,6 +108,9 @@ internal class MemoryStore : IHomeostatStore
     public bool SupportsConditionHistory => true;
 
     /// <inheritdoc />
+    public bool SupportsDocuments => true;
+
+    /// <inheritdoc />
     public ValueTask AppendConditionEventAsync(ConditionEventRecord conditionEvent, int maxEvents, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(conditionEvent);

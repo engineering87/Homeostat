@@ -54,6 +54,12 @@ internal sealed class ConditionReloader : IHostedService, IDisposable
             _subscriptions.Add(ChangeToken.OnChange(source.Section.GetReloadToken, Reload));
         }
 
+        // The conditions were loaded when the engine was built: a change made since then raised no notification here.
+        if (_sources.Count > 0)
+        {
+            Reload();
+        }
+
         return Task.CompletedTask;
     }
 

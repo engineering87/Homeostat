@@ -183,6 +183,13 @@ public sealed class HomeostatTestHost : IAsyncDisposable
         }
 
         cancellationToken.ThrowIfCancellationRequested();
+
+        // Once more: the status may have been reached while the last delay was being canceled.
+        if (GetCondition(conditionName)?.Status == status)
+        {
+            return;
+        }
+
         throw new TimeoutException(
             $"Condition '{conditionName}' did not reach {status} within {limit} (real time). Current state: {Describe(conditionName)}.");
     }
@@ -203,8 +210,7 @@ public sealed class HomeostatTestHost : IAsyncDisposable
 
         while (!cts.IsCancellationRequested)
         {
-            var pending = (await Approvals.GetPendingAsync(cts.Token).ConfigureAwait(false)).FirstOrDefault(a => a.ConditionName == conditionName);
-            if (pending is not null)
+            if (await FindApprovalAsync(conditionName).ConfigureAwait(false) is { } pending)
             {
                 return pending;
             }
@@ -220,9 +226,19 @@ public sealed class HomeostatTestHost : IAsyncDisposable
         }
 
         cancellationToken.ThrowIfCancellationRequested();
+
+        // Once more: the request may have been made while the last delay was being canceled.
+        if (await FindApprovalAsync(conditionName).ConfigureAwait(false) is { } late)
+        {
+            return late;
+        }
+
         throw new TimeoutException(
             $"No approval request for condition '{conditionName}' within {limit} (real time). Condition state: {Describe(conditionName)}.");
     }
+
+    private async Task<PendingApproval?> FindApprovalAsync(string conditionName)
+        => (await Approvals.GetPendingAsync(CancellationToken.None).ConfigureAwait(false)).FirstOrDefault(a => a.ConditionName == conditionName);
 
     /// <summary>Stops the services and releases the host.</summary>
     public async ValueTask DisposeAsync()

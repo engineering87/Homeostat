@@ -114,6 +114,11 @@ internal sealed class ConfigurationConditionSource
                 throw new InvalidOperationException("a composite condition (AllActive or AnyActive) cannot have a Source or trigger and clear rules.");
             }
 
+            if (section.GetSection("AllActive").Exists() && section.GetSection("AnyActive").Exists())
+            {
+                throw new InvalidOperationException("use only one of AllActive, AnyActive.");
+            }
+
             if (TriggerKeys.Count(k => section.GetSection(k).Exists()) > 1)
             {
                 throw new InvalidOperationException($"use only one of {string.Join(", ", TriggerKeys)}.");
@@ -135,7 +140,7 @@ internal sealed class ConfigurationConditionSource
 
             if (section["Severity"] is { Length: > 0 } severity)
             {
-                builder.WhenSeverityAtLeast(Enum.Parse<SignalSeverity>(severity, ignoreCase: true));
+                builder.WhenSeverityAtLeast(EnumValue<SignalSeverity>(section, "Severity", severity));
             }
 
             if (Double(section, "ValueAbove") is { } above)
@@ -307,6 +312,15 @@ internal sealed class ConfigurationConditionSource
             {
                 builder.RequireApproval(Duration(step, "ApprovalTimeout"));
             }
+            else if (step.GetSection("ApprovalTimeout").Exists())
+            {
+                throw new InvalidOperationException($"'{step.Path}:ApprovalTimeout' needs \"RequireApproval\": true.");
+            }
+
+            if (step.GetSection("TurnOffWhenCleared").Exists() && !action.StartsWith("switch:", StringComparison.OrdinalIgnoreCase))
+            {
+                throw new InvalidOperationException($"'{step.Path}:TurnOffWhenCleared' applies only to a 'switch:<name>' action.");
+            }
 
             if (Duration(step, "ActionTimeout") is { } actionTimeout)
             {
@@ -358,10 +372,24 @@ internal sealed class ConfigurationConditionSource
                 Duration(backoff, "Max") ?? throw Missing(backoff, "Max"));
         }
 
-        if (plan["Scope"] is { Length: > 0 } scope && Enum.Parse<PlanScope>(scope, ignoreCase: true) == PlanScope.Cluster)
+        if (plan["Scope"] is { Length: > 0 } scope && EnumValue<PlanScope>(plan, "Scope", scope) == PlanScope.Cluster)
         {
             builder.OncePerCluster();
         }
+    }
+
+    // Names only: Enum.Parse would also take numbers ("7") and lists ("Degraded,Unhealthy") that mean nothing here.
+    private static TEnum EnumValue<TEnum>(IConfigurationSection section, string key, string value)
+        where TEnum : struct, Enum
+    {
+        if (value.Length > 0 && char.IsLetter(value[0]) && !value.Contains(',', StringComparison.Ordinal)
+            && Enum.TryParse<TEnum>(value, ignoreCase: true, out var parsed) && Enum.IsDefined(parsed))
+        {
+            return parsed;
+        }
+
+        throw new InvalidOperationException(
+            $"'{section.Path}:{key}' is '{value}'; expected one of {string.Join(", ", Enum.GetNames<TEnum>())}.");
     }
 
     private void AddAction(IConfigurationSection step, string action, HealingPlanBuilder builder)

@@ -2,6 +2,7 @@ using Homeostat.Conditions;
 using Homeostat.Diagnostics;
 using Homeostat.Guardrails;
 using Homeostat.Persistence;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
 namespace Homeostat;
@@ -17,6 +18,7 @@ internal sealed class HomeostatControl : IHomeostatControl
     private readonly Diagnostics.ConditionHistory _history;
     private readonly Engine.SharedControl _shared;
     private readonly Engine.PlanStateCache _planStates;
+    private readonly Microsoft.Extensions.Logging.ILogger _logger;
 
     public HomeostatControl(
         ConditionSet conditions,
@@ -27,8 +29,10 @@ internal sealed class HomeostatControl : IHomeostatControl
         Diagnostics.ActivationLog activations,
         Diagnostics.ConditionHistory history,
         Engine.SharedControl shared,
-        Engine.PlanStateCache planStates)
+        Engine.PlanStateCache planStates,
+        Microsoft.Extensions.Logging.ILogger<HomeostatControl>? logger = null)
     {
+        _logger = (Microsoft.Extensions.Logging.ILogger?)logger ?? Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance;
         _shared = shared;
         _planStates = planStates;
         _history = history;
@@ -40,7 +44,21 @@ internal sealed class HomeostatControl : IHomeostatControl
         _options = options.Value;
     }
 
-    public bool IsPaused => PauseReason is not null;
+    // Without formatting the reason: the runner reads this for every triggering signal.
+    public bool IsPaused
+    {
+        get
+        {
+            if (!_shared.IsKnown)
+            {
+                return true;
+            }
+
+            var now = _timeProvider.GetUtcNow();
+            return _shared.Current.Pause is { } pause && (pause.Until is not { } until || now < until)
+                || _maintenance.IsActive(now);
+        }
+    }
 
     public string? PauseReason
     {
@@ -72,8 +90,11 @@ internal sealed class HomeostatControl : IHomeostatControl
             (store, ct) => store.SetPauseAsync(pause, ct), s => Engine.SharedControl.WithPause(s, pause), cancellationToken));
     }
 
-    public ValueTask ResumeAsync(CancellationToken cancellationToken = default)
-        => new(_shared.ChangeAsync((store, ct) => store.SetPauseAsync(null, ct), s => Engine.SharedControl.WithPause(s, null), cancellationToken));
+    public async ValueTask ResumeAsync(string? by = null, CancellationToken cancellationToken = default)
+    {
+        await _shared.ChangeAsync((store, ct) => store.SetPauseAsync(null, ct), s => Engine.SharedControl.WithPause(s, null), cancellationToken).ConfigureAwait(false);
+        _logger.LogInformation("Homeostat resumed{By}.", by is { Length: > 0 } who ? $" by {who.ReplaceLineEndings(" ")}" : string.Empty);
+    }
 
     public async ValueTask<bool> ReleaseHoldAsync(string condition, CancellationToken cancellationToken = default)
     {

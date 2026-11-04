@@ -319,6 +319,9 @@ repository (version `0.1.0` in the project files):
   `IHomeostatSwitches.TurnOn`/`TurnOff` are `TurnOnAsync`/`TurnOffAsync`; `IHomeostatApprovals.GetPending`, `Approve`
   and `Reject` are `GetPendingAsync`, `ApproveAsync` and `RejectAsync`. Custom stores implement the control-state
   members of `IHomeostatStore`.
+- `IHomeostatSwitches.TurnOffAsync(name, by)` and `IHomeostatControl.ResumeAsync(by)` take who acted, like
+  `TurnOnAsync` and `PauseAsync`: pass the cancellation token by name. The answer parameters of `ApproveAsync` and
+  `RejectAsync` are named `by`. `IHomeostatStore` gains `SupportsDocuments` (default `false`).
 - `TurnOnSwitch(name)` turns the switch off when the condition clears by default (`turnOffWhenCleared: true`), and so
   does a `switch:` step in configuration without `TurnOffWhenCleared`.
 - `ActionTimeout` and `VerificationTimeout` apply to the previous step, not to the whole plan; in configuration they
@@ -382,6 +385,36 @@ repository (version `0.1.0` in the project files):
 - A pending cause that receives no signal for `max(SustainedFor, 1 minute)` no longer suppresses its symptoms.
 - A condition removed by a configuration reload stops its running plan before the next step.
 - `RestartLimits.Window` is a fixed window starting at the first restart counted in it.
+- File store: a change that cannot be written is undone in memory too (a retried condition event was stored twice, a
+  refused budget unit stayed spent); a second process on the same file fails at startup (`{path}.lock`); null records
+  in the file no longer prevent startup. `FileHomeostatStore` is `IDisposable`, to release the lock.
+- `SustainedFor`: two triggering signals more than twice the duration apart (at least five minutes) restart the
+  window, so isolated blips an hour apart no longer activate a condition.
+- `CooldownBackoff(multiplier, max)` with `max` below the cooldown shortened the cooldown after a failure: the backoff
+  only lengthens it. Cooldowns are limited to about 49 days, like the other timers, and the cluster lease kept for the
+  cooldown is always released.
+- A rejection or a failure count saved just after the condition cleared outlived the episode: it is reset again.
+- A compensating action skipped because Homeostat was paused or the budget was exhausted reports
+  `UndoSucceeded = null` (not run), not `false`; its XML documentation said it does not consume the budget, it does.
+- Configuration refuses values that were silently ignored: numeric or combined enum values (`"Severity": "7"`),
+  `AllActive` with `AnyActive`, `ApprovalTimeout` without `RequireApproval`, `TurnOffWhenCleared` on a step that is
+  not a switch. A change made to the configuration while the application started is applied.
+- The `Last` statistic of an observable instrument counted series that stopped reporting (a disposed pool); series
+  missing for ten collections are forgotten.
+- Event sinks drain together when the application stops: one slow sink no longer uses up the others' shutdown time.
+- The audit log's `{date}` uses the invariant culture.
+- Notifier clients, the CLI and the dashboard no longer follow redirects: a sign-in redirect was reported as success,
+  and a redirected notification as delivered.
+- Alert endpoints accept only JSON and refuse cross-site requests (`415`, `403`), against forged form posts.
+- The Entity Framework Core command signal recognizes SQL Server timeouts and transient errors, which
+  `Microsoft.Data.SqlClient` does not mark as `IsTransient`.
+- The Kafka broker signal no longer publishes Healthy for the first document that shows brokers down.
+- Teams cards escape Markdown in texts that come from signals; a Teams command that fails because the store is down
+  can be sent again.
+- Aspire's Pause and Resume commands are enabled while the resource runs, also when it is unhealthy.
+- The CLI keeps carriage returns out of the terminal; HOMEO002 is no longer silenced by a LINQ `Where` inside the
+  condition.
+- `HomeostatOptions`, `RedisStoreOptions` and the built-in detector options are validated at startup.
 
 [Unreleased]: https://github.com/engineering87/Homeostat/compare/v1.0.0-rc.1...HEAD
 [1.0.0-rc.1]: https://github.com/engineering87/Homeostat/releases/tag/v1.0.0-rc.1

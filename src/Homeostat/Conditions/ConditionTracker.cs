@@ -18,6 +18,9 @@ internal enum ConditionTransition
 /// </summary>
 internal sealed class ConditionTracker
 {
+    /// <summary>Shortest time without triggering signals after which a pending condition is stale.</summary>
+    internal static readonly TimeSpan StalePendingAfter = TimeSpan.FromMinutes(1);
+
     private readonly object _gate = new();
     private ConditionStatus _status = ConditionStatus.Inactive;
     private DateTimeOffset? _pendingSince;
@@ -67,6 +70,7 @@ internal sealed class ConditionTracker
 
             if (triggered)
             {
+                var previousTrigger = _lastTriggeredAt;
                 _lastTriggeredAt = signal.Timestamp;
                 switch (_status)
                 {
@@ -76,6 +80,12 @@ internal sealed class ConditionTracker
                         return TryActivate(signal.Timestamp);
 
                     case ConditionStatus.Pending:
+                        // The source went quiet: two isolated blips an hour apart are not a problem that persisted.
+                        if (previousTrigger is { } last && signal.Timestamp - last > RestartPendingAfter(definition))
+                        {
+                            _pendingSince = signal.Timestamp;
+                        }
+
                         return TryActivate(signal.Timestamp);
 
                     default:
@@ -123,6 +133,32 @@ internal sealed class ConditionTracker
             _clearingSince = null;
         }
     }
+
+    /// <summary>The current status, without the allocation of a snapshot (read on every signal).</summary>
+    public ConditionStatus Status
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return _status;
+            }
+        }
+    }
+
+    /// <summary>
+    /// A gap between triggering signals after which the SustainFor window starts again: twice SustainFor, at least five
+    /// minutes, so slow probes (a signal every minute or two) still sustain a condition.
+    /// </summary>
+    internal static TimeSpan RestartPendingAfter(ConditionDefinition definition)
+    {
+        var twice = definition.SustainFor * 2;
+        return twice > TimeSpan.FromMinutes(5) ? twice : TimeSpan.FromMinutes(5);
+    }
+
+    /// <summary>How long a pending cause still suppresses its symptoms without triggering signals: its SustainFor, at least a minute.</summary>
+    internal static TimeSpan StaleAfter(ConditionDefinition definition)
+        => definition.SustainFor > StalePendingAfter ? definition.SustainFor : StalePendingAfter;
 
     /// <summary>When a signal last met the trigger (a cause stays Pending only while such signals keep coming).</summary>
     public DateTimeOffset? LastTriggeredAt

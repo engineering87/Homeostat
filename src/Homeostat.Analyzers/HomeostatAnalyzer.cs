@@ -103,7 +103,10 @@ public sealed class HomeostatAnalyzer : DiagnosticAnalyzer
         if (SymbolEqualityComparer.Default.Equals(method.ContainingType, homeostatBuilder) && method.Name == "AddCondition"
             && invocation.Arguments.Length == 2 && Lambda(invocation.Arguments[1].Value) is { } configure)
         {
+            // Only calls on the condition builder select signals: a LINQ Where inside ClearWhen(...) does not.
+            var model = context.Operation.SemanticModel;
             var calls = configure.Syntax.DescendantNodes().OfType<InvocationExpressionSyntax>()
+                .Where(i => OnConditionBuilder(i, model, context.CancellationToken))
                 .Select(i => i.Expression is MemberAccessExpressionSyntax m ? m.Name.Identifier.ValueText : null);
 
             // The builder handed to a helper method (c => ConfigureFeed(c)) is configured where this rule cannot see.
@@ -129,6 +132,18 @@ public sealed class HomeostatAnalyzer : DiagnosticAnalyzer
                 context.ReportDiagnostic(Diagnostic.Create(Descriptors.AnonymousEndpoints, anonymous.Syntax.GetLocation(), method.Name));
             }
         }
+    }
+
+    private static bool OnConditionBuilder(InvocationExpressionSyntax invocation, SemanticModel? model, CancellationToken cancellationToken)
+    {
+        // Unresolved (code that does not compile yet): trust the name, so the rule never reports a false positive.
+        if (model?.GetSymbolInfo(invocation, cancellationToken).Symbol is not IMethodSymbol method)
+        {
+            return true;
+        }
+
+        var receiver = method.ReceiverType ?? method.ContainingType;
+        return receiver is { Name: "ConditionBuilder", ContainingNamespace: { } ns } && ns.ToDisplayString() == "Homeostat.Conditions";
     }
 
     private static void AnalyzeMethod(SyntaxNodeAnalysisContext context, INamedTypeSymbol healingAction, KnownTypes types)

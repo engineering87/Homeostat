@@ -18,13 +18,13 @@ public interface IHomeostatApprovals
 
     /// <summary>Approves a pending request. Returns <c>false</c> if the request does not exist or was already answered.</summary>
     /// <param name="id">Request identifier.</param>
-    /// <param name="approvedBy">Who approved it, recorded in logs and events.</param>
+    /// <param name="by">Who approved it, recorded in logs and events.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
-    ValueTask<bool> ApproveAsync(string id, string? approvedBy = null, CancellationToken cancellationToken = default);
+    ValueTask<bool> ApproveAsync(string id, string? by = null, CancellationToken cancellationToken = default);
 
     /// <summary>Rejects a pending request. Returns <c>false</c> if the request does not exist or was already answered.</summary>
     /// <param name="id">Request identifier.</param>
-    /// <param name="rejectedBy">Who rejected it, recorded in logs and events.</param>
+    /// <param name="by">Who rejected it, recorded in logs and events.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
-    ValueTask<bool> RejectAsync(string id, string? rejectedBy = null, CancellationToken cancellationToken = default);
+    ValueTask<bool> RejectAsync(string id, string? by = null, CancellationToken cancellationToken = default);
 }

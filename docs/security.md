@@ -54,6 +54,13 @@ and refuse requests that the browser marks as cross-site or same-site (`Sec-Fetc
 cannot add those headers, so users signed in with cookies, Windows authentication, Basic or client certificates are
 protected. Do not remove the requirement with a proxy that adds `X-Requested-With` to every request.
 
+The alert endpoints, which servers call, accept only `Content-Type: application/json` (`415` otherwise) and refuse
+requests marked cross-site or same-site with `403`: a form on another page cannot post an alert with an operator's
+cookies when the endpoints are protected by a policy rather than a token.
+
+The CLI and the dashboard do not follow redirects: a sign-in or access-denied redirect is reported as an error, never
+as a change that was made.
+
 The dashboard is served with a strict Content-Security-Policy (`default-src 'none'`, no framing) and renders every
 value as text.
 
@@ -101,6 +108,8 @@ See [ASP.NET Core endpoints](aspnetcore.md#slack-approvals).
   links), but events still carry condition names and error messages: send them only to channels whose members may
   see that.
 - Use HTTPS for every destination; route through a proxy with `IHttpClientFactory` if your network requires it.
+  The notifiers do not follow redirects (a redirect is a failed delivery), so a destination cannot send their
+  headers, secrets included, to another host.
 
 ## Platform permissions
 

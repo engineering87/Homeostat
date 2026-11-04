@@ -89,9 +89,13 @@ builder.Services.AddHomeostat(h => h.UseRedis(o => o.KeyPrefix = "weather-api:ho
 
 ### File store
 
-The file store writes atomically (temporary file, flushed, then renamed). A file that cannot be read is renamed
-to `*.corrupt` and the store starts empty. Use a path that survives a restart (a volume, in a container) and that only
-the application's user can write.
+The file store writes atomically (temporary file, flushed, then renamed). A change that cannot be written (a full
+disk, a read-only volume) fails and is undone in memory too, so what the store reports always matches the file. A
+file that cannot be read (bad JSON, or null records from a hand edit) is renamed to `*.corrupt` and the store starts
+empty. While open, the store holds an exclusive lock on `{path}.lock`: a second process opening the same file (the
+old and new process of a rolling deploy on a shared volume) fails at startup with a clear error instead of
+overwriting the other's state. Use a path that survives a restart (a volume, in a container) and that only the
+application's user can write.
 
 ```csharp
 .AddHomeostat(h => h.UseFileStore("data/homeostat.json", o => o.PlanStateRetention = TimeSpan.FromDays(90)))
@@ -243,12 +247,13 @@ clock of each instance: keep the clocks synchronized (NTP), as any distributed s
 `IHomeostatStore` has fourteen required methods: read and update plan state, consume and count the budget, append and
 read the run history, and the control state (`GetControlStateAsync`, `SetPauseAsync`, `SetSwitchAsync`,
 `TryClaimSwitchAsync`, `TryReleaseSwitchAsync`, `AddApprovalAsync`, `TryResolveApprovalAsync`, `RemoveApprovalAsync`, with the types `ControlState`, `PauseState`,
-`SwitchState` and `ApprovalRecord` of `Homeostat.Persistence`). Five more have default implementations:
+`SwitchState` and `ApprovalRecord` of `Homeostat.Persistence`). Six more have default implementations, and members added after 1.0 will have them too:
 
 - `SupportsConditionHistory`, `AppendConditionEventAsync`, `GetConditionEventsAsync`: the condition history. By default
   the store does not keep it (`false`), and Homeostat keeps it in process memory instead.
-- `GetDocumentAsync`, `SetDocumentAsync`: small documents by key (a seasonal baseline is at most about 150 KB of JSON).
-  By default nothing is kept, and seasonal baselines start over at every restart. The file store keeps documents until
+- `SupportsDocuments`, `GetDocumentAsync`, `SetDocumentAsync`: small documents by key (a seasonal baseline is at most
+  about 150 KB of JSON). By default nothing is kept (`false`), seasonal baselines start over at every restart, and
+  Homeostat logs a warning once. The file store keeps documents until
   they are replaced: after renaming a seasonal condition, the old baseline stays in the file, unused.
 
 Requirements:

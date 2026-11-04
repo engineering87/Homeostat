@@ -74,9 +74,9 @@ namespace Homeostat
     public default void OnRunCompleted(Homeostat.Healing.HealingRunResult run)
     public default void OnStepCompleted(Homeostat.Healing.HealingStepResult step)
   public interface IHomeostatApprovals
-    public System.Threading.Tasks.ValueTask<bool> ApproveAsync(string id, string? approvedBy = null, System.Threading.CancellationToken cancellationToken = default)
+    public System.Threading.Tasks.ValueTask<bool> ApproveAsync(string id, string? by = null, System.Threading.CancellationToken cancellationToken = default)
     public System.Threading.Tasks.ValueTask<System.Collections.Generic.IReadOnlyList<Homeostat.Healing.PendingApproval>> GetPendingAsync(System.Threading.CancellationToken cancellationToken = default)
-    public System.Threading.Tasks.ValueTask<bool> RejectAsync(string id, string? rejectedBy = null, System.Threading.CancellationToken cancellationToken = default)
+    public System.Threading.Tasks.ValueTask<bool> RejectAsync(string id, string? by = null, System.Threading.CancellationToken cancellationToken = default)
   public interface IHomeostatControl
     public bool IsDryRun { get; }
     public bool IsPaused { get; }
@@ -88,12 +88,12 @@ namespace Homeostat
     public System.Threading.Tasks.ValueTask<System.Collections.Generic.IReadOnlyList<Homeostat.Persistence.HealingRunRecord>> GetRecentRunsAsync(System.Threading.CancellationToken cancellationToken = default)
     public System.Threading.Tasks.ValueTask PauseAsync(System.DateTimeOffset? until = null, string? by = null, System.Threading.CancellationToken cancellationToken = default)
     public System.Threading.Tasks.ValueTask<bool> ReleaseHoldAsync(string condition, System.Threading.CancellationToken cancellationToken = default)
-    public System.Threading.Tasks.ValueTask ResumeAsync(System.Threading.CancellationToken cancellationToken = default)
+    public System.Threading.Tasks.ValueTask ResumeAsync(string? by = null, System.Threading.CancellationToken cancellationToken = default)
   public interface IHomeostatSwitches
     public event System.EventHandler<Homeostat.SwitchChangedEventArgs>? Changed
     public System.Collections.Generic.IReadOnlyCollection<string> GetActive()
     public bool IsOn(string name)
-    public System.Threading.Tasks.ValueTask TurnOffAsync(string name, System.Threading.CancellationToken cancellationToken = default)
+    public System.Threading.Tasks.ValueTask TurnOffAsync(string name, string? by = null, System.Threading.CancellationToken cancellationToken = default)
     public System.Threading.Tasks.ValueTask TurnOnAsync(string name, Homeostat.SwitchScope scope = 1, string? by = null, System.Threading.CancellationToken cancellationToken = default)
   public abstract class RestartableBackgroundService : Microsoft.Extensions.Hosting.BackgroundService
     protected RestartableBackgroundService()
@@ -545,14 +545,16 @@ namespace Homeostat.Persistence
     Keep = 0
     Increment = 1
     Reset = 2
-  public sealed class FileHomeostatStore : Homeostat.Persistence.IHomeostatStore
+  public sealed class FileHomeostatStore : Homeostat.Persistence.IHomeostatStore, System.IDisposable
     public FileHomeostatStore(string path)
     public FileHomeostatStore(string path, Homeostat.Persistence.FileStoreOptions options)
     public string Path { get; }
     public bool SupportsConditionHistory { get; }
+    public bool SupportsDocuments { get; }
     public System.Threading.Tasks.ValueTask AddApprovalAsync(Homeostat.Persistence.ApprovalRecord approval, System.Threading.CancellationToken cancellationToken = default)
     public System.Threading.Tasks.ValueTask AppendConditionEventAsync(Homeostat.Persistence.ConditionEventRecord conditionEvent, int maxEvents, System.Threading.CancellationToken cancellationToken = default)
     public System.Threading.Tasks.ValueTask AppendRunAsync(Homeostat.Persistence.HealingRunRecord run, int maxRuns, System.Threading.CancellationToken cancellationToken = default)
+    public void Dispose()
     public System.Threading.Tasks.ValueTask<int> GetBudgetUsedAsync(System.DateTimeOffset now, System.TimeSpan window, System.Threading.CancellationToken cancellationToken = default)
     public System.Threading.Tasks.ValueTask<System.Collections.Generic.IReadOnlyList<Homeostat.Persistence.ConditionEventRecord>> GetConditionEventsAsync(int maxEvents, System.Threading.CancellationToken cancellationToken = default)
     public System.Threading.Tasks.ValueTask<Homeostat.Persistence.ControlState> GetControlStateAsync(System.Threading.CancellationToken cancellationToken = default)
@@ -601,6 +603,7 @@ namespace Homeostat.Persistence
     public static bool op_Inequality(Homeostat.Persistence.HealingStepRecord? left, Homeostat.Persistence.HealingStepRecord? right)
   public interface IHomeostatStore
     public default bool SupportsConditionHistory { get; }
+    public default bool SupportsDocuments { get; }
     public System.Threading.Tasks.ValueTask AddApprovalAsync(Homeostat.Persistence.ApprovalRecord approval, System.Threading.CancellationToken cancellationToken = default)
     public default System.Threading.Tasks.ValueTask AppendConditionEventAsync(Homeostat.Persistence.ConditionEventRecord conditionEvent, int maxEvents, System.Threading.CancellationToken cancellationToken = default)
     public System.Threading.Tasks.ValueTask AppendRunAsync(Homeostat.Persistence.HealingRunRecord run, int maxRuns, System.Threading.CancellationToken cancellationToken = default)
@@ -622,6 +625,7 @@ namespace Homeostat.Persistence
   public sealed class InMemoryHomeostatStore : Homeostat.Persistence.IHomeostatStore
     public InMemoryHomeostatStore()
     public bool SupportsConditionHistory { get; }
+    public bool SupportsDocuments { get; }
     public System.Threading.Tasks.ValueTask AddApprovalAsync(Homeostat.Persistence.ApprovalRecord approval, System.Threading.CancellationToken cancellationToken = default)
     public System.Threading.Tasks.ValueTask AppendConditionEventAsync(Homeostat.Persistence.ConditionEventRecord conditionEvent, int maxEvents, System.Threading.CancellationToken cancellationToken = default)
     public System.Threading.Tasks.ValueTask AppendRunAsync(Homeostat.Persistence.HealingRunRecord run, int maxRuns, System.Threading.CancellationToken cancellationToken = default)

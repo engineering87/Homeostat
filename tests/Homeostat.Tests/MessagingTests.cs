@@ -435,7 +435,7 @@ public class MessagingTests
         producer.Report("""{ "type": 5, "brokers": [] }""");                // odd documents are skipped, never thrown
         Assert.Equal(SignalSeverity.Unhealthy, signals.Signals.First(s => s.Source == "kafka:audit:queue").Severity);   // the byte limit
         Assert.Equal(
-            [SignalSeverity.Healthy, SignalSeverity.Unhealthy],                 // confirmed by the second document
+            [SignalSeverity.Unhealthy],                                         // the first document publishes nothing; the second confirms
             signals.Signals.Where(s => s.Source == "kafka:audit:brokers").Select(s => s.Severity));
         Assert.DoesNotContain(signals.Signals, s => s.Source == "kafka:audit:lag");
     }

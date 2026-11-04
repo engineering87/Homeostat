@@ -18,6 +18,7 @@ internal sealed class SeasonalBaselineKeeper : IHostedService, IAsyncDisposable
 
     private readonly ConditionSet _conditions;
     private readonly IHomeostatStore _store;
+    private bool _warnedNoDocuments;
     private readonly TimeProvider _timeProvider;
     private readonly ILogger<SeasonalBaselineKeeper> _logger;
     private readonly Dictionary<SeasonalBaseline, long> _saved = [];
@@ -110,6 +111,12 @@ internal sealed class SeasonalBaselineKeeper : IHostedService, IAsyncDisposable
         try
         {
             var current = Baselines;
+            if (current.Count > 0 && !_store.SupportsDocuments && !_warnedNoDocuments)
+            {
+                _warnedNoDocuments = true;
+                _logger.LogWarning("The Homeostat store does not keep documents: seasonal baselines are learned again after every restart.");
+            }
+
             var replaced = _saved.Keys.Except(current).ToList();
             await Task.WhenAll(current.Concat(replaced).Select(b => SyncOneAsync(b, load: current.Contains(b), cancellationToken))).ConfigureAwait(false);
             foreach (var baseline in replaced)

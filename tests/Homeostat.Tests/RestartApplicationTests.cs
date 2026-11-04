@@ -69,7 +69,9 @@ public class RestartApplicationTests
                             .RestartApplication(requireApproval: false, limits: limits)
                             .Cooldown(TimeSpan.Zero)                     // the shared store also carries the cooldown: isolate the limit
                             .VerifyWith<BuiltInActionTests.AlwaysHealed>())),
-                    s => s.AddSingleton<IHostApplicationLifetime>(lifetime));
+                    s => s.AddSingleton<IHostApplicationLifetime>(lifetime),
+                    // Each process starts later than the previous one ended, as a restarted process does.
+                    new HomeostatTestHostOptions { StartTime = new DateTimeOffset(2030, 1, 1, 0, 0, 0, TimeSpan.Zero).AddMinutes(10 * process) });
 
                 host.Publish("memory", SignalSeverity.Unhealthy);
                 var run = await host.WaitForRunAsync("leak");

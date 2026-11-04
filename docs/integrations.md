@@ -120,8 +120,9 @@ owned by something else, such as the one of an Entity Framework Core `DbContext`
 ### Transient errors
 
 Failures carry `transient=true` when the provider says the error is transient (`DbException.IsTransient`):
-throttling, failover in progress, a dropped connection. Do **not** filter transient failures out: providers also mark
-"server unreachable" and timeouts as transient, so a filter would hide a full outage. Tell a blip from an outage with
+throttling, failover in progress, a dropped connection. SQL Server's client (`Microsoft.Data.SqlClient`) does not
+set `IsTransient`, so with it the tag is always `false`; the probe's failures still count. Do **not** filter transient
+failures out: providers also mark "server unreachable" and timeouts as transient, so a filter would hide a full outage. Tell a blip from an outage with
 time instead, and use the tag in logs, the audit trail and notifications:
 
 ```csharp
@@ -225,7 +226,7 @@ a failure:
 | Outcome | Recorded as |
 |---|---|
 | Command executed (query, scalar, non-query) | Success, with its duration |
-| Command failed with a `TimeoutException` or a `DbException` that the provider marks as transient (`IsTransient`), also as an inner exception | Failure |
+| Command failed with a `TimeoutException` or a `DbException` that the provider marks as transient (`IsTransient`), also as an inner exception; for SQL Server, which does not set `IsTransient`, a timeout (error -2) or an error EF Core's retrying strategy treats as transient (deadlock, throttling, failover) | Failure |
 | Command failed because of the command itself (a constraint violation, a syntax error) | Success: the database answered |
 | Connection that cannot be opened (for example, an exhausted pool or an unreachable server) or closed | Always a failure |
 | Command or connection canceled | Not recorded |
@@ -716,7 +717,7 @@ builder.AddProject<Projects.WeatherApi>("weather-api")
 The application maps the endpoints as usual (`MapHomeostatStatus`, `MapHomeostatControl`, `MapHomeostatDashboard`).
 The commands call the control endpoints with `X-Requested-With`; when they require a policy, give the commands a token
 with `o.BearerToken = (services, ct) => ...`, or map them with `allowAnonymous: true` in the development environment
-only. Commands are enabled when the resource is running and healthy.
+only. Commands are enabled while the resource is running, healthy or not: pausing matters most while it is failing.
 
 | `HomeostatResourceOptions` | Default | Meaning |
 |---|---|---|

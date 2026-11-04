@@ -44,7 +44,7 @@ internal sealed class HomeostatSwitches : IHomeostatSwitches
             _ => throw new ArgumentOutOfRangeException(nameof(scope), scope, "Unknown switch scope."),
         };
 
-    public async ValueTask TurnOffAsync(string name, CancellationToken cancellationToken = default)
+    public async ValueTask TurnOffAsync(string name, string? by = null, CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(name);
         TurnOffLocal(name);
@@ -52,6 +52,7 @@ internal sealed class HomeostatSwitches : IHomeostatSwitches
         // Always written: this instance's view may not show yet a switch turned on elsewhere a moment ago.
         await _shared.ChangeAsync(
             (store, ct) => store.SetSwitchAsync(name, null, ct), s => SharedControl.WithSwitch(s, name, null), cancellationToken).ConfigureAwait(false);
+        _logger.LogInformation("Switch {Switch} turned off{By}.", name.ReplaceLineEndings(" "), Who(by));
     }
 
     public IReadOnlyCollection<string> GetActive()
@@ -172,6 +173,8 @@ internal sealed class HomeostatSwitches : IHomeostatSwitches
             }
         }
     }
+
+    private static string Who(string? by) => by is { Length: > 0 } who ? $" by {who.ReplaceLineEndings(" ")}" : string.Empty;
 
     private void Raise(string name, bool isOn)
     {

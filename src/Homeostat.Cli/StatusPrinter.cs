@@ -17,7 +17,8 @@ internal static class StatusPrinter
             for (var i = 0; i < source.Length; i++)
             {
                 var c = source[i];
-                span[i] = c is '\n' or '\r' || !(char.IsControl(c) || c is '\u2028' or '\u2029') ? c : ' ';
+                // A carriage return would rewind the line and let an alert text overwrite the status column.
+                span[i] = c is '\n' || !(char.IsControl(c) || c is '\u2028' or '\u2029') ? c : ' ';
             }
         });
 

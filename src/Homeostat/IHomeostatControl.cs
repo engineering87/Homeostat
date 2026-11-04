@@ -30,8 +30,9 @@ public interface IHomeostatControl
     ValueTask PauseAsync(DateTimeOffset? until = null, string? by = null, CancellationToken cancellationToken = default);
 
     /// <summary>Lets healing plans run again after <see cref="PauseAsync"/>, on every instance. Maintenance windows still apply.</summary>
+    /// <param name="by">Who resumed, recorded in the log.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
-    ValueTask ResumeAsync(CancellationToken cancellationToken = default);
+    ValueTask ResumeAsync(string? by = null, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Lifts the hold of a condition's plan after a rejected approval, and restarts its cooldown backoff, without waiting

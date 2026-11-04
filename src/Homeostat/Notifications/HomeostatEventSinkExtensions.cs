@@ -26,6 +26,7 @@ public static class HomeostatEventSinkExtensions
         }
 
         builder.Services.TryAddSingleton<TSink>();
+        builder.Services.TryAddSingleton<EventSinkQueues>();
         builder.Services.AddSingleton<EventSinkHost<TSink>>();
         builder.Services.AddSingleton<IHostedService>(sp => sp.GetRequiredService<EventSinkHost<TSink>>());
         builder.Services.AddSingleton<IHealingObserver>(sp => sp.GetRequiredService<EventSinkHost<TSink>>());

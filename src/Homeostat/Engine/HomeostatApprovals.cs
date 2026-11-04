@@ -34,11 +34,11 @@ internal sealed class HomeostatApprovals : IHomeostatApprovals
         return state.Approvals.Where(a => a.Status is null && a.Request.ExpiresAt > now).Select(a => a.Request).OrderBy(r => r.RequestedAt).ToArray();
     }
 
-    public ValueTask<bool> ApproveAsync(string id, string? approvedBy = null, CancellationToken cancellationToken = default)
-        => ResolveAsync(id, ApprovalStatus.Approved, approvedBy, cancellationToken);
+    public ValueTask<bool> ApproveAsync(string id, string? by = null, CancellationToken cancellationToken = default)
+        => ResolveAsync(id, ApprovalStatus.Approved, by, cancellationToken);
 
-    public ValueTask<bool> RejectAsync(string id, string? rejectedBy = null, CancellationToken cancellationToken = default)
-        => ResolveAsync(id, ApprovalStatus.Rejected, rejectedBy, cancellationToken);
+    public ValueTask<bool> RejectAsync(string id, string? by = null, CancellationToken cancellationToken = default)
+        => ResolveAsync(id, ApprovalStatus.Rejected, by, cancellationToken);
 
     /// <summary>
     /// Records a request in the store; the returned task completes when someone answers it (on any instance), or when

@@ -28,6 +28,8 @@ public class ConfigurationTests
 
         await using var host = await HomeostatTestHost.StartAsync(
             h => h
+                // Escalation waits for the verification timeout in simulated time: short, so a slow machine still gets there.
+                .Configure(o => o.DefaultVerificationTimeout = TimeSpan.FromSeconds(10))
                 .AddAction<EngineTests.RecordingAction>("record")
                 .AddConditionsFromConfiguration(config.GetSection("Conditions")),
             services => services.AddSingleton<EngineTests.Recorder>());

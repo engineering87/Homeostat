@@ -68,14 +68,13 @@ public sealed class KafkaSignalReporter
             var severity = brokers.Up == 0 ? SignalSeverity.Unhealthy : brokers.Up < brokers.Used ? SignalSeverity.Degraded : SignalSeverity.Healthy;
 
             // A connection can be between a close and a reconnect at the moment of the statistics: a broker problem is
-            // reported only when two documents in a row show it.
+            // reported only when two documents in a row show it. The first one publishes nothing, rather than a
+            // better state than it saw (a Healthy signal would reset SustainedFor or satisfy ClearAfter).
             var previous = (SignalSeverity)Interlocked.Exchange(ref _lastBrokerSeverity, (int)severity);
-            if (severity > previous)
+            if (severity <= previous)
             {
-                severity = previous;
+                Publish($"{_source}:brokers", severity, brokers.Up, now, new() { ["used"] = Text(brokers.Used) });
             }
-
-            Publish($"{_source}:brokers", severity, brokers.Up, now, new() { ["used"] = Text(brokers.Used) });
         }
 
         if (statistics.Lag is { } lag)

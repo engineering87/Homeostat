@@ -115,12 +115,27 @@ public static partial class HomeostatTeamsEndpointExtensions
             return Reply("This message was already handled.");
         }
 
+        try
+        {
+            return await RunCommandAsync(message, approvals, options, logger, http.RequestAborted);
+        }
+        catch (Exception ex) when (!http.RequestAborted.IsCancellationRequested)
+        {
+            seen.Remove(id);
+            logger.LogError(ex, "Teams command from {User} not carried out: the Homeostat store is unavailable.", message.UserName);
+            return Reply("Homeostat cannot do this now (its store is unavailable). Send the command again in a moment.");
+        }
+    }
+
+    private static async Task<IResult> RunCommandAsync(
+        TeamsMessage message, IHomeostatApprovals approvals, TeamsCommandOptions options, ILogger logger, CancellationToken cancellationToken)
+    {
         var words = message.Command.Split(' ', StringSplitOptions.RemoveEmptyEntries);
         var verb = words.Length > 0 ? words[0].ToLowerInvariant() : string.Empty;
         switch (verb)
         {
             case "pending" or "status" or "list":
-                return Reply(Pending(await approvals.GetPendingAsync(http.RequestAborted)));
+                return Reply(Pending(await approvals.GetPendingAsync(cancellationToken)));
 
             case "approve" or "reject" when words.Length == 2:
                 {
@@ -134,8 +149,8 @@ public static partial class HomeostatTeamsEndpointExtensions
 
                     var by = $"teams:{message.UserName} ({message.UserId ?? "unknown"})";
                     var answered = approve
-                        ? await approvals.ApproveAsync(approvalId, by, http.RequestAborted)
-                        : await approvals.RejectAsync(approvalId, by, http.RequestAborted);
+                        ? await approvals.ApproveAsync(approvalId, by, cancellationToken)
+                        : await approvals.RejectAsync(approvalId, by, cancellationToken);
                     logger.LogInformation("Teams user {User} {Decision} approval {ApprovalId}: {Result}.",
                         message.UserName, approve ? "approved" : "rejected", approvalId, answered ? "done" : "not pending");
                     return Reply(answered
@@ -277,5 +292,8 @@ public static partial class HomeostatTeamsEndpointExtensions
 
             return _seen.TryAdd(id, now);
         }
+
+        /// <summary>Forgets a message that could not be acted on, so sending it again works.</summary>
+        public void Remove(string id) => _seen.TryRemove(id, out _);
     }
 }

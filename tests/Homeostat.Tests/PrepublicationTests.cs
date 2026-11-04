@@ -86,16 +86,22 @@ public class PrepublicationTests
         var path = Path.Combine(Path.GetTempPath(), $"homeostat-{Guid.NewGuid():N}.json");
         try
         {
-            var store = new FileHomeostatStore(path);
-            await store.UpdatePlanStateAsync("old", new PlanStateUpdate { LastRunEndedAt = DateTimeOffset.UtcNow.AddDays(-10) });
-            await store.UpdatePlanStateAsync("recent", new PlanStateUpdate { LastRunEndedAt = DateTimeOffset.UtcNow.AddDays(-1) });
+            using (var store = new FileHomeostatStore(path))
+            {
+                await store.UpdatePlanStateAsync("old", new PlanStateUpdate { LastRunEndedAt = DateTimeOffset.UtcNow.AddDays(-10) });
+                await store.UpdatePlanStateAsync("recent", new PlanStateUpdate { LastRunEndedAt = DateTimeOffset.UtcNow.AddDays(-1) });
+            }
 
-            var withDefault = new FileHomeostatStore(path);
-            Assert.NotNull((await withDefault.GetPlanStateAsync("old")).LastRunEndedAt);
+            using (var withDefault = new FileHomeostatStore(path))
+            {
+                Assert.NotNull((await withDefault.GetPlanStateAsync("old")).LastRunEndedAt);
+            }
 
-            var withWeek = new FileHomeostatStore(path, new FileStoreOptions { PlanStateRetention = TimeSpan.FromDays(7) });
-            Assert.Null((await withWeek.GetPlanStateAsync("old")).LastRunEndedAt);
-            Assert.NotNull((await withWeek.GetPlanStateAsync("recent")).LastRunEndedAt);
+            using (var withWeek = new FileHomeostatStore(path, new FileStoreOptions { PlanStateRetention = TimeSpan.FromDays(7) }))
+            {
+                Assert.Null((await withWeek.GetPlanStateAsync("old")).LastRunEndedAt);
+                Assert.NotNull((await withWeek.GetPlanStateAsync("recent")).LastRunEndedAt);
+            }
 
             Assert.Throws<ArgumentOutOfRangeException>(() => new FileHomeostatStore(path, new FileStoreOptions { PlanStateRetention = TimeSpan.Zero }));
         }

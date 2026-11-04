@@ -10,7 +10,9 @@ namespace Homeostat.Persistence;
 /// </summary>
 /// <remarks>
 /// Implementations must be thread-safe. When the store fails, Homeostat <b>fails closed</b>: it does not start
-/// a run whose cooldown or budget it cannot check.
+/// a run whose cooldown or budget it cannot check. Members added after 1.0 will have default implementations, with a
+/// <c>Supports*</c> property when the default does nothing (as <see cref="SupportsConditionHistory"/> and
+/// <see cref="SupportsDocuments"/>), so stores written for 1.0 keep compiling and Homeostat knows what they keep.
 /// </remarks>
 public interface IHomeostatStore
 {
@@ -72,6 +74,12 @@ public interface IHomeostatStore
     /// <param name="cancellationToken">Cancellation token.</param>
     ValueTask<IReadOnlyList<ConditionEventRecord>> GetConditionEventsAsync(int maxEvents, CancellationToken cancellationToken = default)
         => ValueTask.FromResult<IReadOnlyList<ConditionEventRecord>>([]);
+
+    /// <summary>
+    /// Whether the store keeps documents (<see cref="GetDocumentAsync"/>, <see cref="SetDocumentAsync"/>). Without them,
+    /// seasonal baselines are learned again after every restart, and Homeostat logs it once at startup.
+    /// </summary>
+    bool SupportsDocuments => false;
 
     /// <summary>
     /// Returns a small document that a feature keeps between restarts (for example the learned baseline of a seasonal

@@ -96,8 +96,8 @@ public static class HomeostatEndpointRouteBuilderExtensions
             return StoreCallAsync(() => control.PauseAsync(until, UserName(user), ct));
         });
 
-        group.MapPost("/resume", (IHomeostatControl control, CancellationToken ct)
-            => StoreCallAsync(() => control.ResumeAsync(ct)));
+        group.MapPost("/resume", (IHomeostatControl control, ClaimsPrincipal user, CancellationToken ct)
+            => StoreCallAsync(() => control.ResumeAsync(UserName(user), ct)));
 
         group.MapPost("/conditions/{name}/release", async (string name, IHomeostatControl control, CancellationToken ct) =>
         {
@@ -144,14 +144,14 @@ public static class HomeostatEndpointRouteBuilderExtensions
             return StoreCallAsync(() => switches.TurnOnAsync(name, target, UserName(user), ct));
         });
 
-        group.MapPost("/switches/{name}/off", (string name, IHomeostatSwitches switches, CancellationToken ct) =>
+        group.MapPost("/switches/{name}/off", (string name, IHomeostatSwitches switches, ClaimsPrincipal user, CancellationToken ct) =>
         {
             if (!IsValidSwitchName(name))
             {
                 return Task.FromResult(Results.BadRequest());
             }
 
-            return StoreCallAsync(() => switches.TurnOffAsync(name, ct));
+            return StoreCallAsync(() => switches.TurnOffAsync(name, UserName(user), ct));
         });
 
         return group;

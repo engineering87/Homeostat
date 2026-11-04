@@ -36,7 +36,7 @@ public static class HomeostatWebhookExtensions
             .ValidateOnStart();
 
         // The default HttpClient logging writes the request URL, and webhook URLs often carry a secret.
-        builder.Services.AddHttpClient(WebhookOptions.HttpClientName).RemoveAllLoggers();
+        builder.Services.AddHttpClient(WebhookOptions.HttpClientName).RemoveAllLoggers().ConfigurePrimaryHttpMessageHandler(HomeostatHttpHandlers.WithoutRedirects);
         builder.Services.TryAddSingleton(TimeProvider.System);
         builder.AddEventSink<WebhookSink>();
         return builder;

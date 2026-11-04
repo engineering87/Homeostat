@@ -153,8 +153,8 @@ internal sealed class TeamsSink : HttpEventSink
             : new JsonArray();
 
         var body = ArrayOf(
-            ObjectOf(("type", "TextBlock"), ("text", $"{e.Application}: {e.Kind}"), ("weight", "Bolder"), ("size", "Medium"), ("wrap", true)),
-            ObjectOf(("type", "TextBlock"), ("text", e.Summary), ("wrap", true)),
+            ObjectOf(("type", "TextBlock"), ("text", $"{Plain(e.Application)}: {e.Kind}"), ("weight", "Bolder"), ("size", "Medium"), ("wrap", true)),
+            ObjectOf(("type", "TextBlock"), ("text", Plain(e.Summary)), ("wrap", true)),
             ObjectOf(("type", "FactSet"), ("facts", facts)));
         if (e.Kind == HomeostatEventKind.ApprovalRequested && options.ApprovalCommand is { Length: > 0 } command && e.ApprovalId is { } approvalId)
         {
@@ -178,5 +178,25 @@ internal sealed class TeamsSink : HttpEventSink
     }
 
     private static JsonObject? Fact(string title, string? value)
-        => value is null ? null : ObjectOf(("title", title), ("value", value));
+        => value is null ? null : ObjectOf(("title", title), ("value", Plain(value)));
+
+    /// <summary>
+    /// Adaptive Cards render Markdown in text: texts that can come from outside (alert summaries) are escaped, so they
+    /// cannot add links or formatting to the card.
+    /// </summary>
+    internal static string Plain(string value)
+    {
+        var text = new System.Text.StringBuilder(value.Length);
+        foreach (var c in value)
+        {
+            if (c is '\\' or '[' or ']' or '(' or ')' or '*' or '_' or '`' or '#' or '~' or '>' or '<' or '!' or '|')
+            {
+                text.Append('\\');
+            }
+
+            text.Append(c);
+        }
+
+        return text.ToString();
+    }
 }

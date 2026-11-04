@@ -116,6 +116,18 @@ public static class HomeostatAlertEndpointExtensions
             return Results.Unauthorized();
         }
 
+        // Alert senders are servers. A browser can be made to post a form to these routes with the operator's
+        // cookies, but not with a JSON content type (that needs a CORS preflight) nor without Sec-Fetch-Site.
+        if (http.Request.Headers["Sec-Fetch-Site"].ToString() is "cross-site" or "same-site")
+        {
+            return HomeostatResults.Problem("Alerts cannot be posted from another site.", StatusCodes.Status403Forbidden);
+        }
+
+        if (!http.Request.HasJsonContentType())
+        {
+            return Results.StatusCode(StatusCodes.Status415UnsupportedMediaType);
+        }
+
         if (http.Request.ContentLength > options.MaxRequestBodySize)
         {
             return Results.StatusCode(StatusCodes.Status413PayloadTooLarge);

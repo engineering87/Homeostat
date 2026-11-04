@@ -113,7 +113,7 @@ internal sealed class HealingRunner
         var now = _timeProvider.GetUtcNow();
         if (_knownState.TryGetValue(key, out var known)
             && !(known.Held && (!_heldReadAt.TryGetValue(key, out var readAt) || now - readAt >= HeldRecheckInterval))
-            && Blocked(plan, known, now) is { } reason)
+            && Blocked(plan, known, now, describe: _logger.IsEnabled(LogLevel.Debug)) is { } reason)
         {
             _logger.LogDebug("Condition {Condition}: not starting, {Reason}.", name, reason);
             return false;
@@ -191,7 +191,8 @@ internal sealed class HealingRunner
             return cooldown;
         }
 
-        var max = plan.MaxCooldown ?? cooldown;
+        // The backoff only ever lengthens the cooldown, even with a maximum set below it.
+        var max = plan.MaxCooldown is { } configured && configured > cooldown ? configured : cooldown;
         var ticks = cooldown.Ticks * Math.Pow(plan.CooldownBackoff, Math.Min(state.ConsecutiveFailures, 64));
         return ticks >= max.Ticks ? max : TimeSpan.FromTicks((long)ticks);
     }
@@ -209,7 +210,8 @@ internal sealed class HealingRunner
         _logger.LogError(exception, message, condition);
     }
 
-    private string? Blocked(HealingPlan plan, PlanState state, DateTimeOffset now)
+    /// <summary>Why the plan cannot start now, or <c>null</c>; without <paramref name="describe"/>, a reason that is not formatted.</summary>
+    private string? Blocked(HealingPlan plan, PlanState state, DateTimeOffset now, bool describe = true)
     {
         if (state.Held)
         {
@@ -221,7 +223,7 @@ internal sealed class HealingRunner
             var cooldown = EffectiveCooldown(plan, state);
             if (now - ended < cooldown)
             {
-                return $"cooldown until {ended + cooldown:O}";
+                return describe ? $"cooldown until {ended + cooldown:O}" : "cooldown";
             }
         }
 
@@ -342,6 +344,10 @@ internal sealed class HealingRunner
             {
                 // Stopping, or the lease was lost anyway.
             }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Condition {Condition}: could not wait for the cooldown; releasing the cluster lease now.", name);
+            }
 
             try
             {
@@ -436,6 +442,22 @@ internal sealed class HealingRunner
                 _knownState[key] = update.ApplyTo(_knownState.TryGetValue(key, out var known) ? known : PlanState.Empty);
                 _logger.LogError(ex, "Condition {Condition}: could not save the plan state.", name);
                 saved = false;
+            }
+
+            // The condition cleared while the outcome was being saved: the reset that the clear wrote may have landed
+            // first, and this hold or failure count would then outlive the episode it belongs to.
+            if (saved && (update.Held == true || update.Failures == FailureCountChange.Increment)
+                && tracker.Snapshot().Status != ConditionStatus.Active)
+            {
+                try
+                {
+                    var reset = new PlanStateUpdate { Held = false, Failures = FailureCountChange.Reset, OnlyIfLastRunBy = _options.InstanceId };
+                    _knownState[key] = await _store.UpdatePlanStateAsync(key, reset, persistCts.Token).ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Condition {Condition}: cleared during the run, but its plan state could not be reset.", name);
+                }
             }
 
             try
@@ -680,7 +702,8 @@ internal sealed class HealingRunner
         return (HealingRunOutcome.NotHealed, false);
     }
 
-    private async Task<bool> TryUndoAsync(
+    /// <summary>Runs the compensating action: <c>true</c> or <c>false</c> as it completed or failed, <c>null</c> when it was not run.</summary>
+    private async Task<bool?> TryUndoAsync(
         HealingContext context,
         HealingStep step,
         Func<IServiceProvider, IHealingAction> resolveUndo,
@@ -693,7 +716,7 @@ internal sealed class HealingRunner
         {
             _logger.LogWarning("Condition {Condition}: {Action} did not heal, but {Undo} is not run: Homeostat is {Reason}.",
                 context.ConditionName, step.Name, step.UndoName, paused);
-            return false;
+            return null;
         }
 
         try
@@ -702,13 +725,13 @@ internal sealed class HealingRunner
                 _timeProvider.GetUtcNow(), _options.MaxActionsPerWindow, _options.ActionBudgetWindow, cancellationToken).ConfigureAwait(false))
             {
                 _logger.LogError("Condition {Condition}: action budget exhausted; compensating action {Undo} not run.", context.ConditionName, step.UndoName);
-                return false;
+                return null;
             }
         }
         catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
         {
             LogStoreFailure(context.ConditionName, ex, "Condition {Condition}: the store is unavailable; the compensating action is not run.");
-            return false;
+            return null;
         }
 
         var timeout = step.ActionTimeout ?? _options.DefaultActionTimeout;

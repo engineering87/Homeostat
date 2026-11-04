@@ -8,6 +8,9 @@ internal sealed class MetricWatch
 {
     private const int MaxSamples = 4096;
 
+    // Collections an observable series may miss before it is forgotten (its pool was disposed, a tag value changed).
+    private const int MaxMissedCollections = 10;
+
     private readonly object _gate = new();
     private readonly List<double> _samples = [];
     private long _count;
@@ -19,7 +22,7 @@ internal sealed class MetricWatch
 
     // Level of an up-down counter since the start (changes summed), and latest value of each observable series.
     private double _level;
-    private readonly Dictionary<string, double> _series = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, Series> _series = new(StringComparer.Ordinal);
     private InstrumentKind _kind;
 
     public MetricWatch(
@@ -107,15 +110,13 @@ internal sealed class MetricWatch
                 case InstrumentKind.ObservableCounter:
                 {
                     // Running total per series: count only the increment since the previous observation.
-                    var key = series ?? string.Empty;
-                    var previous = _series.TryGetValue(key, out var p) ? p : value;
-                    _series[key] = value;
+                    var previous = Observe(series, value);
                     value = value >= previous ? value - previous : value;   // a smaller total means a reset
                     break;
                 }
 
                 case InstrumentKind.ObservableUpDownCounter:
-                    _series[series ?? string.Empty] = value;
+                    Observe(series, value);
                     break;
             }
         }
@@ -187,6 +188,8 @@ internal sealed class MetricWatch
             _samples.Clear();
         }
 
+        // Every interval, so series that stopped reporting are forgotten whatever the statistic.
+        var seriesTotal = SeriesTotal();
         if (count < MinimumCount)
         {
             return null;
@@ -209,7 +212,7 @@ internal sealed class MetricWatch
             MetricStatistic.Last => _kind switch
             {
                 InstrumentKind.UpDownCounter => Volatile.Read(ref _level),
-                InstrumentKind.ObservableCounter or InstrumentKind.ObservableUpDownCounter => SeriesTotal(),
+                InstrumentKind.ObservableCounter or InstrumentKind.ObservableUpDownCounter => seriesTotal,
                 _ => last,
             },
             MetricStatistic.Ratio => (double)matches / count,
@@ -241,12 +244,62 @@ internal sealed class MetricWatch
         };
     }
 
+    // Caller holds the lock. Returns the series' previous value (this one for a new series).
+    private double Observe(string? series, double value)
+    {
+        var key = series ?? string.Empty;
+        if (!_series.TryGetValue(key, out var entry))
+        {
+            entry = new Series { Total = value };
+            _series[key] = entry;
+        }
+
+        var previous = entry.Total;
+        entry.Total = value;
+        entry.Seen = true;
+        entry.Missed = 0;
+        return previous;
+    }
+
+    /// <summary>
+    /// Latest value summed over the series observed in this interval: a series that stopped reporting no longer counts.
+    /// Series missing for several collections are forgotten.
+    /// </summary>
     private double SeriesTotal()
     {
         lock (_gate)
         {
-            return _series.Values.Sum();
+            var total = 0.0;
+            List<string>? stale = null;
+            foreach (var (key, entry) in _series)
+            {
+                if (entry.Seen)
+                {
+                    total += entry.Total;
+                    entry.Seen = false;
+                }
+                else if (++entry.Missed >= MaxMissedCollections)
+                {
+                    (stale ??= []).Add(key);
+                }
+            }
+
+            foreach (var key in stale ?? [])
+            {
+                _series.Remove(key);
+            }
+
+            return total;
         }
+    }
+
+    private sealed class Series
+    {
+        public double Total { get; set; }
+
+        public bool Seen { get; set; }
+
+        public int Missed { get; set; }
     }
 
     private static double Percentile(double[] samples, double quantile)

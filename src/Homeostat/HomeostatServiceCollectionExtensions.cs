@@ -48,7 +48,7 @@ public static class HomeostatServiceCollectionExtensions
             .Validate(o => o.MaxActionsPerWindow > 0, "MaxActionsPerWindow must be positive.")
             .Validate(o => o.ActionBudgetWindow > TimeSpan.Zero, "ActionBudgetWindow must be positive.")
             .Validate(o => o.MaxConcurrentHealings > 0, "MaxConcurrentHealings must be positive.")
-            .Validate(o => o.DefaultCooldown >= TimeSpan.Zero, "DefaultCooldown cannot be negative.")
+            .Validate(o => o.DefaultCooldown >= TimeSpan.Zero && o.DefaultCooldown <= Guardrails.TimerLimits.Max, "DefaultCooldown cannot be negative or longer than about 49 days.")
             .Validate(o => Guardrails.TimerLimits.IsValid(o.DefaultActionTimeout), "DefaultActionTimeout must be positive and at most about 49 days.")
             .Validate(o => Guardrails.TimerLimits.IsValid(o.DefaultVerificationTimeout), "DefaultVerificationTimeout must be positive and at most about 49 days.")
             .Validate(o => Guardrails.TimerLimits.IsValid(o.VerificationPollInterval), "VerificationPollInterval must be positive and at most about 49 days.")
@@ -59,7 +59,8 @@ public static class HomeostatServiceCollectionExtensions
             .Validate(o => !string.IsNullOrWhiteSpace(o.InstanceId), "InstanceId cannot be empty.")
             .Validate(o => Guardrails.TimerLimits.IsValid(o.ClusterLeaseDuration) && o.ClusterLeaseDuration >= TimeSpan.FromSeconds(1), "ClusterLeaseDuration must be at least one second.")
             .Validate(o => Guardrails.TimerLimits.IsValid(o.DetectionInterval), "DetectionInterval must be positive and at most about 49 days.")
-            .Validate(o => Guardrails.TimerLimits.IsValid(o.ControlRefreshInterval), "ControlRefreshInterval must be positive and at most about 49 days.");
+            .Validate(o => Guardrails.TimerLimits.IsValid(o.ControlRefreshInterval), "ControlRefreshInterval must be positive and at most about 49 days.")
+            .ValidateOnStart();
 
         services.TryAddSingleton(TimeProvider.System);
         services.TryAddSingleton<SignalChannel>();

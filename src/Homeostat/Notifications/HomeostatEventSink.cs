@@ -41,6 +41,31 @@ public interface IHomeostatEventSink
     Task WriteAsync(HomeostatEvent homeostatEvent, CancellationToken cancellationToken);
 }
 
+/// <summary>The queues of every registered sink, completed together when the application has stopped.</summary>
+internal sealed class EventSinkQueues
+{
+    private readonly List<ChannelWriter<HomeostatEvent>> _writers = [];
+
+    public void Add(ChannelWriter<HomeostatEvent> writer)
+    {
+        lock (_writers)
+        {
+            _writers.Add(writer);
+        }
+    }
+
+    public void CompleteAll()
+    {
+        lock (_writers)
+        {
+            foreach (var writer in _writers)
+            {
+                writer.TryComplete();
+            }
+        }
+    }
+}
+
 /// <summary>Queues the events for one <see cref="IHomeostatEventSink"/> and delivers them in the background.</summary>
 internal sealed class EventSinkHost<TSink> : BackgroundService, IHealingObserver, IHostedLifecycleService
     where TSink : class, IHomeostatEventSink
@@ -56,9 +81,18 @@ internal sealed class EventSinkHost<TSink> : BackgroundService, IHealingObserver
     private readonly string _name = typeof(TSink).Name;
     private int _droppedAfterStop;
 
-    public EventSinkHost(TSink sink, Microsoft.Extensions.Options.IOptions<HomeostatOptions> options, TimeProvider timeProvider, ILogger<EventSinkHost<TSink>> logger)
+    private readonly EventSinkQueues _queues;
+
+    public EventSinkHost(
+        TSink sink,
+        EventSinkQueues queues,
+        Microsoft.Extensions.Options.IOptions<HomeostatOptions> options,
+        TimeProvider timeProvider,
+        ILogger<EventSinkHost<TSink>> logger)
     {
         _sink = sink;
+        _queues = queues;
+        queues.Add(_queue.Writer);
         _events = new HomeostatEventFactory(options.Value.ApplicationName, timeProvider);
         _kinds = new HashSet<HomeostatEventKind>(sink.Events ?? Enum.GetValues<HomeostatEventKind>());
         _logger = logger;
@@ -97,8 +131,10 @@ internal sealed class EventSinkHost<TSink> : BackgroundService, IHealingObserver
     /// <inheritdoc />
     async Task IHostedLifecycleService.StoppedAsync(CancellationToken cancellationToken)
     {
-        // Every hosted service, the engine included, has stopped: no more events will come.
-        _queue.Writer.TryComplete();
+        // Every hosted service, the engine included, has stopped: no more events will come. Every sink's queue is
+        // completed now, so all of them drain at the same time: one slow sink does not use up the shutdown timeout
+        // of the sinks the host stops after it.
+        _queues.CompleteAll();
 
         using var registration = cancellationToken.Register(static state => ((CancellationTokenSource)state!).Cancel(), _abort);
         if (ExecuteTask is { } loop)

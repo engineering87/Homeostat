@@ -78,6 +78,10 @@ at or after `SustainedFor`. A slow signal period therefore **delays** activation
 `SustainedFor`. With health checks every 30 seconds and `SustainedFor(30s)`, the condition activates on
 the second unhealthy check at the earliest; with checks every 60 seconds, after a full minute.
 
+A source that goes quiet does not keep the window open: when two triggering signals are more than twice
+`SustainedFor` apart (at least five minutes), the window starts again at the later one, so two isolated blips an hour
+apart never activate the condition.
+
 ### How long recovery must last: `ClearAfter` (hysteresis)
 
 A component that is recovering often alternates between good and bad answers. Without hysteresis the

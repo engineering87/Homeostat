@@ -264,12 +264,15 @@ public class SharedControlTests
         var path = Path.Combine(Path.GetTempPath(), $"homeostat-{Guid.NewGuid():N}.json");
         try
         {
-            var first = new FileHomeostatStore(path);
-            await first.SetPauseAsync(new PauseState { By = "on-call", At = DateTimeOffset.UtcNow });
-            await first.SetSwitchAsync("serve-cached-forecast", new SwitchState { Name = "serve-cached-forecast", At = DateTimeOffset.UtcNow });
-            await first.SetSwitchAsync("degrade", new SwitchState { Name = "degrade", Condition = "feed-down", At = DateTimeOffset.UtcNow });
+            using (var first = new FileHomeostatStore(path))
+            {
+                await first.SetPauseAsync(new PauseState { By = "on-call", At = DateTimeOffset.UtcNow });
+                await first.SetSwitchAsync("serve-cached-forecast", new SwitchState { Name = "serve-cached-forecast", At = DateTimeOffset.UtcNow });
+                await first.SetSwitchAsync("degrade", new SwitchState { Name = "degrade", Condition = "feed-down", At = DateTimeOffset.UtcNow });
+            }
 
-            var state = await new FileHomeostatStore(path).GetControlStateAsync();
+            using var reopened = new FileHomeostatStore(path);
+            var state = await reopened.GetControlStateAsync();
             Assert.Equal("on-call", state.Pause?.By);
             Assert.Equal("serve-cached-forecast", Assert.Single(state.Switches).Name);   // the plan's switch is not kept
         }
@@ -304,7 +307,7 @@ public class SharedControlTests
         var run = await host.WaitForRunAsync("feed-down");
 
         Assert.Equal(0, undone);
-        Assert.False(run.Steps[0].UndoSucceeded);
+        Assert.Null(run.Steps[0].UndoSucceeded);   // skipped, not failed
     }
 
     /// <summary>An operator pauses Homeostat while the step is being verified, and the step did not help.</summary>

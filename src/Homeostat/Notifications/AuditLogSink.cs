@@ -31,7 +31,7 @@ internal sealed class AuditLogSink : IHomeostatEventSink
     public async Task WriteAsync(HomeostatEvent homeostatEvent, CancellationToken cancellationToken)
     {
         var path = System.IO.Path.GetFullPath(
-            _pathTemplate.Replace("{date}", homeostatEvent.Timestamp.UtcDateTime.ToString("yyyy-MM-dd"), StringComparison.Ordinal));
+            _pathTemplate.Replace("{date}", homeostatEvent.Timestamp.UtcDateTime.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture), StringComparison.Ordinal));
 
         var directory = System.IO.Path.GetDirectoryName(path);
         if (!string.IsNullOrEmpty(directory))
