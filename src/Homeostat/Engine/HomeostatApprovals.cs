@@ -50,7 +50,8 @@ internal sealed class HomeostatApprovals : IHomeostatApprovals
         _waiting[request.Id] = entry;
         try
         {
-            await _shared.Store.AddApprovalAsync(new ApprovalRecord { Request = request, Instance = _instance }, cancellationToken).ConfigureAwait(false);
+            var record = new ApprovalRecord { Request = request, Instance = _instance };
+            await SharedControl.Bounded(() => _shared.Store.AddApprovalAsync(record, cancellationToken), SharedControl.WriteTimeout, cancellationToken).ConfigureAwait(false);
         }
         catch
         {
@@ -74,7 +75,9 @@ internal sealed class HomeostatApprovals : IHomeostatApprovals
         {
             if (string.Equals(entry.Request.ConditionName, condition, StringComparison.Ordinal))
             {
-                _ = CloseAsync(id, ApprovalStatus.Canceled);
+                // Called on the engine loop (a condition cleared) and on configuration reloads: never wait there for
+                // the store, which may block before returning its task.
+                _ = Task.Run(() => CloseAsync(id, ApprovalStatus.Canceled), CancellationToken.None);
             }
         }
     }
@@ -84,7 +87,7 @@ internal sealed class HomeostatApprovals : IHomeostatApprovals
     {
         try
         {
-            await _shared.Store.RemoveApprovalAsync(id, CancellationToken.None).ConfigureAwait(false);
+            await SharedControl.Bounded(() => _shared.Store.RemoveApprovalAsync(id, CancellationToken.None), SharedControl.WriteTimeout, CancellationToken.None).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
@@ -98,7 +101,7 @@ internal sealed class HomeostatApprovals : IHomeostatApprovals
         ArgumentException.ThrowIfNullOrWhiteSpace(id);
 
         // An expired request is no longer waited for, even if its instance could not record that in the store.
-        var state = await _shared.Store.GetControlStateAsync(cancellationToken).ConfigureAwait(false);
+        var state = await SharedControl.Bounded(() => _shared.Store.GetControlStateAsync(cancellationToken), SharedControl.ReadTimeout, cancellationToken).ConfigureAwait(false);
         if (state.Approvals.FirstOrDefault(a => string.Equals(a.Request.Id, id, StringComparison.Ordinal)) is not { Status: null } pending
             || pending.Request.ExpiresAt <= _timeProvider.GetUtcNow())
         {
@@ -106,7 +109,7 @@ internal sealed class HomeostatApprovals : IHomeostatApprovals
         }
 
         // Whoever answers first in the store wins: an answer racing with expiry is either applied or reported as not found.
-        if (!await _shared.Store.TryResolveApprovalAsync(id, status, by, cancellationToken).ConfigureAwait(false))
+        if (!await SharedControl.Bounded(() => _shared.Store.TryResolveApprovalAsync(id, status, by, cancellationToken), SharedControl.WriteTimeout, cancellationToken).ConfigureAwait(false))
         {
             return false;
         }
@@ -129,14 +132,14 @@ internal sealed class HomeostatApprovals : IHomeostatApprovals
 
         try
         {
-            if (await _shared.Store.TryResolveApprovalAsync(id, status, null, CancellationToken.None).ConfigureAwait(false))
+            if (await SharedControl.Bounded(() => _shared.Store.TryResolveApprovalAsync(id, status, null, CancellationToken.None), SharedControl.WriteTimeout, CancellationToken.None).ConfigureAwait(false))
             {
                 Complete(id, status, null);
                 return;
             }
 
             // Someone answered first: take that answer from the store.
-            var state = await _shared.Store.GetControlStateAsync(CancellationToken.None).ConfigureAwait(false);
+            var state = await SharedControl.Bounded(() => _shared.Store.GetControlStateAsync(CancellationToken.None), SharedControl.ReadTimeout, CancellationToken.None).ConfigureAwait(false);
             if (state.Approvals.FirstOrDefault(a => a.Request.Id == id) is { Status: { } answer } record)
             {
                 Complete(id, answer, record.ResolvedBy);

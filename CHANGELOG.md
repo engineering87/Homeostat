@@ -46,7 +46,24 @@ Failure isolation: Homeostat, or its store, failing must never block the applica
 - Detectors: a detector that hangs is skipped until its call returns, instead of piling up calls; failures are logged
   once and then at debug level while they continue.
 - Call and HTTP counters saturate instead of overflowing.
-- Each alert source tracks at most 1,000 firing series.
+- Bounded memory whatever the load: each alert source tracks at most 1,000 firing series (10,000 in all), an
+  observable metric at most 10,000 tag combinations, and a trend, projection or anomaly window about 8,192 points (a
+  faster source keeps the latest value of each interval). See [Performance](docs/performance.md#memory).
+- MongoDB: a closed client no longer counts toward the deployment's state.
+- A pause or a switch turned off applies to the instance before the store is even tried, never waits behind a slow
+  refresh, and is not lost when the caller gives up (an aborted request); deferred changes are written in parallel.
+  A resume that fails no longer drops a pause still waiting to be written. The control endpoints wait up to 15
+  seconds, longer than a store write, so a deferred change answers `204`.
+- A switch claimed by a cluster plan after its step timed out is released instead of staying on unowned; a renewal
+  that races with a release no longer turns the switch back on.
+- If the engine stops unexpectedly, the switches its conditions turned on are turned off.
+- Approval requests are withdrawn off the engine loop, and every store call of a healing run and of the approvals is
+  bounded. The periodic refresh and the health check never start a second read while one abandoned at its timeout
+  still runs.
+- A verifier abandoned at its timeout and still running is not started again.
+- `RestartHostedService` waits a bounded time for a stop that ignores its token, and does not start the service
+  again while the application is stopping.
+- A pausable consumer that blocks before returning its task no longer holds its gate beyond the timeout.
 - Seasonal baselines and the signal recorder no longer delay or fail shutdown when the store does not answer.
 
 ## [1.0.0-rc.1] - 2026-11-02

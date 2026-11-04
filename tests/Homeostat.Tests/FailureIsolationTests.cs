@@ -1,9 +1,12 @@
+using System.Diagnostics;
+using Homeostat.Consumers;
 using Homeostat.Healing;
 using Homeostat.Persistence;
 using Homeostat.Signals;
 using Homeostat.Testing;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Diagnostics.HealthChecks;
 
 namespace Homeostat.Tests;
 
@@ -80,10 +83,8 @@ public class FailureIsolationTests
                 Assert.Contains((await store.GetControlStateAsync()).Switches, s => s.Name == "serve-cached");
             }
 
-            // Instance a stopped (or crashed) with its condition still active: nobody would turn the switch off.
-            await RefreshAsync(b);
-            Assert.True(b.Switches.IsOn("serve-cached"));
-
+            // Instance a stopped (or crashed) with its condition still active: nobody would turn the switch off. Instance
+            // b does, once the switch is no longer renewed (at once if a marked it abandoned when it stopped).
             b.Time.Advance(TimeSpan.FromMinutes(2));
             await RefreshAsync(b);
             await ((HomeostatSwitches)b.Switches).MaintainOwnershipAsync(CancellationToken.None);
@@ -172,6 +173,187 @@ public class FailureIsolationTests
 
         Assert.Empty(host.Control.GetConditions());
         Assert.True(host.Publish("feed", SignalSeverity.Unhealthy));
+    }
+
+    [Fact]
+    public async Task A_consumer_whose_pause_hangs_is_resumed_once_the_call_returns()
+    {
+        var consumer = new HangingConsumer("ingest");
+        await using var host = await HomeostatTestHost.StartAsync(h => h.AddPausableConsumer(_ => consumer));
+        var consumers = host.Services.GetRequiredService<IHomeostatConsumers>();
+        var paused = ConsumerSwitches.Paused("ingest");
+
+        host.Switches.TurnOn(paused);
+        await PollyControlTests.WaitUntilAsync(() => consumer.PauseCalls == 1);
+
+        // The pause blocks past its timeout: the state is unknown. Then the problem clears.
+        host.Time.Advance(HomeostatConsumers.CallTimeout + TimeSpan.FromSeconds(1));
+        host.Switches.TurnOff(paused);
+
+        consumer.Release();
+        await PollyControlTests.WaitUntilAsync(() =>
+        {
+            host.Time.Advance(TimeSpan.FromSeconds(10));   // past the retry delays
+            return consumer.ResumeCalls >= 1;
+        });
+        Assert.False(consumers.IsPaused("ingest"));
+    }
+
+    [Fact]
+    public async Task The_health_check_answers_in_time_when_the_store_blocks_its_caller()
+    {
+        var store = new BlockingStore();
+        try
+        {
+            await using var host = await HomeostatTestHost.StartAsync(
+                h => h.UseStore(_ => store),
+                services => services.AddHealthChecks().AddHomeostatCheck());
+
+            var watch = Stopwatch.StartNew();
+            var report = await host.Services.GetRequiredService<HealthCheckService>().CheckHealthAsync();
+            Assert.True(watch.Elapsed < TimeSpan.FromSeconds(3), $"the health check took {watch.Elapsed}");
+            Assert.NotEqual(HealthStatus.Unhealthy, report.Entries["homeostat"].Status);
+        }
+        finally
+        {
+            store.Unblock();
+        }
+    }
+
+    [Fact]
+    public async Task A_switch_claimed_after_its_step_timed_out_is_released()
+    {
+        var store = new SlowClaimStore();
+        await using var host = await StartInstanceAsync("a", store, h => h
+            .Configure(o => o.DryRun = false)
+            .AddCondition("feed-down", c => c.ForSource("feed")
+                .Heal(p => p.TurnOnSwitch("serve-cached").ActionTimeout(TimeSpan.FromSeconds(1)).OncePerCluster())));
+
+        host.Publish("feed", SignalSeverity.Unhealthy);
+        var run = await host.WaitForRunAsync("feed-down");
+        Assert.False(Assert.Single(run.Steps).Succeeded);
+
+        // The store takes the claim only now, long after the step gave up: nobody owns it, so it must not stay on.
+        store.Claims.Set();
+        await PollyControlTests.WaitUntilAsync(() => store.Claimed);
+        await PollyControlTests.WaitUntilAsync(() => !store.GetControlStateAsync().AsTask().Result.Switches.Any(s => s.Name == "serve-cached"));
+    }
+
+    /// <summary>A store that holds switch claims until told to take them, as a store that answers late.</summary>
+    private sealed class SlowClaimStore : IHomeostatStore
+    {
+        private readonly InMemoryHomeostatStore _inner = new();
+
+        public ManualResetEventSlim Claims { get; } = new(false);
+
+        public volatile bool Claimed;
+
+        public ValueTask<PlanState> GetPlanStateAsync(string key, CancellationToken cancellationToken = default) => _inner.GetPlanStateAsync(key, cancellationToken);
+
+        public ValueTask<PlanState> UpdatePlanStateAsync(string key, PlanStateUpdate update, CancellationToken cancellationToken = default) => _inner.UpdatePlanStateAsync(key, update, cancellationToken);
+
+        public ValueTask<bool> TryConsumeBudgetAsync(DateTimeOffset now, int limit, TimeSpan window, CancellationToken cancellationToken = default) => _inner.TryConsumeBudgetAsync(now, limit, window, cancellationToken);
+
+        public ValueTask<int> GetBudgetUsedAsync(DateTimeOffset now, TimeSpan window, CancellationToken cancellationToken = default) => _inner.GetBudgetUsedAsync(now, window, cancellationToken);
+
+        public ValueTask AppendRunAsync(HealingRunRecord run, int maxRuns, CancellationToken cancellationToken = default) => _inner.AppendRunAsync(run, maxRuns, cancellationToken);
+
+        public ValueTask<IReadOnlyList<HealingRunRecord>> GetRecentRunsAsync(int maxRuns, CancellationToken cancellationToken = default) => _inner.GetRecentRunsAsync(maxRuns, cancellationToken);
+
+        public ValueTask<ControlState> GetControlStateAsync(CancellationToken cancellationToken = default) => _inner.GetControlStateAsync(cancellationToken);
+
+        public ValueTask SetPauseAsync(PauseState? pause, CancellationToken cancellationToken = default) => _inner.SetPauseAsync(pause, cancellationToken);
+
+        public ValueTask SetSwitchAsync(string name, SwitchState? state, CancellationToken cancellationToken = default) => _inner.SetSwitchAsync(name, state, cancellationToken);
+
+        public async ValueTask<bool> TryClaimSwitchAsync(SwitchState state, CancellationToken cancellationToken = default)
+        {
+            await Task.Run(() => Claims.Wait(TimeSpan.FromSeconds(20)), CancellationToken.None);   // ignores the token
+            var claimed = await _inner.TryClaimSwitchAsync(state, CancellationToken.None);
+            Claimed = true;
+            return claimed;
+        }
+
+        public ValueTask<bool> TryReleaseSwitchAsync(string name, string condition, string? instance, CancellationToken cancellationToken = default)
+            => _inner.TryReleaseSwitchAsync(name, condition, instance, cancellationToken);
+
+        public ValueTask AddApprovalAsync(ApprovalRecord approval, CancellationToken cancellationToken = default) => _inner.AddApprovalAsync(approval, cancellationToken);
+
+        public ValueTask<bool> TryResolveApprovalAsync(string id, ApprovalStatus status, string? resolvedBy, CancellationToken cancellationToken = default)
+            => _inner.TryResolveApprovalAsync(id, status, resolvedBy, cancellationToken);
+
+        public ValueTask RemoveApprovalAsync(string id, CancellationToken cancellationToken = default) => _inner.RemoveApprovalAsync(id, cancellationToken);
+    }
+
+    private sealed class HangingConsumer(string name) : IPausableConsumer
+    {
+        private readonly ManualResetEventSlim _block = new(false);
+        private int _pauses;
+        private int _resumes;
+
+        public string Name { get; } = name;
+
+        public int PauseCalls => Volatile.Read(ref _pauses);
+
+        public int ResumeCalls => Volatile.Read(ref _resumes);
+
+        public void Release() => _block.Set();
+
+        public Task PauseAsync(CancellationToken cancellationToken)
+        {
+            // Blocks before returning its task, and ignores the token: the worst a consumer can do.
+            if (Interlocked.Increment(ref _pauses) == 1)
+            {
+                _block.Wait(TimeSpan.FromSeconds(30));
+            }
+
+            return Task.CompletedTask;
+        }
+
+        public Task ResumeAsync(CancellationToken cancellationToken)
+        {
+            Interlocked.Increment(ref _resumes);
+            return Task.CompletedTask;
+        }
+    }
+
+    /// <summary>A store whose reads block the calling thread (a synchronous client behind an async signature).</summary>
+    private sealed class BlockingStore : IHomeostatStore
+    {
+        private readonly InMemoryHomeostatStore _inner = new();
+        private readonly ManualResetEventSlim _gate = new(false);
+
+        public void Unblock() => _gate.Set();
+
+        private void Block() => _gate.Wait(TimeSpan.FromSeconds(30));
+
+        public ValueTask<PlanState> GetPlanStateAsync(string key, CancellationToken cancellationToken = default) { Block(); return _inner.GetPlanStateAsync(key, cancellationToken); }
+
+        public ValueTask<PlanState> UpdatePlanStateAsync(string key, PlanStateUpdate update, CancellationToken cancellationToken = default) { Block(); return _inner.UpdatePlanStateAsync(key, update, cancellationToken); }
+
+        public ValueTask<bool> TryConsumeBudgetAsync(DateTimeOffset now, int limit, TimeSpan window, CancellationToken cancellationToken = default) { Block(); return _inner.TryConsumeBudgetAsync(now, limit, window, cancellationToken); }
+
+        public ValueTask<int> GetBudgetUsedAsync(DateTimeOffset now, TimeSpan window, CancellationToken cancellationToken = default) { Block(); return _inner.GetBudgetUsedAsync(now, window, cancellationToken); }
+
+        public ValueTask AppendRunAsync(HealingRunRecord run, int maxRuns, CancellationToken cancellationToken = default) { Block(); return _inner.AppendRunAsync(run, maxRuns, cancellationToken); }
+
+        public ValueTask<IReadOnlyList<HealingRunRecord>> GetRecentRunsAsync(int maxRuns, CancellationToken cancellationToken = default) { Block(); return _inner.GetRecentRunsAsync(maxRuns, cancellationToken); }
+
+        public ValueTask<ControlState> GetControlStateAsync(CancellationToken cancellationToken = default) { Block(); return _inner.GetControlStateAsync(cancellationToken); }
+
+        public ValueTask SetPauseAsync(PauseState? pause, CancellationToken cancellationToken = default) { Block(); return _inner.SetPauseAsync(pause, cancellationToken); }
+
+        public ValueTask SetSwitchAsync(string name, SwitchState? state, CancellationToken cancellationToken = default) { Block(); return _inner.SetSwitchAsync(name, state, cancellationToken); }
+
+        public ValueTask<bool> TryClaimSwitchAsync(SwitchState state, CancellationToken cancellationToken = default) { Block(); return _inner.TryClaimSwitchAsync(state, cancellationToken); }
+
+        public ValueTask<bool> TryReleaseSwitchAsync(string name, string condition, string? instance, CancellationToken cancellationToken = default) { Block(); return _inner.TryReleaseSwitchAsync(name, condition, instance, cancellationToken); }
+
+        public ValueTask AddApprovalAsync(ApprovalRecord approval, CancellationToken cancellationToken = default) { Block(); return _inner.AddApprovalAsync(approval, cancellationToken); }
+
+        public ValueTask<bool> TryResolveApprovalAsync(string id, ApprovalStatus status, string? resolvedBy, CancellationToken cancellationToken = default) { Block(); return _inner.TryResolveApprovalAsync(id, status, resolvedBy, cancellationToken); }
+
+        public ValueTask RemoveApprovalAsync(string id, CancellationToken cancellationToken = default) { Block(); return _inner.RemoveApprovalAsync(id, cancellationToken); }
     }
 
     /// <summary>An in-memory store whose control state can become unreachable, as during a network outage.</summary>

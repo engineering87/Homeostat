@@ -554,7 +554,7 @@ policy. Bodies are limited to 1 MiB, 500 alerts per request and 1000 tracked sou
 | `DefaultSeverity` | `Degraded` | Severity of other firing alerts and of alerts without the label; `Degraded` or `Unhealthy` |
 | `GrafanaValueKey` | none | Grafana query whose value becomes the signal value, for example `"B"` |
 | `FiringTimeToLive` | 12 hours | Time after which a firing series that is not notified again counts as resolved |
-| `MaxTrackedSources` | 1000 | Distinct sources tracked; alerts for further sources are skipped (each source tracks at most 1,000 firing series) |
+| `MaxTrackedSources` | 1000 | Distinct sources tracked; alerts for further sources are skipped (each source tracks at most 1,000 firing series, and all sources together 10,000) |
 | `MaxRequestBodySize` | 1 MiB | Largest body accepted, in bytes (at least 1024) |
 | `MaxAlertsPerRequest` | 500 | Alerts accepted per request; the rest are skipped |
 

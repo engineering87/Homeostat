@@ -29,6 +29,12 @@ internal sealed class SharedControl
     private readonly IHomeostatStore _store;
     private readonly ILogger<SharedControl> _logger;
     private readonly SemaphoreSlim _refreshing = new(1, 1);
+
+    // Guards replacing the view: never held across a store call, so a change made here applies at once.
+    private readonly object _viewGate = new();
+    private long _reads;
+    private Task<ControlState>? _pendingRead;   // guarded by _refreshing
+    private long _pendingReadNumber;
     private readonly ConcurrentQueue<(ControlState Previous, ControlState Next)> _changes = new();
     private int _dispatching;
     private bool _readFailing;
@@ -64,9 +70,20 @@ internal sealed class SharedControl
         try
         {
             ControlState next;
+            long read;
             try
             {
-                next = Validate(await Bounded(() => _store.GetControlStateAsync(cancellationToken), ReadTimeout, cancellationToken).ConfigureAwait(false));
+                // One read at a time: while a read abandoned at its timeout still runs (a store blocked on I/O), the
+                // refresh waits for it instead of starting another every few seconds, which would pile up threads.
+                if (_pendingRead is not { IsCompleted: false })
+                {
+                    // Changes written after this point may be missing from what the read returns: they stay applied on top.
+                    _pendingReadNumber = Interlocked.Increment(ref _reads);
+                    _pendingRead = Task.Run(() => _store.GetControlStateAsync(CancellationToken.None).AsTask(), CancellationToken.None);
+                }
+
+                read = _pendingReadNumber;
+                next = Validate(await _pendingRead.WaitAsync(ReadTimeout, cancellationToken).ConfigureAwait(false));
             }
             catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
             {
@@ -90,8 +107,12 @@ internal sealed class SharedControl
                 _logger.LogInformation("The Homeostat control state can be read from the store again.");
             }
 
-            next = await WriteDeferredAsync(next, cancellationToken).ConfigureAwait(false);
-            Replace(next);
+            await WriteDeferredAsync(next, read).ConfigureAwait(false);
+            lock (_viewGate)
+            {
+                Replace(ApplyPending(next, read));
+            }
+
             return true;
         }
         finally
@@ -102,10 +123,14 @@ internal sealed class SharedControl
     }
 
     /// <summary>
-    /// Applies a change in the safe direction (a pause, a switch turned off, a release): written to the store when it
-    /// answers in time; otherwise applied to this instance at once and written at every refresh until the store takes
-    /// it, unless the store shows a newer decision first (<paramref name="superseded"/>).
+    /// Applies a change in the safe direction (a pause, a switch turned off, a release): at once to this instance,
+    /// whatever the store does, then written to the store; a change the store does not take in time is written again at
+    /// every refresh until it does, unless the store shows a newer decision first (<paramref name="superseded"/>).
     /// </summary>
+    /// <remarks>
+    /// The caller's token is not used for the write: a caller that gives up (a request aborted while the store is slow)
+    /// must not lose a change that makes Homeostat do less. The wait is bounded by <see cref="WriteTimeout"/>.
+    /// </remarks>
     /// <returns><c>true</c> if the store took the change now; <c>false</c> if it is deferred.</returns>
     public async Task<bool> ChangeOrDeferAsync(
         string key,
@@ -114,32 +139,37 @@ internal sealed class SharedControl
         Func<ControlState, bool> superseded,
         CancellationToken cancellationToken)
     {
-        _deferred.TryRemove(key, out _);
-        try
+        _ = cancellationToken;
+        var deferred = new Deferred(change, apply, superseded);
+        lock (_viewGate)
         {
-            await Bounded(() => change(_store, cancellationToken), WriteTimeout, cancellationToken).ConfigureAwait(false);
+            // Registered before the view changes, so a refresh that read the store earlier applies it on top too.
+            _deferred[key] = deferred;
+            if (_view is not null)
+            {
+                Replace(apply(Current));
+            }
         }
-        catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
+
+        Dispatch();
+        if (!await TryWriteAsync(key, deferred).ConfigureAwait(false))
         {
-            _logger.LogWarning(ex, "The Homeostat store did not take a change ({Change}): it applies to this instance now and is retried at every refresh.", key);
-            _deferred[key] = new Deferred(change, apply, superseded);
-            await ApplyLocallyAsync(apply).ConfigureAwait(false);
+            _logger.LogWarning("The Homeostat store did not take a change ({Change}): it applies to this instance now and is retried at every refresh.", key);
             return false;
         }
 
-        try
+        // Read back in the background: the view already shows the change, and the caller does not wait for a refresh.
+        _ = Task.Run(async () =>
         {
-            if (await TryRefreshAsync(cancellationToken).ConfigureAwait(false))
+            try
             {
-                return true;
+                await TryRefreshAsync(CancellationToken.None).ConfigureAwait(false);
             }
-        }
-        catch (OperationCanceledException)
-        {
-            // Applied locally below.
-        }
-
-        await ApplyLocallyAsync(apply).ConfigureAwait(false);
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "Reading back the Homeostat control state failed.");
+            }
+        }, CancellationToken.None);
         return true;
     }
 
@@ -147,59 +177,88 @@ internal sealed class SharedControl
     public void Forget(string key) => _deferred.TryRemove(key, out _);
 
     /// <summary>Whether changes wait to be written to the store.</summary>
-    public bool HasDeferredChanges => !_deferred.IsEmpty;
+    public bool HasDeferredChanges => _deferred.Values.Any(d => d.WrittenBefore is null);
 
-    private async Task ApplyLocallyAsync(Func<ControlState, ControlState> apply)
+    // Writes one change; on success, records which reads may still miss it.
+    private async Task<bool> TryWriteAsync(string key, Deferred deferred)
     {
-        await _refreshing.WaitAsync(CancellationToken.None).ConfigureAwait(false);
         try
         {
-            // Never read yet: nothing to apply to (and an unknown state already counts as paused, with no switch on).
-            if (_view is not null)
-            {
-                Replace(apply(Current));
-            }
+            await Bounded(() => deferred.Change(_store, CancellationToken.None), WriteTimeout, CancellationToken.None).ConfigureAwait(false);
         }
-        finally
+        catch (Exception ex)
         {
-            _refreshing.Release();
-            Dispatch();
+            _logger.LogDebug(ex, "Writing a Homeostat change ({Change}) failed.", key);
+            return false;
         }
+
+        // A read that starts from now on sees it; earlier ones may not.
+        deferred.WrittenBefore = Volatile.Read(ref _reads) + 1;
+        return true;
     }
 
-    // Under _refreshing, after a successful read: write what was deferred, and keep applying what is still waiting.
-    private async Task<ControlState> WriteDeferredAsync(ControlState state, CancellationToken cancellationToken)
+    // Under _refreshing, after a successful read: writes what is still waiting (in parallel, so a slow store costs one
+    // write timeout per refresh, not one per change), and drops what a newer decision replaced.
+    private async Task WriteDeferredAsync(ControlState state, long read)
     {
+        var writes = new List<Task>();
         foreach (var (key, deferred) in _deferred)
         {
-            if (deferred.Superseded(state))
+            if (deferred.Superseded(state) || deferred.WrittenBefore is { } before && read >= before)
             {
+                // Replaced by a newer decision, or written and visible in this read.
                 _deferred.TryRemove(new KeyValuePair<string, Deferred>(key, deferred));
                 continue;
             }
 
-            try
+            if (deferred.WrittenBefore is null && !deferred.Withdrawn)
             {
-                await Bounded(() => deferred.Change(_store, cancellationToken), WriteTimeout, cancellationToken).ConfigureAwait(false);
-                _deferred.TryRemove(new KeyValuePair<string, Deferred>(key, deferred));
+                writes.Add(WriteOneAsync(key, deferred));
+            }
+        }
+
+        await Task.WhenAll(writes).ConfigureAwait(false);
+
+        async Task WriteOneAsync(string key, Deferred deferred)
+        {
+            if (await TryWriteAsync(key, deferred).ConfigureAwait(false))
+            {
                 _logger.LogInformation("A deferred Homeostat change ({Change}) was written to the store.", key);
             }
-            catch (Exception) when (!cancellationToken.IsCancellationRequested)
-            {
-                // Still waiting: tried again at the next refresh.
-            }
+        }
+    }
 
-            // Read before the write: apply it on top either way.
-            state = deferred.Apply(state);
+    // Under _viewGate: what a read may not show yet (deferred, or written after the read started) applies on top.
+    private ControlState ApplyPending(ControlState state, long read)
+    {
+        foreach (var deferred in _deferred.Values)
+        {
+            if (deferred.WrittenBefore is not { } before || read < before)
+            {
+                state = deferred.Apply(state);
+            }
         }
 
         return state;
     }
 
-    private sealed record Deferred(
-        Func<IHomeostatStore, CancellationToken, ValueTask> Change,
-        Func<ControlState, ControlState> Apply,
-        Func<ControlState, bool> Superseded);
+    private sealed class Deferred(
+        Func<IHomeostatStore, CancellationToken, ValueTask> change,
+        Func<ControlState, ControlState> apply,
+        Func<ControlState, bool> superseded)
+    {
+        public Func<IHomeostatStore, CancellationToken, ValueTask> Change { get; } = change;
+
+        public Func<ControlState, ControlState> Apply { get; } = apply;
+
+        public Func<ControlState, bool> Superseded { get; } = superseded;
+
+        /// <summary>Set once written: reads numbered from this value on include it.</summary>
+        public long? WrittenBefore { get; set; }
+
+        /// <summary>A newer decision about the same thing is being written: not written meanwhile.</summary>
+        public volatile bool Withdrawn;
+    }
 
     /// <summary>
     /// Applies a change to the store, then refreshes the view. Store failures reach the caller. When the change was
@@ -212,12 +271,32 @@ internal sealed class SharedControl
         CancellationToken cancellationToken,
         string? key = null)
     {
-        await Bounded(() => change(_store, cancellationToken), WriteTimeout, cancellationToken).ConfigureAwait(false);
-
-        // Written: a deferred change of the same thing is older, and must not be written after it.
-        if (key is not null)
+        // A newer decision about the same thing: an older deferred change must not be written after it, so it is held
+        // back while this write runs, and dropped once it succeeds. If this write fails, the older change still stands
+        // (a resume that did not reach the store must not end a pause that is waiting to be written).
+        Deferred? older = null;
+        if (key is not null && _deferred.TryGetValue(key, out older))
         {
-            _deferred.TryRemove(key, out _);
+            older.Withdrawn = true;
+        }
+
+        try
+        {
+            await Bounded(() => change(_store, cancellationToken), WriteTimeout, cancellationToken).ConfigureAwait(false);
+        }
+        catch
+        {
+            if (older is not null)
+            {
+                older.Withdrawn = false;
+            }
+
+            throw;
+        }
+
+        if (older is not null)
+        {
+            _deferred.TryRemove(new KeyValuePair<string, Deferred>(key!, older));
         }
 
         bool refreshed;
@@ -235,8 +314,7 @@ internal sealed class SharedControl
             return;
         }
 
-        await _refreshing.WaitAsync(CancellationToken.None).ConfigureAwait(false);
-        try
+        lock (_viewGate)
         {
             // Never read yet: the rest of the state (a pause above all) is still unknown, so it stays unknown.
             if (_view is not null)
@@ -244,11 +322,8 @@ internal sealed class SharedControl
                 Replace(apply(Current));
             }
         }
-        finally
-        {
-            _refreshing.Release();
-            Dispatch();
-        }
+
+        Dispatch();
     }
 
     /// <summary>
@@ -290,7 +365,7 @@ internal sealed class SharedControl
         return state;
     }
 
-    // Under _refreshing: the queue keeps the changes in the order they happened.
+    // Under _viewGate: the queue keeps the changes in the order they happened.
     private void Replace(ControlState next)
     {
         var previous = Current;

@@ -161,7 +161,7 @@ internal sealed class HealingRunner
         {
             try
             {
-                _knownState[key] = await _store.UpdatePlanStateAsync(key, update, CancellationToken.None).ConfigureAwait(false);
+                _knownState[key] = await SharedControl.Bounded(() => _store.UpdatePlanStateAsync(key, update, CancellationToken.None), SharedControl.WriteTimeout, CancellationToken.None).ConfigureAwait(false);
             }
             catch (Exception ex)
             {
@@ -262,7 +262,7 @@ internal sealed class HealingRunner
             PlanState state;
             try
             {
-                state = await _store.GetPlanStateAsync(key, cancellationToken).ConfigureAwait(false);
+                state = await SharedControl.Bounded(() => _store.GetPlanStateAsync(key, cancellationToken), SharedControl.WriteTimeout, cancellationToken).ConfigureAwait(false);
             }
             catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
             {
@@ -446,7 +446,7 @@ internal sealed class HealingRunner
 
             try
             {
-                _knownState[key] = await _store.UpdatePlanStateAsync(key, update, persistCts.Token).ConfigureAwait(false);
+                _knownState[key] = await SharedControl.Bounded(() => _store.UpdatePlanStateAsync(key, update, persistCts.Token), SharedControl.WriteTimeout, persistCts.Token).ConfigureAwait(false);
             }
             catch (Exception ex)
             {
@@ -464,7 +464,7 @@ internal sealed class HealingRunner
                 try
                 {
                     var reset = new PlanStateUpdate { Held = false, Failures = FailureCountChange.Reset, OnlyIfLastRunBy = _options.InstanceId };
-                    _knownState[key] = await _store.UpdatePlanStateAsync(key, reset, persistCts.Token).ConfigureAwait(false);
+                    _knownState[key] = await SharedControl.Bounded(() => _store.UpdatePlanStateAsync(key, reset, persistCts.Token), SharedControl.WriteTimeout, persistCts.Token).ConfigureAwait(false);
                 }
                 catch (Exception ex)
                 {
@@ -474,7 +474,7 @@ internal sealed class HealingRunner
 
             try
             {
-                await _store.AppendRunAsync(HealingRunRecord.From(result, _options.InstanceId), _options.RunHistorySize, persistCts.Token).ConfigureAwait(false);
+                await SharedControl.Bounded(() => _store.AppendRunAsync(HealingRunRecord.From(result, _options.InstanceId), _options.RunHistorySize, persistCts.Token), SharedControl.WriteTimeout, persistCts.Token).ConfigureAwait(false);
             }
             catch (Exception ex)
             {
@@ -499,7 +499,7 @@ internal sealed class HealingRunner
         IReadOnlyList<HealingRunRecord> history;
         try
         {
-            history = await _store.GetRecentRunsAsync(_options.RunHistorySize, cancellationToken).ConfigureAwait(false);
+            history = await SharedControl.Bounded(() => _store.GetRecentRunsAsync(_options.RunHistorySize, cancellationToken), SharedControl.WriteTimeout, cancellationToken).ConfigureAwait(false);
         }
         catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
         {
@@ -590,8 +590,10 @@ internal sealed class HealingRunner
             bool allowed;
             try
             {
-                allowed = await _store.TryConsumeBudgetAsync(
-                    _timeProvider.GetUtcNow(), _options.MaxActionsPerWindow, _options.ActionBudgetWindow, cancellationToken).ConfigureAwait(false);
+                var now = _timeProvider.GetUtcNow();
+                allowed = await SharedControl.Bounded(
+                    () => _store.TryConsumeBudgetAsync(now, _options.MaxActionsPerWindow, _options.ActionBudgetWindow, cancellationToken),
+                    SharedControl.WriteTimeout, cancellationToken).ConfigureAwait(false);
             }
             catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
             {
@@ -694,6 +696,14 @@ internal sealed class HealingRunner
                 var verificationLimitSpan = timeout + timeout + tracker.Definition.ClearAfter;
                 using var verificationDeadline = new CancellationTokenSource(verificationLimitSpan, _timeProvider);
                 using var verificationLimit = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, verificationDeadline.Token);
+                var what = $"the verification after {step.Name}";
+                var key = $"{name}/{what}";
+                if (_abandoned.TryGetValue(key, out var stuck) && !stuck.IsCompleted)
+                {
+                    // Like an action: a verifier abandoned earlier and still running is not started again.
+                    throw new TimeoutException($"The verifier after '{step.Name}' is not started: its previous call, abandoned at its timeout, is still running.");
+                }
+
                 var verifying = Task.Run(() => verifier.VerifyAsync(context, timeout, cancellationToken), CancellationToken.None);
                 try
                 {
@@ -701,7 +711,10 @@ internal sealed class HealingRunner
                 }
                 catch (OperationCanceledException) when (verificationDeadline.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
                 {
-                    Abandon(verifying, name, $"the verification after {step.Name}");
+                    _abandoned[key] = verifying;
+                    _ = verifying.ContinueWith(t => _abandoned.TryRemove(new KeyValuePair<string, Task>(key, t)), CancellationToken.None,
+                        TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
+                    Abandon(verifying, name, what);
                     throw new TimeoutException($"The verifier after '{step.Name}' did not return within {verificationLimitSpan} (twice its timeout, plus ClearAfter).");
                 }
             }
@@ -778,8 +791,10 @@ internal sealed class HealingRunner
         // change that did not help. It still counts in the budget, best effort.
         try
         {
-            await _store.TryConsumeBudgetAsync(_timeProvider.GetUtcNow(), _options.MaxActionsPerWindow, _options.ActionBudgetWindow, cancellationToken)
-                .AsTask().WaitAsync(TimeSpan.FromSeconds(5), cancellationToken).ConfigureAwait(false);
+            var now = _timeProvider.GetUtcNow();
+            await SharedControl.Bounded(
+                () => _store.TryConsumeBudgetAsync(now, _options.MaxActionsPerWindow, _options.ActionBudgetWindow, cancellationToken),
+                TimeSpan.FromSeconds(5), cancellationToken).ConfigureAwait(false);
         }
         catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
         {

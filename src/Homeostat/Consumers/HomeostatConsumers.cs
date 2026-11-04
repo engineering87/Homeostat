@@ -102,16 +102,20 @@ internal sealed class HomeostatConsumers : IHomeostatConsumers, IDisposable
             }
 
             using var timeout = new CancellationTokenSource(CallTimeout, _timeProvider);
+            var token = timeout.Token;
             Task call;
+
+            // Started on its own task: a consumer that blocks before returning its task would otherwise hold this
+            // consumer's gate forever, beyond the timeout, and no later change could ever reach it.
             if (paused)
             {
                 _logger.LogWarning("Pausing consumer {Consumer}.", consumer.Name);
-                call = consumer.PauseAsync(timeout.Token);
+                call = Task.Run(() => consumer.PauseAsync(token), CancellationToken.None);
             }
             else
             {
                 _logger.LogInformation("Resuming consumer {Consumer}.", consumer.Name);
-                call = consumer.ResumeAsync(timeout.Token);
+                call = Task.Run(() => consumer.ResumeAsync(token), CancellationToken.None);
             }
 
             entry.InFlight = call;

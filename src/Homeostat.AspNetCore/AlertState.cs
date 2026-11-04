@@ -14,6 +14,12 @@ internal sealed class AlertState : IDisposable
 {
     private readonly object _gate = new();
     private readonly Dictionary<string, SourceState> _sources = new(StringComparer.Ordinal);
+
+    // Firing series kept per source and in all: with the source limit they bound what alerts can cost in memory.
+    internal const int MaxSeriesPerSource = 1000;
+    internal const int MaxFiringSeries = 10_000;
+
+    private int _firing;   // guarded by _gate
     private readonly AlertIngestionOptions _options;
     private readonly ISignalPublisher _signals;
     private readonly TimeProvider _timeProvider;
@@ -35,7 +41,6 @@ internal sealed class AlertState : IDisposable
     {
         var now = _timeProvider.GetUtcNow();
         var accepted = 0;
-        const int MaxSeriesPerSource = 1000;
         var affected = new HashSet<string>(StringComparer.Ordinal);
         lock (_gate)
         {
@@ -54,18 +59,27 @@ internal sealed class AlertState : IDisposable
 
                 if (observation.Firing)
                 {
-                    // A noisy or hostile sender cannot grow memory without limit: a new series beyond the cap is
-                    // ignored (the source is already firing, so its status does not change).
-                    if (source.Firing.Count >= MaxSeriesPerSource && !source.Firing.ContainsKey(observation.Key))
+                    // A noisy or hostile sender cannot grow memory without limit: a new series beyond the caps is
+                    // ignored (the source, or another, is already firing).
+                    if (!source.Firing.ContainsKey(observation.Key))
                     {
-                        continue;
+                        if (source.Firing.Count >= MaxSeriesPerSource || _firing >= MaxFiringSeries)
+                        {
+                            continue;
+                        }
+
+                        _firing++;
                     }
 
                     source.Firing[observation.Key] = (observation, now);
                 }
                 else
                 {
-                    source.Firing.Remove(observation.Key);
+                    if (source.Firing.Remove(observation.Key))
+                    {
+                        _firing--;
+                    }
+
                     source.LastResolved = observation;
                 }
 
@@ -121,6 +135,7 @@ internal sealed class AlertState : IDisposable
             foreach (var key in source.Firing.Where(f => now - f.Value.ReceivedAt > _options.FiringTimeToLive).Select(f => f.Key).ToList())
             {
                 source.Firing.Remove(key);
+                _firing--;
                 source.LastChange = now;
             }
 

@@ -143,6 +143,17 @@ public static class HomeostatMongoExtensions
                     MongoSignals.PublishPrimary(publisher, registration.Prefix, state, time.GetUtcNow());
                 }
             }));
+
+            // A client that is disposed (or recreated, as some applications do) must not keep counting: its last
+            // description would stay forever, and a closed cluster that had lost its primary would keep the
+            // deployment unwritable.
+            cluster.Subscribe<ClusterClosedEvent>(e => Safely(() =>
+            {
+                if (state.ClusterClosed(e.ClusterId.Value))
+                {
+                    MongoSignals.PublishPrimary(publisher, registration.Prefix, state, time.GetUtcNow());
+                }
+            }));
         });
         return settings;
     }

@@ -176,7 +176,8 @@ internal sealed class ConditionHistory : IHostedService
             {
                 try
                 {
-                    await _store.AppendConditionEventAsync(pending.Peek(), _options.ConditionHistorySize).ConfigureAwait(false);
+                    var next = pending.Peek();
+                    await Engine.SharedControl.Bounded(() => _store.AppendConditionEventAsync(next, _options.ConditionHistorySize), Engine.SharedControl.WriteTimeout, CancellationToken.None).ConfigureAwait(false);
                     pending.Dequeue();
                     if (_failing)
                     {

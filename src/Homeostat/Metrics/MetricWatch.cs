@@ -11,6 +11,10 @@ internal sealed class MetricWatch
     // Collections an observable series may miss before it is forgotten (its pool was disposed, a tag value changed).
     private const int MaxMissedCollections = 10;
 
+    // Series (tag combinations) tracked per instrument at most: an instrument with a high-cardinality tag (a user,
+    // a URL) must not grow memory without limit. Further series are ignored until others are forgotten.
+    internal const int MaxSeries = 10_000;
+
     private readonly object _gate = new();
     private readonly List<double> _samples = [];
     private long _count;
@@ -230,10 +234,11 @@ internal sealed class MetricWatch
         }
 
         var text = value.ToString("G4", CultureInfo.InvariantCulture);
+        var capped = SeriesDropped ? $" More than {MaxSeries} tag combinations: further ones are not counted." : string.Empty;
         return new Signal(Source, severity, now)
         {
             Value = value,
-            Message = $"{Statistic} of {Instrument}: {text} ({count} measurements).",
+            Message = $"{Statistic} of {Instrument}: {text} ({count} measurements).{capped}",
             Tags = new Dictionary<string, string>(StringComparer.Ordinal)
             {
                 ["origin"] = "metric",
@@ -244,12 +249,21 @@ internal sealed class MetricWatch
         };
     }
 
+    /// <summary>Whether a series was ignored because <see cref="MaxSeries"/> were already tracked.</summary>
+    internal bool SeriesDropped { get; private set; }
+
     // Caller holds the lock. Returns the series' previous value (this one for a new series).
     private double Observe(string? series, double value)
     {
         var key = series ?? string.Empty;
         if (!_series.TryGetValue(key, out var entry))
         {
+            if (_series.Count >= MaxSeries)
+            {
+                SeriesDropped = true;
+                return value;   // not counted: as a series seen for the first time, it adds nothing
+            }
+
             entry = new Series { Total = value };
             _series[key] = entry;
         }

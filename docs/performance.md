@@ -38,6 +38,25 @@ How to read them:
 - **The HTTP handler** adds about a tenth of a microsecond and 72 bytes to a request, against a stub that answers at
   once; next to a real network call (hundreds of microseconds at least) it is not measurable.
 
+## Memory
+
+What Homeostat keeps does not grow with the traffic, the signal rate or the cardinality of what it observes: every
+structure that grows with its input has a limit, and `ResourceBoundsTests` checks that retained memory stays flat over
+a million signals per source.
+
+| Structure | Limit |
+|---|---|
+| Signal buffer | `SignalBufferCapacity` signals (1,024); the oldest is dropped |
+| Window of a trend, projection or anomaly rule | About 8,192 points (about 128 KB); a faster source keeps the latest value of each interval of window / 8,192 |
+| Latency samples of a call recorder, an HTTP client or a metric | 4,096 per interval (reservoir sampling) |
+| Series (tag combinations) of an observable metric | 10,000 per instrument; series that stop reporting are forgotten |
+| External alerts | 1,000 sources, 1,000 firing series per source and 10,000 in all |
+| Run and condition history | `RunHistorySize` (50) and `ConditionHistorySize` (200) |
+| Seasonal baselines | A few running sums per time slot, at most 2,016 slots (a week of 5-minute slots) per condition |
+| Actions abandoned at their timeout | One per step: an action still running is not started again |
+
+Everything else is sized by your configuration (conditions, plans, detectors, switches, consumers), not by the load.
+
 ## Method
 
 - Each engine case starts a host with the conditions, publishes 200,000 signals one millisecond apart (so windows

@@ -91,14 +91,51 @@ internal sealed class HomeostatSwitches : IHomeostatSwitches
         ArgumentException.ThrowIfNullOrWhiteSpace(name);
         var now = _timeProvider.GetUtcNow();
         var state = new SwitchState { Name = name, Condition = condition, Instance = _instance, At = now, RenewedAt = now };
-        var claimed = false;
-        await _shared.ChangeAsync(
-            async (store, ct) => claimed = await store.TryClaimSwitchAsync(state, ct).ConfigureAwait(false),
-            s => claimed ? SharedControl.WithSwitch(s, name, state) : s,
-            cancellationToken,
-            Key(name)).ConfigureAwait(false);
-        if (claimed)
+        var claimed = 0;
+        var gaveUp = 0;
+        try
         {
+            await _shared.ChangeAsync(
+                async (store, ct) =>
+                {
+                    if (!await store.TryClaimSwitchAsync(state, ct).ConfigureAwait(false))
+                    {
+                        return;
+                    }
+
+                    Interlocked.Exchange(ref claimed, 1);
+
+                    // The step already gave up (it timed out, or the run stopped) while the store was slow: nobody
+                    // would own or limit this switch, so it is released at once.
+                    if (Volatile.Read(ref gaveUp) == 1)
+                    {
+                        await store.TryReleaseSwitchAsync(name, condition, _instance, CancellationToken.None).ConfigureAwait(false);
+                    }
+                },
+                s => Volatile.Read(ref claimed) == 1 ? SharedControl.WithSwitch(s, name, state) : s,
+                cancellationToken,
+                Key(name)).ConfigureAwait(false);
+        }
+        catch
+        {
+            Interlocked.Exchange(ref gaveUp, 1);
+            if (Volatile.Read(ref claimed) == 1)
+            {
+                await ReleaseAsync(name, condition, _instance, CancellationToken.None).ConfigureAwait(false);
+            }
+
+            throw;
+        }
+
+        if (Volatile.Read(ref claimed) == 1)
+        {
+            if (cancellationToken.IsCancellationRequested)
+            {
+                // Claimed, but too late for the step, which is reported as failed: released, not left on unowned.
+                await ReleaseAsync(name, condition, _instance, CancellationToken.None).ConfigureAwait(false);
+                cancellationToken.ThrowIfCancellationRequested();
+            }
+
             _claimed[name] = condition;
         }
     }
@@ -200,6 +237,13 @@ internal sealed class HomeostatSwitches : IHomeostatSwitches
                         var renewal = new SwitchState { Name = current.Name, Condition = condition, Instance = _instance, By = current.By, At = current.At, RenewedAt = now };
                         await SharedControl.Bounded(() => _shared.Store.TryClaimSwitchAsync(renewal, cancellationToken), SharedControl.WriteTimeout, cancellationToken)
                             .ConfigureAwait(false);
+
+                        // A claim also creates a switch that is absent: if the condition released it meanwhile, the
+                        // renewal turned it back on. Release it again.
+                        if (!_claimed.TryGetValue(current.Name, out var still) || !string.Equals(still, condition, StringComparison.Ordinal))
+                        {
+                            await ReleaseAsync(current.Name, condition, _instance, cancellationToken).ConfigureAwait(false);
+                        }
                     }
                 }
                 else if (now - renewed >= _orphanAfter && _conditions?.Get(condition)?.Status != Conditions.ConditionStatus.Active)

@@ -45,17 +45,39 @@ internal sealed class RestartHostedServiceAction<TService> : IHealingAction
         }
 
         _logger.LogInformation("Stopping hosted service {Service}.", typeof(TService).Name);
+        var stopping = Task.Run(() => service.StopAsync(cancellationToken), CancellationToken.None);
         try
         {
-            await service.StopAsync(cancellationToken).ConfigureAwait(false);
+            await stopping.WaitAsync(cancellationToken).ConfigureAwait(false);
         }
         finally
         {
+            // A stop that ignores its token: give it a little longer, so the start does not race with it.
+            if (!stopping.IsCompleted)
+            {
+                try
+                {
+                    await stopping.WaitAsync(StartTimeout, CancellationToken.None).ConfigureAwait(false);
+                }
+                catch (Exception)
+                {
+                    // Started again below all the same.
+                }
+            }
+
             // Whatever happened to the stop (it threw, or the step's timeout canceled it), the service is started again:
             // a restart must never leave it stopped. The start gets its own deadline, as the step's may have passed.
-            _logger.LogInformation("Starting hosted service {Service}.", typeof(TService).Name);
-            using var start = new CancellationTokenSource(StartTimeout);
-            await service.StartAsync(start.Token).ConfigureAwait(false);
+            // Not while the application is stopping: the host has stopped (or is stopping) the service itself.
+            if (_services.GetService(typeof(IHostApplicationLifetime)) is IHostApplicationLifetime { ApplicationStopping.IsCancellationRequested: true })
+            {
+                _logger.LogInformation("Not starting hosted service {Service} again: the application is stopping.", typeof(TService).Name);
+            }
+            else
+            {
+                _logger.LogInformation("Starting hosted service {Service}.", typeof(TService).Name);
+                using var start = new CancellationTokenSource(StartTimeout);
+                await service.StartAsync(start.Token).ConfigureAwait(false);
+            }
         }
     }
 

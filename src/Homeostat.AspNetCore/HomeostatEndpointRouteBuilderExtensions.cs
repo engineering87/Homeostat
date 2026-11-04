@@ -162,7 +162,9 @@ public static class HomeostatEndpointRouteBuilderExtensions
     private static readonly TimeSpan MaxPause = TimeSpan.FromDays(30);
 
     // A store that does not answer: the request gets a 503 instead of waiting, so requests do not pile up.
-    private static readonly TimeSpan StoreTimeout = TimeSpan.FromSeconds(10);
+    // Longer than SharedControl.WriteTimeout, so a pause or a switch turned off that the store does not take in time
+    // (applied here, written later) answers 204 rather than 503.
+    private static readonly TimeSpan StoreTimeout = TimeSpan.FromSeconds(15);
 
     internal static bool IsForgeable(HttpRequest request)
     {

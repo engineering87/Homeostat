@@ -86,7 +86,7 @@ Self-healing must never be what takes the application down. These are the rules,
 
 | Failure | What happens |
 |---|---|
-| The store never answers | Startup waits at most 5 seconds for the control state, then Homeostat counts as paused until it can read it. Control and status endpoints answer `503` within 10 seconds, the Homeostat health check within one, and shutdown is not delayed. |
+| The store never answers | Startup waits at most 5 seconds for the control state, then Homeostat counts as paused until it can read it. Control and status endpoints answer within 15 seconds (`503` when the store is needed and does not answer), the Homeostat health check within one, and shutdown is not delayed. |
 | The store fails | Fail closed: no run starts whose cooldown or budget cannot be checked; store errors are logged without flooding the log. A pause, turning a switch off or releasing a switch Homeostat turned on apply at once on the instance and are written when the store answers; resuming or turning a switch on fail. |
 | The store file is locked, or Redis is down at startup | The application starts; Homeostat fails closed and tries again. |
 | A condition in configuration is invalid | Logged as critical and skipped (`failOnInvalid: true` to stop instead). |
@@ -100,9 +100,13 @@ Self-healing must never be what takes the application down. These are the rules,
 | Signals arrive faster than they are processed | `TryPublish` never waits: the buffer (`SignalBufferCapacity`) drops the oldest. |
 | Plans that would act too often | Dry-run by default, action budget (10 per hour), one run at a time, cooldown with backoff, restart limits. |
 
+Every store call is bounded and starts off the caller's thread; while a read abandoned at its timeout still runs,
+the periodic refresh and the health check do not start another, so a store blocked on I/O cannot pile up threads.
+
 What Homeostat cannot prevent: an observer (`IHealingObserver`) runs on Homeostat's threads, so a slow one delays
-signal processing (use an [event sink](observability.md) for slow work); and a custom store must time out its own
-calls, because a call that never returns inside a healing run holds that run.
+signal processing (use an [event sink](observability.md) for slow work); and code that ignores cancellation keeps
+running after Homeostat stops waiting for it (it is not started again while it runs, but it keeps its thread, and
+its services may be disposed under it when the run ends).
 
 ## Kill switch
 

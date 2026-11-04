@@ -108,7 +108,7 @@ public class PropertyTests
     }
 
     [Fact]
-    public void A_series_keeps_exactly_the_values_inside_its_window()
+    public void A_series_keeps_the_values_inside_its_window_merging_only_those_closer_than_its_resolution()
     {
         // window in minutes, gaps between consecutive values in seconds: multiples of 30 s, so values land exactly on
         // the edge of the window often enough to check it
@@ -118,18 +118,27 @@ public class PropertyTests
         Check.One(Runs, Prop.ForAll(histories, h =>
         {
             var window = TimeSpan.FromMinutes(h.window);
+            var spacing = window / SignalSeries.MaxPoints;
             var series = new SignalSeries(window);
-            var timestamps = new List<DateTimeOffset>();
+            var kept = new List<DateTimeOffset>();   // the model: values closer than window / MaxPoints replace the latest
             var at = Start;
             foreach (var gap in h.gaps)
             {
                 at = at.AddSeconds(gap);
-                timestamps.Add(at);
+                if (kept.Count >= 2 && at - kept[^2] < spacing)
+                {
+                    kept[^1] = at;
+                }
+                else
+                {
+                    kept.Add(at);
+                }
+
+                kept.RemoveAll(t => t < at - window);
                 series.Add(new Signal("window:x", SignalSeverity.Healthy, at) { Value = gap });
             }
 
-            var inWindow = timestamps.Count(t => t >= at - window);
-            return series.Count == inWindow && series.Latest == h.gaps[^1];
+            return series.Count == kept.Count && series.Latest == h.gaps[^1];
         }));
     }
 }

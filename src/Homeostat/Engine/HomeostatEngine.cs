@@ -100,6 +100,20 @@ internal sealed class HomeostatEngine : BackgroundService
             // Never: an exception out of a background service stops the whole application by default
             // (BackgroundServiceExceptionBehavior.StopHost). Self-healing stops; the application keeps running.
             _logger.LogCritical(ex, "The Homeostat engine stopped unexpectedly; self-healing is off until the application restarts.");
+
+            // Nobody would turn off what the conditions turned on (they no longer clear): undo it now, so the
+            // application is not left degraded by a Homeostat that is no longer running.
+            foreach (var tracker in _conditions.Trackers)
+            {
+                try
+                {
+                    ResetSwitches(tracker.Definition);
+                }
+                catch (Exception resetError)
+                {
+                    _logger.LogError(resetError, "Could not turn off the switches of condition {Condition}.", tracker.Definition.Name);
+                }
+            }
         }
     }
 
@@ -126,7 +140,7 @@ internal sealed class HomeostatEngine : BackgroundService
 
         // Application switches its cluster plan turned on here (the store records the owner). Whatever the plan's scope
         // now: a configuration reload may have changed it after the switch was turned on.
-        _ = ReleaseSharedAsync(definition.Name);
+        _ = Task.Run(() => ReleaseSharedAsync(definition.Name), CancellationToken.None);
     }
 
     private async Task ReleaseSharedAsync(string condition)
