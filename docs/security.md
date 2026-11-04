@@ -121,7 +121,7 @@ the least that the plans need.
 - Use a `Role` (namespace-scoped), with only the verbs of the actions you use, and `resourceNames` for deployments.
 - Prefer `ScaleDeployment` (`deployments/scale`) to `RolloutRestart` when it is enough: `patch` on `deployments`
   allows rewriting the pod template.
-- `delete` on `pods` covers every pod of the namespace: run the application in its own namespace.
+- `create` on `pods/eviction` covers every pod of the namespace: run the application in its own namespace (evictions still respect PodDisruptionBudgets).
 - `CordonNode` needs a `ClusterRole` on `nodes`; grant it only if you use it, with an admission policy that limits the
   change to `spec.unschedulable`.
 

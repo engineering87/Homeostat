@@ -81,8 +81,9 @@ builder.Services.AddHomeostat(h => h
 - Pausing calls `StopProcessingAsync`, which waits for the handlers in progress **and cancels their
   `CancellationToken`**: a handler that honors it gives up, and its message is abandoned and delivered again later,
   with its delivery count increased (after `MaxDeliveryCount` deliveries it is dead-lettered). Handlers that should
-  finish their message must not pass that token to the work. Resuming calls `StartProcessingAsync`. Neither is called
-  when the processor is already in that state. For session processors use `AddPausableServiceBusSessionProcessor`.
+  finish their message must not pass that token to the work. Resuming calls `StartProcessingAsync`, only for a
+  processor that Homeostat's pause stopped: one the application stopped or closed itself stays as it is. Neither is
+  called when the processor is already in that state. For session processors use `AddPausableServiceBusSessionProcessor`.
 - Without a factory, `AddPausableServiceBusProcessor` wraps the `ServiceBusProcessor` registered in the services.
   With several processors, pass the factory for each: `AddPausableServiceBusProcessor("notifications", sp => ...)`.
 
@@ -227,7 +228,8 @@ while (!stoppingToken.IsCancellationRequested)
 
 While paused, `Consume` returns no messages but the consumer stays in its group (no rebalance). Partitions assigned
 later are paused at the next `Apply`, so a `Consume` right after a rebalance can still return a message from them.
-Call `Consume` with a timeout, so the loop keeps running and applies the resume. `IsPauseRequested` tells whether a
+Call `Consume` with a timeout, so the loop keeps running and applies the resume. If the application pauses partitions
+itself (for backpressure), pass them to `Apply(consumer, pausedByApplication)`: Homeostat's resume leaves them paused. `IsPauseRequested` tells whether a
 pause is requested (it takes effect at the next `Apply`), for example to skip work in the loop.
 
 A gate created by hand (`new KafkaPauseGate("telemetry")`) works too: register it with

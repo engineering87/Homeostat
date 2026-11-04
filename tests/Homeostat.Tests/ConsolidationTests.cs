@@ -122,7 +122,7 @@ public class ConsolidationTests
         }).Build();
 
         var error = await Assert.ThrowsAsync<InvalidOperationException>(() => HomeostatTestHost.StartAsync(h => h
-            .AddConditionsFromConfiguration(config.GetSection("Conditions"))));
+            .AddConditionsFromConfiguration(config.GetSection("Conditions"), failOnInvalid: true)));
         Assert.Contains(expected, error.Message);
     }
 
@@ -138,7 +138,7 @@ public class ConsolidationTests
         }).Build();
 
         var error = await Assert.ThrowsAsync<InvalidOperationException>(() => HomeostatTestHost.StartAsync(h => h
-            .AddConditionsFromConfiguration(config.GetSection("Conditions"))));
+            .AddConditionsFromConfiguration(config.GetSection("Conditions"), failOnInvalid: true)));
         Assert.Contains("only one of AllActive, AnyActive", error.Message);
     }
 
@@ -165,19 +165,45 @@ public class ConsolidationTests
     }
 
     [Fact]
-    public async Task A_skipped_compensating_action_is_reported_as_not_run()
+    public async Task A_compensating_action_runs_when_the_budget_is_exhausted()
     {
+        var undone = 0;
         await using var host = await HomeostatTestHost.StartAsync(h => h
             .Configure(o => o.MaxActionsPerWindow = 1)
             .AddCondition("feed-down", c => c
                 .ForSource("feed")
-                .Heal(p => p.With("switch-provider", _ => { }).UndoWith("switch-back", (_, _) => Task.CompletedTask).VerifyWith<CachingTests.NeverHealed>())));
+                .Heal(p => p.With("switch-provider", _ => { }).UndoWith("switch-back", (_, _) => { Interlocked.Increment(ref undone); return Task.CompletedTask; })
+                    .VerifyWith<CachingTests.NeverHealed>())));
 
+        // The step used the only unit of the budget: its undo runs all the same.
         host.Publish("feed", SignalSeverity.Unhealthy);
-        var run = await host.WaitForRunAsync("feed-down");
+        Assert.True(Assert.Single((await host.WaitForRunAsync("feed-down")).Steps).UndoSucceeded);
+        Assert.Equal(1, undone);
+    }
 
-        // The step used the only unit of the budget: the undo is skipped, not failed.
-        Assert.Null(Assert.Single(run.Steps).UndoSucceeded);
+    [Fact]
+    public async Task A_compensating_action_runs_after_an_action_that_timed_out_but_not_after_one_that_refused()
+    {
+        var undone = 0;
+        await using var host = await HomeostatTestHost.StartAsync(h => h
+            .AddCondition("origin-down", c => c
+                .ForSource("origin")
+                .Heal(p => p.With("disable-origin", (_, ct) => Task.Delay(Timeout.Infinite, ct)).ActionTimeout(TimeSpan.FromSeconds(5))
+                    .UndoWith("enable-origin", (_, _) => { Interlocked.Increment(ref undone); return Task.CompletedTask; })))
+            .AddCondition("cache-down", c => c
+                .ForSource("cache")
+                .Heal(p => p.With("purge", (_, _) => throw new InvalidOperationException("already purged by someone"))
+                    .UndoWith("restore", (_, _) => { Interlocked.Increment(ref undone); return Task.CompletedTask; }))));
+
+        host.Publish("origin", SignalSeverity.Unhealthy);
+        var step = Assert.Single((await host.WaitForRunAsync("origin-down")).Steps);
+        Assert.False(step.Succeeded);
+        Assert.True(step.UndoSucceeded);
+        Assert.Equal(1, undone);
+
+        host.Publish("cache", SignalSeverity.Unhealthy);
+        Assert.Null(Assert.Single((await host.WaitForRunAsync("cache-down")).Steps).UndoSucceeded);
+        Assert.Equal(1, undone);
     }
 
     [Fact]

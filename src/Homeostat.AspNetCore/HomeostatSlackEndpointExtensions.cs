@@ -120,8 +120,8 @@ public static class HomeostatSlackEndpointExtensions
         try
         {
             answered = action.Approve
-                ? await approvals.ApproveAsync(action.ApprovalId, by, http.RequestAborted).AsTask().WaitAsync(StoreTimeout, http.RequestAborted)
-                : await approvals.RejectAsync(action.ApprovalId, by, http.RequestAborted).AsTask().WaitAsync(StoreTimeout, http.RequestAborted);
+                ? await StoreCall.Run(() => approvals.ApproveAsync(action.ApprovalId, by, http.RequestAborted), StoreTimeout, http.RequestAborted)
+                : await StoreCall.Run(() => approvals.RejectAsync(action.ApprovalId, by, http.RequestAborted), StoreTimeout, http.RequestAborted);
         }
         catch (Exception ex) when (!http.RequestAborted.IsCancellationRequested)
         {

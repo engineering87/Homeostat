@@ -23,7 +23,7 @@ namespace Homeostat
     public static Microsoft.Extensions.DependencyInjection.IServiceCollection AddCallSignals(this Microsoft.Extensions.DependencyInjection.IServiceCollection services, string source, string origin, System.Action<Homeostat.Calls.CallSignalOptions>? configure = null)
   public static class HomeostatConfigurationExtensions
     public static Homeostat.HomeostatBuilder AddAction<TAction>(this Homeostat.HomeostatBuilder builder, string name) where TAction : class, Homeostat.Healing.IHealingAction
-    public static Homeostat.HomeostatBuilder AddConditionsFromConfiguration(this Homeostat.HomeostatBuilder builder, Microsoft.Extensions.Configuration.IConfiguration section)
+    public static Homeostat.HomeostatBuilder AddConditionsFromConfiguration(this Homeostat.HomeostatBuilder builder, Microsoft.Extensions.Configuration.IConfiguration section, bool failOnInvalid = false)
   public static class HomeostatConsumerExtensions
     public static Homeostat.HomeostatBuilder AddPausableConsumer(this Homeostat.HomeostatBuilder builder, System.Func<System.IServiceProvider, Homeostat.Consumers.IPausableConsumer> consumer)
     public static Homeostat.HomeostatBuilder AddPauseGate(this Homeostat.HomeostatBuilder builder, string name)
@@ -320,6 +320,7 @@ namespace Homeostat.Healing
     public Homeostat.Healing.HealingPlanBuilder Adaptive(int minimumAttempts = 5)
     public Homeostat.Healing.HealingPlanBuilder Cooldown(System.TimeSpan cooldown)
     public Homeostat.Healing.HealingPlanBuilder CooldownBackoff(double multiplier, System.TimeSpan max)
+    public Homeostat.Healing.HealingPlanBuilder HoldAtMost(System.TimeSpan maximum)
     public Homeostat.Healing.HealingPlanBuilder OncePerCluster()
     public Homeostat.Healing.HealingPlanBuilder ReloadConfiguration()
     public Homeostat.Healing.HealingPlanBuilder RequireApproval(System.TimeSpan? timeout = null)
@@ -677,6 +678,7 @@ namespace Homeostat.Persistence
     public string? Condition { get; init; }
     public string? Instance { get; init; }
     public string Name { get; init; }
+    public System.DateTimeOffset? RenewedAt { get; init; }
 namespace Homeostat.Presets
   public sealed class DefaultCondition
     public bool Enabled { get; set; }

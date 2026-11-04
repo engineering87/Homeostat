@@ -203,6 +203,28 @@ public sealed class HealingPlanBuilder
         return this;
     }
 
+    /// <summary>
+    /// Turns the switch of the step added just before this call (<see cref="TurnOnSwitch"/>, and the steps built on it
+    /// such as <c>PauseConsumer</c> and <c>IsolateCircuit</c>) off after <paramref name="maximum"/>, even if the condition
+    /// has not cleared; if it is still active then, the plan runs again after its cooldown. A safety net for a
+    /// degradation that could keep its own condition active (a circuit isolated by a condition on that circuit, consumers
+    /// paused by a condition on a backlog that cannot shrink while they are paused), or whose condition stops receiving
+    /// the signals that would clear it.
+    /// </summary>
+    /// <param name="maximum">Longest time the switch stays on.</param>
+    /// <example><code>.PauseConsumer("ingest").HoldAtMost(TimeSpan.FromMinutes(30))</code></example>
+    public HealingPlanBuilder HoldAtMost(TimeSpan maximum)
+    {
+        var step = LastStep(nameof(HoldAtMost));
+        if (step.SwitchToResetOnClear is null)
+        {
+            throw new InvalidOperationException("HoldAtMost applies to a step that turns on a switch turned off when the condition clears.");
+        }
+
+        step.MaxHold = Positive(maximum, nameof(maximum));
+        return this;
+    }
+
     // ---------------------------------------------------------------- approval
 
     /// <summary>
@@ -356,11 +378,11 @@ public sealed class HealingPlanBuilder
     // ---------------------------------------------------------------- compensation
 
     /// <summary>
-    /// Compensating action for the step added just before this call: it runs when the step's action completed but
-    /// verification says <see cref="VerificationOutcome.NotHealed"/>, before escalating, so a change that did not help
-    /// is rolled back. Like any action it consumes one unit of the action budget, and it is not run while Homeostat is
-    /// paused or the budget is exhausted (the step result then reports <see cref="HealingStepResult.UndoSucceeded"/> as
-    /// <c>null</c>).
+    /// Compensating action for the step added just before this call: it runs, before escalating, when verification says
+    /// <see cref="VerificationOutcome.NotHealed"/> and also when the action timed out (part of it may have taken effect),
+    /// so a change that did not help is rolled back; not when the action threw (it may have refused on purpose). Write it so that it is harmless when there is nothing to
+    /// undo. It reverts what the run just changed, so the pause, the maintenance windows and the budget never block it;
+    /// it still counts in the budget.
     /// </summary>
     /// <typeparam name="TAction">The compensating action.</typeparam>
     /// <example><code>.Then&lt;SwitchToBackupProviderAction&gt;().UndoWith&lt;SwitchToPrimaryProviderAction&gt;()</code></example>

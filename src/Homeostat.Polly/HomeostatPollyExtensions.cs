@@ -16,8 +16,8 @@ public static class HomeostatPollyExtensions
     public static HomeostatBuilder AddCircuitBreakerSignals(this HomeostatBuilder builder)
     {
         ArgumentNullException.ThrowIfNull(builder);
-        builder.Services.TryAddSingleton<CircuitBreakerCatalog>();
-        builder.Services.TryAddSingleton<CircuitControlCatalog>();
+        builder.Services.TryAddSingleton<CircuitBreakerRegistry>();
+        builder.Services.TryAddSingleton<CircuitControlRegistry>();
         builder.AddDetector<CircuitBreakerSignalDetector>();
         return builder;
     }

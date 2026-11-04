@@ -29,6 +29,13 @@ internal sealed class HttpClientWindow
     {
         lock (_gate)
         {
+            // Saturating: a window never collected (signals added without AddHomeostat) must never overflow into the
+            // application's request.
+            if (_total == int.MaxValue)
+            {
+                return;
+            }
+
             _total++;
             if (failed)
             {

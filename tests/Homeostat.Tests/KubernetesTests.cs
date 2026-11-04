@@ -121,8 +121,10 @@ public sealed class KubernetesTests : IAsyncDisposable
         Assert.True(JsonDocument.Parse(requests[4].Body).RootElement.GetProperty("spec").GetProperty("unschedulable").GetBoolean());
 
         Assert.Equal(("GET", "/api/v1/namespaces/weather/pods/weather-api-7d9"), (requests[5].Method, requests[5].Path));
-        Assert.Equal(("DELETE", "/api/v1/namespaces/weather/pods/weather-api-7d9"), (requests[6].Method, requests[6].Path));
-        Assert.Equal(15, JsonDocument.Parse(requests[6].Body).RootElement.GetProperty("gracePeriodSeconds").GetInt32());
+        Assert.Equal(("POST", "/api/v1/namespaces/weather/pods/weather-api-7d9/eviction"), (requests[6].Method, requests[6].Path));
+        var eviction = JsonDocument.Parse(requests[6].Body).RootElement;
+        Assert.Equal("Eviction", eviction.GetProperty("kind").GetString());
+        Assert.Equal(15, eviction.GetProperty("deleteOptions").GetProperty("gracePeriodSeconds").GetInt32());
     }
 
     [Fact]

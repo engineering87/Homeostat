@@ -29,11 +29,11 @@ public static class HomeostatPollyServices
         ArgumentNullException.ThrowIfNull(services);
         ArgumentException.ThrowIfNullOrWhiteSpace(source);
 
-        var catalog = services.GetService<CircuitBreakerCatalog>()
+        var registry = services.GetService<CircuitBreakerRegistry>()
             ?? throw new InvalidOperationException(
                 "Circuit breaker signals are not enabled. Call AddHomeostat(...).AddCircuitBreakerSignals() first.");
 
-        return catalog.Track(source);
+        return registry.Track(source);
     }
 
     /// <summary>
@@ -61,11 +61,11 @@ public static class HomeostatPollyServices
         ArgumentNullException.ThrowIfNull(services);
         ArgumentException.ThrowIfNullOrWhiteSpace(name);
 
-        var catalog = services.GetService<CircuitControlCatalog>()
+        var registry = services.GetService<CircuitControlRegistry>()
             ?? throw new InvalidOperationException(
                 "Circuit breaker integration is not enabled. Call AddHomeostat(...).AddCircuitBreakerSignals() first.");
 
-        return catalog.GetOrAdd(name);
+        return registry.GetOrAdd(name);
     }
 
     /// <summary>

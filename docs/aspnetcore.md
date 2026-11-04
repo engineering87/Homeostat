@@ -120,9 +120,12 @@ error messages and approval ids, which is why it needs a policy too.
 | `POST /homeostat/switches/{name}/on?scope=instance` | Turns the switch on for the instance that answers only | `204`, or `400` for an invalid `scope` |
 | `POST /homeostat/switches/{name}/off` | Turns a switch off, for the application and the instance that answers | `204` |
 
-Pause, approvals and switches are kept in the [store](persistence-and-clusters.md#shared-control-state): every
-endpoint above answers `503` when the store cannot be reached, and the change is not made. Changes reach the other
-instances within `ControlRefreshInterval` (5 seconds by default).
+Pause, approvals and switches are kept in the [store](persistence-and-clusters.md#shared-control-state). When the
+store cannot be reached, a change that lets Homeostat act (resume, turn a switch on, answer an approval) answers `503`
+and is not made; a change in the safe direction (pause, turn a switch off) applies at once on the instance that
+answers, answers `204`, and is written to the store as soon as it answers, so an outage never keeps chaos, an
+isolated circuit or a paused consumer on. Changes reach the other instances within `ControlRefreshInterval` (5
+seconds by default).
 
 The name of the authenticated user (`User.Identity.Name`) is recorded as the approver in logs, events and the audit
 log, and with the pause and the switches it turns on: who paused appears in `pauseReason`.
@@ -237,5 +240,5 @@ builder.Services.AddHealthChecks()
 The result data contains `paused`, `dry_run`, `active_conditions`, `budget_remaining` and `pending_approvals`.
 Use `attentionStatus: HealthStatus.Unhealthy` to make it stricter, and `tags` to select it in a dedicated
 endpoint. This check is never turned into a Homeostat signal, so it cannot trigger conditions about itself. It
-answers within about 2 seconds even when the store does not. Keep it out of liveness probes: "a condition is active"
+answers within one second even when the store does not. Keep it out of liveness probes: "a condition is active"
 means the application is being healed, not that it must be restarted; use it in readiness or monitoring endpoints.

@@ -28,13 +28,19 @@ internal sealed class RedisCoordinator : IHomeostatCoordinator
         return 0
         """;
 
-    private readonly IConnectionMultiplexer _redis;
+    private readonly Func<IConnectionMultiplexer> _connection;
     private readonly RedisStoreOptions _options;
     private readonly ILogger<RedisCoordinator> _logger;
 
     public RedisCoordinator(IConnectionMultiplexer redis, IOptions<RedisStoreOptions> options, ILogger<RedisCoordinator> logger)
+        : this(() => redis, options, logger)
     {
-        _redis = redis;
+    }
+
+    /// <summary>Resolves the connection on first use, so the application's startup never waits for Redis.</summary>
+    internal RedisCoordinator(Func<IConnectionMultiplexer> redis, IOptions<RedisStoreOptions> options, ILogger<RedisCoordinator> logger)
+    {
+        _connection = redis;
         _options = options.Value;
         _logger = logger;
     }
@@ -47,7 +53,7 @@ internal sealed class RedisCoordinator : IHomeostatCoordinator
 
         // The expiry runs from when Redis applies the command, which is after this moment: measuring from here is safe.
         var requestedAt = Stopwatch.GetTimestamp();
-        var acquired = await _redis.GetDatabase().StringSetAsync(key, token, duration, When.NotExists).ConfigureAwait(false);
+        var acquired = await _connection().GetDatabase().StringSetAsync(key, token, duration, When.NotExists).ConfigureAwait(false);
         return acquired ? new Lease(this, key, token, duration, requestedAt) : null;
     }
 
@@ -97,7 +103,7 @@ internal sealed class RedisCoordinator : IHomeostatCoordinator
 
             try
             {
-                await _owner._redis.GetDatabase().ScriptEvaluateAsync(ReleaseScript, [_key], [_token]).ConfigureAwait(false);
+                await _owner._connection().GetDatabase().ScriptEvaluateAsync(ReleaseScript, [_key], [_token]).ConfigureAwait(false);
             }
             catch (Exception ex) when (ex is RedisException or TimeoutException)
             {
@@ -120,7 +126,7 @@ internal sealed class RedisCoordinator : IHomeostatCoordinator
                 var sentAt = Stopwatch.GetTimestamp();
                 try
                 {
-                    var renewed = await _owner._redis.GetDatabase()
+                    var renewed = await _owner._connection().GetDatabase()
                         .ScriptEvaluateAsync(RenewScript, [_key], [_token, (long)_duration.TotalMilliseconds]).ConfigureAwait(false);
                     if ((int)renewed == 0)
                     {

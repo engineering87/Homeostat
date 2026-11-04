@@ -9,6 +9,7 @@ using Homeostat.Signals;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 
 namespace Homeostat;
 
@@ -67,7 +68,7 @@ public static class HomeostatServiceCollectionExtensions
         services.TryAddSingleton<ISignalPublisher>(sp => sp.GetRequiredService<SignalChannel>());
         services.TryAddSingleton(sp => new ConditionSet(
             sp.GetServices<ConditionDefinition>()
-                .Concat(sp.GetServices<Configuration.ConfigurationConditionSource>().SelectMany(s => s.Load())),
+                .Concat(sp.GetServices<Configuration.ConfigurationConditionSource>().SelectMany(s => LoadAtStartup(s, sp))),
             sp.GetRequiredService<TimeProvider>()));
         services.TryAddSingleton<IHomeostatStore, InMemoryHomeostatStore>();
         services.TryAddSingleton<MaintenanceWindows>();
@@ -103,5 +104,22 @@ public static class HomeostatServiceCollectionExtensions
         var builder = new HomeostatBuilder(services);
         configure?.Invoke(builder);
         return builder;
+    }
+
+    // A configuration error at startup must not keep the application from starting (a typo pushed to the configuration
+    // would otherwise stop every new instance): its conditions are left out, loudly, unless asked to fail.
+    private static IEnumerable<ConditionDefinition> LoadAtStartup(Configuration.ConfigurationConditionSource source, IServiceProvider services)
+    {
+        try
+        {
+            return source.Load();
+        }
+        catch (Exception ex) when (!source.FailOnInvalid)
+        {
+            services.GetService<Microsoft.Extensions.Logging.ILoggerFactory>()?.CreateLogger("Homeostat.Configuration").LogCritical(
+                ex, "The Homeostat conditions in the configuration are invalid and are left out until the configuration is fixed; "
+                + "the conditions defined in code apply.");
+            return [];
+        }
     }
 }

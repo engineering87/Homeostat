@@ -36,14 +36,14 @@ public static class HomeostatHttpClientBuilderExtensions
             && existing.ClientName == clientName);
 
         builder.Services.AddSingleton(new HttpClientSignalRegistration(clientName, options));
-        builder.Services.TryAddSingleton<HttpClientSignalCatalog>();
+        builder.Services.TryAddSingleton<HttpClientSignalRegistry>();
         builder.Services.TryAddSingleton(TimeProvider.System);
         builder.Services.AddHomeostatDetector<HttpClientSignalDetector>();
 
         if (!alreadyInstrumented)
         {
             builder.AddHttpMessageHandler(sp => new HomeostatSignalHandler(
-                sp.GetRequiredService<HttpClientSignalCatalog>().Get(clientName),
+                sp.GetRequiredService<HttpClientSignalRegistry>().Get(clientName),
                 sp.GetRequiredService<TimeProvider>()));
         }
 

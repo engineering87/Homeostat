@@ -147,16 +147,16 @@ public static class HomeostatReplay
             builder.Configure(options);
         }
 
-        // The catalog of mapped actions, found by AddConditionsFromConfiguration when the conditions are loaded.
-        var catalog = builder.Services.Select(d => d.ImplementationInstance).OfType<ConfiguredActions>().FirstOrDefault();
-        if (catalog is null)
+        // The mapped actions, found by AddConditionsFromConfiguration when the conditions are loaded.
+        var mapped = builder.Services.Select(d => d.ImplementationInstance).OfType<ConfiguredActions>().FirstOrDefault();
+        if (mapped is null)
         {
-            catalog = new ConfiguredActions();
-            builder.Services.AddSingleton(catalog);
+            mapped = new ConfiguredActions();
+            builder.Services.AddSingleton(mapped);
         }
 
         builder.AddConditionsFromConfiguration(conditions);
-        catalog.Fallback = name => (
+        mapped.Fallback = name => (
             plan => plan.With(name, static (_, _) => Task.CompletedTask),
             plan => plan.UndoWith(name, static (_, _) => Task.CompletedTask));
     }

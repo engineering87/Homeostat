@@ -64,7 +64,10 @@ public sealed class KafkaPauseGate : IPausableConsumer
     /// <typeparam name="TKey">Key type.</typeparam>
     /// <typeparam name="TValue">Value type.</typeparam>
     /// <param name="consumer">The consumer.</param>
-    public void Apply<TKey, TValue>(IConsumer<TKey, TValue> consumer)
+    /// <param name="pausedByApplication">
+    /// Partitions the application paused itself (for backpressure): a resume by Homeostat leaves them paused. Optional.
+    /// </param>
+    public void Apply<TKey, TValue>(IConsumer<TKey, TValue> consumer, IReadOnlyCollection<TopicPartition>? pausedByApplication = null)
     {
         ArgumentNullException.ThrowIfNull(consumer);
         var assignment = consumer.Assignment;
@@ -84,7 +87,16 @@ public sealed class KafkaPauseGate : IPausableConsumer
         }
         else if (_paused.Count > 0)
         {
-            consumer.Resume(_paused.ToList());
+            if (pausedByApplication is { Count: > 0 })
+            {
+                _paused.ExceptWith(pausedByApplication);
+            }
+
+            if (_paused.Count > 0)
+            {
+                consumer.Resume(_paused.ToList());
+            }
+
             _paused.Clear();
         }
     }

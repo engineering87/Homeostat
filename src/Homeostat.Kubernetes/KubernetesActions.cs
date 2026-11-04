@@ -28,12 +28,29 @@ internal static class KubernetesActions
         }
 
         await RestartGuard.EnsureAllowedAsync(context, limits, cancellationToken).ConfigureAwait(false);
-        Log(context).LogCritical("Deleting pod {Pod} in {Namespace} for condition {Condition}: its controller starts a new one.",
+        Log(context).LogCritical("Evicting pod {Pod} in {Namespace} for condition {Condition}: its controller starts a new one.",
             api.PodName, api.Namespace, context.ConditionName);
-        await api.DeleteAsync(
-            podPath,
-            new JsonObject { ["apiVersion"] = "v1", ["kind"] = "DeleteOptions", ["gracePeriodSeconds"] = gracePeriodSeconds },
-            cancellationToken).ConfigureAwait(false);
+
+        // An eviction, not a delete: the PodDisruptionBudgets apply, so replicas restarting for the same reason at the
+        // same moment can never take the whole workload down together.
+        try
+        {
+            await api.PostAsync(
+                $"{podPath}/eviction",
+                new JsonObject
+                {
+                    ["apiVersion"] = "policy/v1",
+                    ["kind"] = "Eviction",
+                    ["metadata"] = new JsonObject { ["name"] = api.PodName, ["namespace"] = api.Namespace },
+                    ["deleteOptions"] = new JsonObject { ["gracePeriodSeconds"] = gracePeriodSeconds },
+                },
+                cancellationToken).ConfigureAwait(false);
+        }
+        catch (KubernetesApiException ex) when (ex.StatusCode == System.Net.HttpStatusCode.TooManyRequests)
+        {
+            throw new InvalidOperationException(
+                $"Pod {api.PodName} was not restarted: a PodDisruptionBudget does not allow another disruption now.", ex);
+        }
     }
 
     public static async Task RolloutRestartAsync(HealingContext context, string deployment, CancellationToken cancellationToken)

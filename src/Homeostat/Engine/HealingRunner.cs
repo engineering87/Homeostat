@@ -86,6 +86,7 @@ internal sealed class HealingRunner
     /// </summary>
     public bool TryStart(ConditionTracker tracker, Signal trigger, CancellationToken stoppingToken)
     {
+        _hostStopping = stoppingToken;
         var definition = tracker.Definition;
         var name = definition.Name;
         var plan = definition.Plan;
@@ -632,7 +633,25 @@ internal sealed class HealingRunner
 
             if (!executed)
             {
-                Report(results, new HealingStepResult { RunId = runId, ConditionName = name, Step = i, Name = step.Name, Succeeded = false, Error = error });
+                // The action timed out: part of it may have taken effect (a request accepted, then no answer), so its
+                // compensating action runs too, and the escalation does not start from a half-done change. An action
+                // that threw is not compensated: it may have refused on purpose (an origin someone else disabled).
+                bool? undoneAfterFailure = null;
+                if (error is TimeoutException && step.ResolveUndo is { } undoAfterFailure && !cancellationToken.IsCancellationRequested)
+                {
+                    undoneAfterFailure = await TryUndoAsync(context, step, undoAfterFailure, plan, scope.ServiceProvider, cancellationToken).ConfigureAwait(false);
+                }
+
+                Report(results, new HealingStepResult
+                {
+                    RunId = runId,
+                    ConditionName = name,
+                    Step = i,
+                    Name = step.Name,
+                    Succeeded = false,
+                    Error = error,
+                    UndoSucceeded = undoneAfterFailure,
+                });
                 continue;
             }
 
@@ -642,6 +661,12 @@ internal sealed class HealingRunner
                 if (!cluster)
                 {
                     _ownership.Claim(switchName, name);
+                }
+
+                if (step.MaxHold is { } maxHold)
+                {
+                    // Not the run's token: the run ends (and a cluster run releases its lease) long before the hold does.
+                    LimitHold(name, switchName, cluster, maxHold, _hostStopping);
                 }
 
                 // The condition may have cleared while the step ran (after the engine released its switches): then
@@ -748,34 +773,24 @@ internal sealed class HealingRunner
         IServiceProvider services,
         CancellationToken cancellationToken)
     {
-        // The compensating action is an action like any other: it obeys the pause, the maintenance windows and the budget.
-        if (_control.PauseReason is { } paused)
-        {
-            _logger.LogWarning("Condition {Condition}: {Action} did not heal, but {Undo} is not run: Homeostat is {Reason}.",
-                context.ConditionName, step.Name, step.UndoName, paused);
-            return null;
-        }
-
+        // The compensating action reverts what this run just changed: the pause, the maintenance windows and the budget,
+        // which keep Homeostat from making new changes, never block it, or the application would stay degraded by a
+        // change that did not help. It still counts in the budget, best effort.
         try
         {
-            if (!await _store.TryConsumeBudgetAsync(
-                _timeProvider.GetUtcNow(), _options.MaxActionsPerWindow, _options.ActionBudgetWindow, cancellationToken).ConfigureAwait(false))
-            {
-                _logger.LogError("Condition {Condition}: action budget exhausted; compensating action {Undo} not run.", context.ConditionName, step.UndoName);
-                return null;
-            }
+            await _store.TryConsumeBudgetAsync(_timeProvider.GetUtcNow(), _options.MaxActionsPerWindow, _options.ActionBudgetWindow, cancellationToken)
+                .AsTask().WaitAsync(TimeSpan.FromSeconds(5), cancellationToken).ConfigureAwait(false);
         }
         catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
         {
-            LogStoreFailure(context.ConditionName, ex, "Condition {Condition}: the store is unavailable; the compensating action is not run.");
-            return null;
+            _logger.LogDebug(ex, "Condition {Condition}: the compensating action could not be counted in the budget.", context.ConditionName);
         }
 
         var timeout = step.ActionTimeout ?? _options.DefaultActionTimeout;
         using var timeoutCts = new CancellationTokenSource(timeout, _timeProvider);
         using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeoutCts.Token);
 
-        _logger.LogWarning("Condition {Condition}: {Action} did not heal; compensating with {Undo}.", context.ConditionName, step.Name, step.UndoName);
+        _logger.LogWarning("Condition {Condition}: {Action} did not heal or failed; compensating with {Undo}.", context.ConditionName, step.Name, step.UndoName);
         try
         {
             var undo = resolveUndo(services);
@@ -953,6 +968,15 @@ internal sealed class HealingRunner
     /// </summary>
     private async Task RunBoundedAsync(Func<Task> work, CancellationToken deadline, string condition, string what)
     {
+        // An action abandoned earlier and still running is not started again: each abandoned call keeps a thread (it may
+        // be blocked), and a plan that runs again after every cooldown would otherwise pile them up until the
+        // application runs out of threads.
+        var key = $"{condition}/{what}";
+        if (_abandoned.TryGetValue(key, out var stuck) && !stuck.IsCompleted)
+        {
+            throw new InvalidOperationException($"{what} is not started: its previous call, abandoned at its timeout, is still running.");
+        }
+
         var task = Task.Run(work, CancellationToken.None);
         try
         {
@@ -960,10 +984,17 @@ internal sealed class HealingRunner
         }
         catch (OperationCanceledException) when (deadline.IsCancellationRequested && !task.IsCompleted)
         {
+            _abandoned[key] = task;
+            _ = task.ContinueWith(t => _abandoned.TryRemove(new KeyValuePair<string, Task>(key, t)), CancellationToken.None,
+                TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
             Abandon(task, condition, what);
             throw;
         }
     }
+
+    private readonly ConcurrentDictionary<string, Task> _abandoned = new(StringComparer.Ordinal);
+
+    private CancellationToken _hostStopping;
 
     private void Abandon(Task task, string condition, string what)
     {
@@ -988,6 +1019,40 @@ internal sealed class HealingRunner
             _logger.LogError(ex, "Condition {Condition} cleared, but its application switches could not be turned off in the store.", condition);
             return [];
         }
+    }
+
+    /// <summary>Turns the switch off after its longest hold, if the condition still holds it then (see HoldAtMost).</summary>
+    private void LimitHold(string condition, string switchName, bool cluster, TimeSpan hold, CancellationToken stoppingToken)
+    {
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await Task.Delay(hold, _timeProvider, stoppingToken).ConfigureAwait(false);
+                var released = cluster
+                    ? await _switches.ReleaseOwnedAsync(switchName, condition, CancellationToken.None).ConfigureAwait(false)
+                    : _ownership.Release(condition, switchName) && _switches.IsOn(switchName);
+                if (released)
+                {
+                    if (!cluster)
+                    {
+                        _switches.TurnOffLocal(switchName);
+                    }
+
+                    _logger.LogWarning(
+                        "Condition {Condition}: switch {Switch} turned off after being held for {Hold} (HoldAtMost); the plan runs again after its cooldown if the condition is still active.",
+                        condition, switchName, hold);
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                // The application is stopping.
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Condition {Condition}: switch {Switch} could not be turned off at the end of its hold.", condition, switchName);
+            }
+        }, CancellationToken.None);
     }
 
     /// <summary>Turns off the instance switches only this condition held; returns them.</summary>

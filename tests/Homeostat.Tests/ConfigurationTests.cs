@@ -108,7 +108,7 @@ public class ConfigurationTests
         });
 
         var error = await Assert.ThrowsAsync<InvalidOperationException>(() => HomeostatTestHost.StartAsync(h => h
-            .AddConditionsFromConfiguration(config.GetSection("Conditions"))));
+            .AddConditionsFromConfiguration(config.GetSection("Conditions"), failOnInvalid: true)));
         Assert.Contains(expected, error.Message);
     }
 
@@ -165,7 +165,7 @@ public class ConfigurationTests
         });
 
         var error = await Assert.ThrowsAsync<InvalidOperationException>(() => HomeostatTestHost.StartAsync(h => h
-            .AddConditionsFromConfiguration(config.GetSection("Conditions"))));
+            .AddConditionsFromConfiguration(config.GetSection("Conditions"), failOnInvalid: true)));
         Assert.Contains(expected, error.Message);
     }
 

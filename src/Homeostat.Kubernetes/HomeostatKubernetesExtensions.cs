@@ -46,7 +46,7 @@ public static class HomeostatKubernetesExtensions
     /// fresh one: a restart that can also land on another node. The pod gets <paramref name="gracePeriod"/> to
     /// stop gracefully. The step refuses a pod without a controller, and applies <see cref="RestartGuard"/> (minimum
     /// uptime, restarts per window counted in the store): the new pod has a new name, so without those limits a plan
-    /// could delete pod after pod. The step ends the run: put it last. Needs <c>get</c> and <c>delete</c> on <c>pods</c>.
+    /// could evict pod after pod. The pod is evicted, so PodDisruptionBudgets apply. The step ends the run: put it last. Needs <c>get</c> on <c>pods</c> and <c>create</c> on <c>pods/eviction</c>.
     /// </summary>
     /// <param name="plan">The plan builder.</param>
     /// <param name="gracePeriod">Graceful termination period, in whole seconds, at least 1 second; defaults to 30 seconds.</param>

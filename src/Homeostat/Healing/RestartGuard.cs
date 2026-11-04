@@ -1,6 +1,7 @@
 using Homeostat.Healing.Actions;
 using Homeostat.Persistence;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
 namespace Homeostat.Healing;
@@ -59,25 +60,34 @@ public static class RestartGuard
         }
 
         // One counter per application, shared by its instances through the store: LastRunEndedAt is the start of the
-        // window, ConsecutiveFailures the restarts in it. The read and the update are separate: the limit is approximate
-        // when instances restart at the same moment.
+        // window, ConsecutiveFailures the restarts in it. The restart is counted first, atomically, and allowed only if
+        // the count it got is within the limit: when every replica of a fleet tries at the same moment, at most
+        // MaxRestarts of them restart (a refused attempt also counts, which only makes the limit stricter).
         var store = services.GetRequiredService<IHomeostatStore>();
+        if (store is InMemoryHomeostatStore)
+        {
+            services.GetService<ILoggerFactory>()?.CreateLogger("Homeostat.Restarts").LogWarning(
+                "Restart limits are counted in the in-memory store, which a restart empties: the limit is per process only. "
+                + "Use UseFileStore or UseRedis to count restarts across restarts and instances.");
+        }
+
         var key = $"restarts/{services.GetRequiredService<IOptions<HomeostatOptions>>().Value.ApplicationName}";
         var state = await store.GetPlanStateAsync(key, cancellationToken).ConfigureAwait(false);
         if (state.LastRunEndedAt is not { } windowStart || now - windowStart >= limits.Window)
         {
-            await store.UpdatePlanStateAsync(key, new PlanStateUpdate { LastRunEndedAt = now, Failures = FailureCountChange.Reset }, cancellationToken)
-                .ConfigureAwait(false);
-            state = PlanState.Empty;
+            // Only the first instance to see the expired window resets it: the precondition is the window it read.
+            await store.UpdatePlanStateAsync(
+                key,
+                new PlanStateUpdate { LastRunEndedAt = now, Failures = FailureCountChange.Reset, LastRunBy = now.ToUnixTimeMilliseconds().ToString(System.Globalization.CultureInfo.InvariantCulture), OnlyIfLastRunBy = state.LastRunBy },
+                cancellationToken).ConfigureAwait(false);
         }
 
-        if (state.ConsecutiveFailures >= limits.MaxRestarts)
+        var counted = await store.UpdatePlanStateAsync(key, new PlanStateUpdate { Failures = FailureCountChange.Increment }, cancellationToken).ConfigureAwait(false);
+        if (counted.ConsecutiveFailures > limits.MaxRestarts)
         {
             throw new InvalidOperationException(
-                $"The application already restarted {state.ConsecutiveFailures} times in the last {limits.Window.TotalMinutes:0.#} minutes " +
+                $"The application already restarted {limits.MaxRestarts} times in the last {limits.Window.TotalMinutes:0.#} minutes " +
                 $"(limit {limits.MaxRestarts}): restarting again would not help. A person should look at it.");
         }
-
-        await store.UpdatePlanStateAsync(key, new PlanStateUpdate { Failures = FailureCountChange.Increment }, cancellationToken).ConfigureAwait(false);
     }
 }

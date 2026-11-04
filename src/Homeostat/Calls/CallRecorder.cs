@@ -49,8 +49,14 @@ public sealed class CallRecorder
     {
         lock (_gate)
         {
+            // Saturating: counters never collected (a recorder used without Homeostat) must never overflow into the
+            // application's call.
             Count(failed);
-            _timed++;
+            if (_timed < int.MaxValue)
+            {
+                _timed++;
+            }
+
             if (_latenciesMs.Count < MaxLatencySamples)
             {
                 _latenciesMs.Add(duration.TotalMilliseconds);
@@ -83,6 +89,11 @@ public sealed class CallRecorder
 
     private void Count(bool failed)
     {
+        if (_total == int.MaxValue)
+        {
+            return;
+        }
+
         _total++;
         if (failed)
         {

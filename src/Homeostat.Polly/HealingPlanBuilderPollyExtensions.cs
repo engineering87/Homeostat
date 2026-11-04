@@ -29,6 +29,6 @@ public static class HealingPlanBuilderPollyExtensions
     {
         ArgumentNullException.ThrowIfNull(plan);
         ArgumentException.ThrowIfNullOrWhiteSpace(control);
-        return plan.TurnOnSwitch(CircuitControlCatalog.SwitchName(control), closeWhenCleared);
+        return plan.TurnOnSwitch(CircuitControlRegistry.SwitchName(control), closeWhenCleared);
     }
 }

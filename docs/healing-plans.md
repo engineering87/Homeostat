@@ -243,12 +243,14 @@ provider that is no better, raising a limit, disabling a feature. Give such a st
     .Then<RenewFeedClientAction>())
 ```
 
-When the step's action completes but verification says `NotHealed`, Homeostat runs the compensating action
-before moving to the next step. It is an action like any other: it consumes one unit of the action budget, has the
-step's action timeout, and does not run while Homeostat is paused or in a maintenance window, when the budget is
-exhausted or when the store cannot be reached (each case is logged, and `UndoSucceeded` is `false`). Its success is
-reported in `HealingStepResult.UndoSucceeded`. It does not run when the action itself failed (the
-change may not have happened) or when verification is `Inconclusive` (Homeostat cannot tell, and stops).
+When verification says `NotHealed`, or the action timed out (part of it may have taken effect: a request accepted,
+then no answer), Homeostat runs the compensating action before moving to the next step, so it must be
+harmless when there is nothing to undo. It has the step's action timeout and counts in the action budget, but the
+pause, the maintenance windows, an exhausted budget and an unreachable store never block it: it reverts what the run
+just changed, and leaving that in place would keep the application degraded. Its success is reported in
+`HealingStepResult.UndoSucceeded`. It does not run when the action threw (it may have refused on purpose, for example
+an origin someone else disabled), when verification is `Healed` (the change helped) or `Inconclusive` (Homeostat cannot
+tell, and stops), nor when the application stops during the step.
 
 ## Once per cluster
 

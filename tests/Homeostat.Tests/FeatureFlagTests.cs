@@ -49,12 +49,14 @@ public class FeatureFlagTests
     }
 
     [Fact]
-    public async Task Feature_filter_without_a_switch_name_is_a_configuration_error()
+    public async Task Feature_filter_without_a_switch_name_never_fails_the_feature_check()
     {
         await using var services = FeatureServices();
         var features = services.GetRequiredService<IFeatureManager>();
 
-        await Assert.ThrowsAsync<InvalidOperationException>(() => features.IsEnabledAsync("Broken"));
+        // A configuration typo must not fail every request that checks the feature: it is logged, and the feature is
+        // enabled, as when the switch is off.
+        Assert.True(await features.IsEnabledAsync("Broken"));
     }
 
     [Fact]

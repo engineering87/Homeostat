@@ -42,7 +42,7 @@ internal sealed class ConfigurationConditionSource
 
     private static readonly HashSet<string> StepKeys = new(StringComparer.OrdinalIgnoreCase)
     {
-        "Action", "RequireApproval", "ApprovalTimeout", "UndoAction", "TurnOffWhenCleared", "ActionTimeout", "VerificationTimeout",
+        "Action", "RequireApproval", "ApprovalTimeout", "UndoAction", "TurnOffWhenCleared", "HoldAtMost", "ActionTimeout", "VerificationTimeout",
     };
 
     private readonly ConfiguredActions _actions;
@@ -59,6 +59,9 @@ internal sealed class ConfigurationConditionSource
     }
 
     public IConfiguration Section { get; }
+
+    /// <summary>Whether an invalid configuration at startup stops the application (otherwise it is logged and left out).</summary>
+    public bool FailOnInvalid { get; init; }
 
     public IReadOnlyList<ConditionDefinition> Load()
     {
@@ -320,6 +323,16 @@ internal sealed class ConfigurationConditionSource
             if (step.GetSection("TurnOffWhenCleared").Exists() && !action.StartsWith("switch:", StringComparison.OrdinalIgnoreCase))
             {
                 throw new InvalidOperationException($"'{step.Path}:TurnOffWhenCleared' applies only to a 'switch:<name>' action.");
+            }
+
+            if (Duration(step, "HoldAtMost") is { } hold)
+            {
+                if (!action.StartsWith("switch:", StringComparison.OrdinalIgnoreCase) || Bool(step, "TurnOffWhenCleared") == false)
+                {
+                    throw new InvalidOperationException($"'{step.Path}:HoldAtMost' applies only to a 'switch:<name>' action turned off when the condition clears.");
+                }
+
+                builder.HoldAtMost(hold);
             }
 
             if (Duration(step, "ActionTimeout") is { } actionTimeout)

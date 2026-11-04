@@ -82,23 +82,49 @@ internal sealed class HomeostatConsumers : IHomeostatConsumers, IDisposable
                 return;
             }
 
+            // A previous call that timed out may still be running: let it finish first (bounded), so it cannot land
+            // after this one and undo it (a stop completing after the resume).
+            if (entry.InFlight is { IsCompleted: false } previous)
+            {
+                using var drain = new CancellationTokenSource(CallTimeout, _timeProvider);
+                try
+                {
+                    await previous.WaitAsync(drain.Token).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException) when (drain.IsCancellationRequested)
+                {
+                    throw new TimeoutException($"The previous pause or resume of consumer '{consumer.Name}' is still running.");
+                }
+                catch (Exception)
+                {
+                    // Its outcome no longer matters: this call sets the state the switch asks for.
+                }
+            }
+
             using var timeout = new CancellationTokenSource(CallTimeout, _timeProvider);
+            Task call;
             if (paused)
             {
                 _logger.LogWarning("Pausing consumer {Consumer}.", consumer.Name);
-                await consumer.PauseAsync(timeout.Token).WaitAsync(timeout.Token).ConfigureAwait(false);
+                call = consumer.PauseAsync(timeout.Token);
             }
             else
             {
                 _logger.LogInformation("Resuming consumer {Consumer}.", consumer.Name);
-                await consumer.ResumeAsync(timeout.Token).WaitAsync(timeout.Token).ConfigureAwait(false);
+                call = consumer.ResumeAsync(timeout.Token);
             }
+
+            entry.InFlight = call;
+            await call.WaitAsync(timeout.Token).ConfigureAwait(false);
 
             entry.Paused = paused;
             entry.Failures = 0;
         }
         catch (Exception ex)
         {
+            // A call that failed or timed out may still take effect later (a stop waiting for a stuck handler): the
+            // consumer's state is unknown, so the next change always calls the method that matches the switch.
+            entry.Paused = null;
             failed = true;
             var delay = RetryDelays[Math.Min(entry.Failures, RetryDelays.Length - 1)];
             entry.Failures++;
@@ -128,10 +154,16 @@ internal sealed class HomeostatConsumers : IHomeostatConsumers, IDisposable
 
         public SemaphoreSlim Gate { get; } = new(1, 1);
 
-        /// <summary>The state applied to the consumer: a new consumer is running.</summary>
-        public bool Paused { get; set; }
+        /// <summary>
+        /// The state applied to the consumer: a new consumer is running; <c>null</c> after a call that failed or timed
+        /// out, whose effect is unknown.
+        /// </summary>
+        public bool? Paused { get; set; } = false;
 
         public Task Last { get; set; } = Task.CompletedTask;
+
+        /// <summary>The latest pause or resume call, which may still run after its wait timed out.</summary>
+        public Task? InFlight { get; set; }
 
         public int Failures { get; set; }
 

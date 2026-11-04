@@ -88,7 +88,7 @@ builder.Services.AddHomeostat(h => h
 
 | Action | Kubernetes call | Permission |
 |---|---|---|
-| `RestartPod(gracePeriod, requireApproval, limits)` | `GET` then `DELETE pods/{this pod}` with a grace period (30 s by default, in whole seconds, at least 1 s, for example `RestartPod(gracePeriod: TimeSpan.FromSeconds(15))`); the controller starts a new pod. Refused for a pod without a controller, and by the restart guards | `get`, `delete` on `pods` |
+| `RestartPod(gracePeriod, requireApproval, limits)` | `GET` the pod, then `POST pods/{this pod}/eviction` with a grace period (30 s by default, in whole seconds, at least 1 s, for example `RestartPod(gracePeriod: TimeSpan.FromSeconds(15))`); the controller starts a new pod. An eviction, so PodDisruptionBudgets apply: replicas restarting together never take the workload down at once (the step fails when the budget allows no disruption). Refused for a pod without a controller, and by the restart guards | `get` on `pods`, `create` on `pods/eviction` |
 | `RolloutRestart(deployment)` | `PATCH deployments/{name}` with the `kubectl.kubernetes.io/restartedAt` annotation, like `kubectl rollout restart` | `patch` on `deployments` |
 | `ScaleDeployment(deployment, by, maximum, minimum)` | `GET` and `PATCH deployments/{name}/scale`, only in the direction of `by` (a deployment already above `maximum` is not scaled in); conditional on the read version, so a concurrent change fails the step | `get`, `patch` on `deployments/scale` |
 | `CordonNode()` | `GET`, then `PATCH nodes/{this node}` `spec.unschedulable: true` (new pods go elsewhere; running pods stay). A node already cordoned is left alone | `get`, `patch` on `nodes` (ClusterRole) |
@@ -144,7 +144,10 @@ metadata: { name: homeostat, namespace: weather }
 rules:
   - apiGroups: [""]
     resources: [pods]
-    verbs: [get, delete]                # RestartPod
+    verbs: [get]                        # RestartPod
+  - apiGroups: [""]
+    resources: [pods/eviction]
+    verbs: [create]                     # RestartPod (PodDisruptionBudgets apply)
   - apiGroups: [apps]
     resources: [deployments]
     resourceNames: [weather-api]
@@ -168,7 +171,7 @@ Know what these permissions allow if the application itself is compromised:
 
 - `patch` on a deployment allows rewriting its pod template (image, service account): scope it with `resourceNames`,
   as above, and prefer `ScaleDeployment` (only `deployments/scale`) when it is enough.
-- `delete` on `pods` covers every pod of the namespace; Kubernetes cannot restrict it to the pod itself.
+- `create` on `pods/eviction` covers every pod of the namespace; Kubernetes cannot restrict it to the pod itself. Evictions respect PodDisruptionBudgets: define one for the workload.
 - `CordonNode` needs a ClusterRole with `get` and `patch` on `nodes`, which also allows changing labels and taints of
   every node. Grant it only if you use it, and consider an admission policy (for example a
   ValidatingAdmissionPolicy) that lets this service account change only `spec.unschedulable`.

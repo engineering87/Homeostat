@@ -34,7 +34,8 @@ are not flooded. They do not consume the action budget. Observers still receive 
 
 **Default: 10 actions per rolling hour, across all plans.**
 
-Before every executed action, compensating actions included (dry-run steps do not count), Homeostat consumes one unit of a global budget. When the budget is exhausted,
+Before every executed action (dry-run steps do not count), Homeostat consumes one unit of a global budget. Compensating
+actions count too, but an exhausted budget never stops one: it reverts a change that did not help. When the budget is exhausted,
 the run stops with an error:
 
 ```text
@@ -85,8 +86,13 @@ Self-healing must never be what takes the application down. These are the rules,
 
 | Failure | What happens |
 |---|---|
-| The store never answers | Startup waits at most 5 seconds for the control state, then Homeostat counts as paused until it can read it. Control and status endpoints answer `503` within 10 seconds, the Homeostat health check within 2, and shutdown is not delayed. |
-| The store fails | Fail closed: no run starts whose cooldown or budget cannot be checked; store errors are logged without flooding the log. |
+| The store never answers | Startup waits at most 5 seconds for the control state, then Homeostat counts as paused until it can read it. Control and status endpoints answer `503` within 10 seconds, the Homeostat health check within one, and shutdown is not delayed. |
+| The store fails | Fail closed: no run starts whose cooldown or budget cannot be checked; store errors are logged without flooding the log. A pause, turning a switch off or releasing a switch Homeostat turned on apply at once on the instance and are written when the store answers; resuming or turning a switch on fail. |
+| The store file is locked, or Redis is down at startup | The application starts; Homeostat fails closed and tries again. |
+| A condition in configuration is invalid | Logged as critical and skipped (`failOnInvalid: true` to stop instead). |
+| The instance that turned on a switch for a cluster plan stops or crashes | Another instance turns it off as soon as the condition is not active there. |
+| An action keeps its own condition active (for example, a paused consumer whose backlog grows) | `HoldAtMost` turns the switch off after a maximum time. |
+| An abandoned action is still running when the plan runs again | It is not started a second time: the step fails until the previous call ends. |
 | An action, compensating action or verifier never returns | Homeostat stops waiting at its timeout (twice the timeout plus `ClearAfter` for a verifier) and logs it. |
 | A classifier (`IsFailure`) or a metric filter throws | The application's call or measurement is not affected: Homeostat counts it and moves on. |
 | A detector, probe, observer or sink throws | Logged and isolated: the others go on. |
@@ -128,7 +134,8 @@ While paused:
 - conditions keep being tracked and remain visible through `GetConditions()`;
 - no new run starts;
 - a run in progress stops before its next step;
-- compensating actions (`UndoWith`) do not run either. The same holds during maintenance windows.
+- a compensating action (`UndoWith`) of the step that just ran still runs: it reverts Homeostat's own change, and
+  leaving it in place would keep the application degraded. The same holds during maintenance windows.
 
 > The control endpoints require an authorization policy: they control what your application does to itself.
 

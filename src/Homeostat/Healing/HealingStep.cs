@@ -27,6 +27,9 @@ internal sealed class HealingStep
     /// <summary>Switch turned off automatically when the condition clears, if the step turned it on.</summary>
     internal string? SwitchToResetOnClear { get; init; }
 
+    /// <summary>Longest time the step's switch stays on, even if the condition does not clear (see <c>HoldAtMost</c>).</summary>
+    internal TimeSpan? MaxHold { get; set; }
+
     /// <summary>Name of the compensating action, if any (see <see cref="HealingPlanBuilder.UndoWith{TAction}"/>).</summary>
     public string? UndoName { get; internal set; }
 

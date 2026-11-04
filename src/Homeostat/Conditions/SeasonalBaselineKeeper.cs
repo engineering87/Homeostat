@@ -53,7 +53,7 @@ internal sealed class SeasonalBaselineKeeper : IHostedService, IAsyncDisposable
                 limit.CancelAfter(StoreWait);
 
                 // Bounded even when the store ignores the token: the application's startup must not wait for it.
-                await SyncAsync(limit.Token).WaitAsync(limit.Token).ConfigureAwait(false);
+                await Task.Run(() => SyncAsync(limit.Token), CancellationToken.None).WaitAsync(limit.Token).ConfigureAwait(false);
             }
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
@@ -87,9 +87,17 @@ internal sealed class SeasonalBaselineKeeper : IHostedService, IAsyncDisposable
             }
         }
 
-        // The final save gets its own short deadline: the shutdown token may already be canceled.
+        // The final save gets its own short deadline (the shutdown token may already be canceled), and is bounded even
+        // when the store ignores its token or blocks: the application's shutdown never waits for it longer.
         using var limit = new CancellationTokenSource(StoreWait);
-        await SyncAsync(limit.Token).ConfigureAwait(false);
+        try
+        {
+            await Task.Run(() => SyncAsync(limit.Token), CancellationToken.None).WaitAsync(limit.Token).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is OperationCanceledException or TimeoutException)
+        {
+            _logger.LogWarning("The seasonal baselines could not be saved within {Wait} at shutdown.", StoreWait);
+        }
     }
 
     public ValueTask DisposeAsync()

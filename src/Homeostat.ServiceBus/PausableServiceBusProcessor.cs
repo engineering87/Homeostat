@@ -17,8 +17,8 @@ public sealed class PausableServiceBusProcessor : IPausableConsumer
         ArgumentException.ThrowIfNullOrWhiteSpace(name);
         ArgumentNullException.ThrowIfNull(processor);
         Name = name;
-        _stop = ct => processor.IsProcessing ? processor.StopProcessingAsync(ct) : Task.CompletedTask;
-        _start = ct => processor.IsProcessing ? Task.CompletedTask : processor.StartProcessingAsync(ct);
+        _stop = ct => Stop(() => processor.IsProcessing, processor.StopProcessingAsync, ct);
+        _start = ct => Start(() => processor.IsProcessing, () => processor.IsClosed, processor.StartProcessingAsync, ct);
     }
 
     /// <summary>Wraps a session processor.</summary>
@@ -29,8 +29,35 @@ public sealed class PausableServiceBusProcessor : IPausableConsumer
         ArgumentException.ThrowIfNullOrWhiteSpace(name);
         ArgumentNullException.ThrowIfNull(processor);
         Name = name;
-        _stop = ct => processor.IsProcessing ? processor.StopProcessingAsync(ct) : Task.CompletedTask;
-        _start = ct => processor.IsProcessing ? Task.CompletedTask : processor.StartProcessingAsync(ct);
+        _stop = ct => Stop(() => processor.IsProcessing, processor.StopProcessingAsync, ct);
+        _start = ct => Start(() => processor.IsProcessing, () => processor.IsClosed, processor.StartProcessingAsync, ct);
+    }
+
+    // Set when Homeostat's pause stopped a running processor: a resume restarts only that, never a processor the
+    // application stopped or closed itself.
+    private volatile bool _stoppedByHomeostat;
+
+    private Task Stop(Func<bool> isProcessing, Func<CancellationToken, Task> stop, CancellationToken cancellationToken)
+    {
+        if (!isProcessing())
+        {
+            return Task.CompletedTask;
+        }
+
+        _stoppedByHomeostat = true;
+        return stop(cancellationToken);
+    }
+
+    private async Task Start(Func<bool> isProcessing, Func<bool> isClosed, Func<CancellationToken, Task> start, CancellationToken cancellationToken)
+    {
+        if (!_stoppedByHomeostat || isProcessing() || isClosed())
+        {
+            _stoppedByHomeostat = false;
+            return;
+        }
+
+        await start(cancellationToken).ConfigureAwait(false);
+        _stoppedByHomeostat = false;
     }
 
     /// <inheritdoc />
@@ -45,7 +72,7 @@ public sealed class PausableServiceBusProcessor : IPausableConsumer
     /// <param name="cancellationToken">Cancellation token.</param>
     public Task PauseAsync(CancellationToken cancellationToken) => _stop(cancellationToken);
 
-    /// <summary>Starts processing again.</summary>
+    /// <summary>Starts processing again, if Homeostat's pause stopped it (not a processor the application stopped or closed).</summary>
     /// <param name="cancellationToken">Cancellation token.</param>
     public Task ResumeAsync(CancellationToken cancellationToken) => _start(cancellationToken);
 }

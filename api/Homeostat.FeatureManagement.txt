@@ -4,6 +4,6 @@ namespace Homeostat
 namespace Homeostat.FeatureManagement
   public sealed class HomeostatSwitchFilter : Microsoft.FeatureManagement.IFeatureFilter, Microsoft.FeatureManagement.IFeatureFilterMetadata, Microsoft.FeatureManagement.IFilterParametersBinder
     public const string Alias = "Homeostat.Switch"
-    public HomeostatSwitchFilter(Homeostat.IHomeostatSwitches switches)
+    public HomeostatSwitchFilter(Homeostat.IHomeostatSwitches switches, Microsoft.Extensions.Logging.ILogger<Homeostat.FeatureManagement.HomeostatSwitchFilter>? logger = null)
     public object BindParameters(Microsoft.Extensions.Configuration.IConfiguration parameters)
     public System.Threading.Tasks.Task<bool> EvaluateAsync(Microsoft.FeatureManagement.FeatureFilterEvaluationContext context)

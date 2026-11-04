@@ -4,7 +4,7 @@ using Polly.CircuitBreaker;
 namespace Homeostat.Polly;
 
 /// <summary>Circuit breaker state providers tracked by Homeostat, keyed by signal source.</summary>
-internal sealed class CircuitBreakerCatalog
+internal sealed class CircuitBreakerRegistry
 {
     private readonly ConcurrentDictionary<string, CircuitBreakerStateProvider> _providers = new(StringComparer.Ordinal);
 

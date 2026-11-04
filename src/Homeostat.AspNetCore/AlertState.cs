@@ -35,6 +35,7 @@ internal sealed class AlertState : IDisposable
     {
         var now = _timeProvider.GetUtcNow();
         var accepted = 0;
+        const int MaxSeriesPerSource = 1000;
         var affected = new HashSet<string>(StringComparer.Ordinal);
         lock (_gate)
         {
@@ -53,6 +54,13 @@ internal sealed class AlertState : IDisposable
 
                 if (observation.Firing)
                 {
+                    // A noisy or hostile sender cannot grow memory without limit: a new series beyond the cap is
+                    // ignored (the source is already firing, so its status does not change).
+                    if (source.Firing.Count >= MaxSeriesPerSource && !source.Firing.ContainsKey(observation.Key))
+                    {
+                        continue;
+                    }
+
                     source.Firing[observation.Key] = (observation, now);
                 }
                 else

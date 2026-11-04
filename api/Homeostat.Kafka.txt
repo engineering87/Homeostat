@@ -8,7 +8,7 @@ namespace Homeostat.Kafka
     public KafkaPauseGate(string name)
     public bool IsPauseRequested { get; }
     public string Name { get; }
-    public void Apply<TKey, TValue>(Confluent.Kafka.IConsumer<TKey, TValue> consumer)
+    public void Apply<TKey, TValue>(Confluent.Kafka.IConsumer<TKey, TValue> consumer, System.Collections.Generic.IReadOnlyCollection<Confluent.Kafka.TopicPartition>? pausedByApplication = null)
     public System.Threading.Tasks.Task PauseAsync(System.Threading.CancellationToken cancellationToken)
     public System.Threading.Tasks.Task ResumeAsync(System.Threading.CancellationToken cancellationToken)
   public sealed class KafkaSignalOptions

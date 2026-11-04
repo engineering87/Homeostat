@@ -179,7 +179,7 @@ public class HistoryAndSeasonalityTests
         }).Build();
         await Assert.ThrowsAnyAsync<Exception>(async () =>
         {
-            await using var _ = await HomeostatTestHost.StartAsync(h => h.AddConditionsFromConfiguration(invalid.GetSection("Conditions")));
+            await using var _ = await HomeostatTestHost.StartAsync(h => h.AddConditionsFromConfiguration(invalid.GetSection("Conditions"), failOnInvalid: true));
         });
     }
 

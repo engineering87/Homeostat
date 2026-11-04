@@ -152,7 +152,7 @@ public class AspNetCoreTests
     }
 
     [Fact]
-    public async Task Control_changes_answer_503_when_the_store_is_unavailable()
+    public async Task Changes_that_would_let_Homeostat_act_answer_503_when_the_store_is_unavailable_and_safe_ones_apply_here()
     {
         var (app, client) = await StartAsync(h => h
             .UseStore(_ => new BrokenStore())
@@ -160,8 +160,11 @@ public class AspNetCoreTests
         await using var _ = app;
         using var __ = client;
 
-        Assert.Equal(HttpStatusCode.ServiceUnavailable, (await client.PostAsync("/homeostat/pause", null)).StatusCode);
+        // Resuming and turning a switch on need the store; pausing and turning a switch off apply here at once.
+        Assert.Equal(HttpStatusCode.ServiceUnavailable, (await client.PostAsync("/homeostat/resume", null)).StatusCode);
         Assert.Equal(HttpStatusCode.ServiceUnavailable, (await client.PostAsync("/homeostat/switches/serve-cached/on", null)).StatusCode);
+        Assert.Equal(HttpStatusCode.NoContent, (await client.PostAsync("/homeostat/pause", null)).StatusCode);
+        Assert.Equal(HttpStatusCode.NoContent, (await client.PostAsync("/homeostat/switches/serve-cached/off", null)).StatusCode);
         Assert.Equal(HttpStatusCode.ServiceUnavailable, (await client.PostAsync("/homeostat/approvals/abc/approve", null)).StatusCode);
         Assert.Equal(HttpStatusCode.BadRequest, (await client.PostAsync("/homeostat/approvals/%20/approve", null)).StatusCode);
         Assert.Equal(HttpStatusCode.BadRequest, (await client.PostAsync("/homeostat/conditions/%20/release", null)).StatusCode);

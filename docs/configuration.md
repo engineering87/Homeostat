@@ -79,7 +79,7 @@ A condition has at most one trigger: `Severity`, `ValueAbove`, `ValueBelow`, `Ri
 
 | Key | Same as |
 |---|---|
-| `Steps:N:Action` | A mapped action name, `switch:<name>` (with optional `TurnOffWhenCleared`), or `reload-configuration` |
+| `Steps:N:Action` | A mapped action name, `switch:<name>` (with optional `TurnOffWhenCleared` and `HoldAtMost`, a duration), or `reload-configuration` |
 | `Steps:N:RequireApproval`, `Steps:N:ApprovalTimeout` | `RequireApproval(timeout)` |
 | `Steps:N:UndoAction` | `UndoWith<T>()` with a mapped action |
 | `Steps:N:ActionTimeout`, `Steps:N:VerificationTimeout` | `ActionTimeout(t)`, `VerificationTimeout(t)` after the step |
@@ -112,7 +112,12 @@ Homeostat rebuilds the conditions defined there:
   already in progress stops before its next step;
 - an **invalid change is logged as an error and ignored**: Homeostat keeps the previous conditions.
 
-At startup, by contrast, an invalid configuration fails fast with the path of the offending key, for example:
+At startup, an invalid configuration is logged as **critical**, with the path of the offending key, and its
+conditions are left out: the conditions defined in code still apply, and the application starts. A typo pushed to a
+ConfigMap or to App Configuration must not stop every new instance (a scale-out, a restart, Homeostat's own
+`RestartPod`) from starting. Pass `failOnInvalid: true` to fail the startup instead, in development and in tests:
+`AddConditionsFromConfiguration(section, failOnInvalid: builder.Environment.IsDevelopment())`. The message is, for
+example:
 
 ```text
 Configuration 'Homeostat:Conditions:weather-feed-down:Plan:Steps:0': unknown action 'renew-feed'.

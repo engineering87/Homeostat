@@ -58,6 +58,13 @@ public sealed class SwitchState
 
     /// <summary>When it was turned on.</summary>
     public required DateTimeOffset At { get; init; }
+
+    /// <summary>
+    /// For a switch a cluster plan turned on: when <see cref="Instance"/> last confirmed it still holds it. A switch not
+    /// renewed for a while (the instance stopped or crashed) is turned off by any instance where its condition is not
+    /// active.
+    /// </summary>
+    public DateTimeOffset? RenewedAt { get; init; }
 }
 
 /// <summary>An approval request as the store keeps it.</summary>

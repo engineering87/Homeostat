@@ -4,6 +4,7 @@ using Homeostat.Redis;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Options;
 using StackExchange.Redis;
 
 namespace Homeostat;
@@ -38,8 +39,17 @@ public static class HomeostatRedisExtensions
             options.Configure(configure);
         }
 
-        builder.Services.Replace(ServiceDescriptor.Singleton<IHomeostatStore, RedisHomeostatStore>());
-        builder.Services.Replace(ServiceDescriptor.Singleton<IHomeostatCoordinator, RedisCoordinator>());
+        // The connection is resolved on first use, on Homeostat's threads: the application starts even while Redis is
+        // unreachable (connecting can take seconds), and Homeostat waits, paused, until it can read the control state.
+        builder.Services.Replace(ServiceDescriptor.Singleton<IHomeostatStore>(sp => new RedisHomeostatStore(
+            () => sp.GetRequiredService<IConnectionMultiplexer>(),
+            sp.GetRequiredService<IOptions<RedisStoreOptions>>(),
+            sp.GetRequiredService<IOptions<HomeostatOptions>>(),
+            sp.GetService<TimeProvider>())));
+        builder.Services.Replace(ServiceDescriptor.Singleton<IHomeostatCoordinator>(sp => new RedisCoordinator(
+            () => sp.GetRequiredService<IConnectionMultiplexer>(),
+            sp.GetRequiredService<IOptions<RedisStoreOptions>>(),
+            sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<RedisCoordinator>>())));
         return builder;
     }
 

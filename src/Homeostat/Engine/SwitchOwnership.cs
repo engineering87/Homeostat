@@ -32,6 +32,21 @@ internal sealed class SwitchOwnership
         }
     }
 
+    /// <summary>Releases one claim; <c>true</c> when the condition held the switch and no other condition holds it any more.</summary>
+    public bool Release(string condition, string switchName)
+    {
+        lock (_gate)
+        {
+            if (!_owners.TryGetValue(switchName, out var owners) || !owners.Remove(condition) || owners.Count > 0)
+            {
+                return false;
+            }
+
+            _owners.Remove(switchName);
+            return true;
+        }
+    }
+
     /// <summary>Releases every claim of the condition; returns the switches that no condition holds any more.</summary>
     public IReadOnlyList<string> Release(string condition)
     {

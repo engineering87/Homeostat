@@ -293,7 +293,7 @@ public class SharedControlTests
     }
 
     [Fact]
-    public async Task A_compensating_action_does_not_run_while_Homeostat_is_paused()
+    public async Task A_compensating_action_still_runs_when_Homeostat_was_paused_meanwhile()
     {
         var undone = 0;
         await using var host = await HomeostatTestHost.StartAsync(h => h.AddCondition("feed-down", c => c
@@ -306,8 +306,9 @@ public class SharedControlTests
         host.Publish("feed", SignalSeverity.Unhealthy);
         var run = await host.WaitForRunAsync("feed-down");
 
-        Assert.Equal(0, undone);
-        Assert.Null(run.Steps[0].UndoSucceeded);   // skipped, not failed
+        // The pause stops new changes, not the revert of the change that did not help.
+        Assert.Equal(1, undone);
+        Assert.True(run.Steps[0].UndoSucceeded);
     }
 
     /// <summary>An operator pauses Homeostat while the step is being verified, and the step did not help.</summary>

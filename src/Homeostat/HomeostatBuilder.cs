@@ -90,7 +90,9 @@ public sealed class HomeostatBuilder
         var options = new FileStoreOptions();
         configure?.Invoke(options);
         ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(options.PlanStateRetention, TimeSpan.Zero, nameof(configure));
-        return UseStore(_ => new FileHomeostatStore(path, options));
+        // Opened on first use: a file that cannot be opened (still locked by the previous process, a read-only volume)
+        // never stops the application from starting; Homeostat fails closed until it opens.
+        return UseStore(sp => new OpeningFileStore(path, options, sp.GetService<Microsoft.Extensions.Logging.ILogger<OpeningFileStore>>()));
     }
 
     /// <summary>Uses a custom <see cref="IHomeostatCoordinator"/> (registered as a singleton).</summary>

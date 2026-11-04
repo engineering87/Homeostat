@@ -124,11 +124,9 @@ internal sealed class HomeostatEngine : BackgroundService
             }
         }
 
-        // Application switches its cluster plan turned on: the store records the owner, so any instance can do it.
-        if (definition.Plan?.Scope == Healing.PlanScope.Cluster)
-        {
-            _ = ReleaseSharedAsync(definition.Name);
-        }
+        // Application switches its cluster plan turned on here (the store records the owner). Whatever the plan's scope
+        // now: a configuration reload may have changed it after the switch was turned on.
+        _ = ReleaseSharedAsync(definition.Name);
     }
 
     private async Task ReleaseSharedAsync(string condition)

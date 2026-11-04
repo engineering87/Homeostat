@@ -123,8 +123,10 @@ on until someone turns it off, pass `false`:
 
 In a `OncePerCluster()` plan the step turns on an **application** switch, on every instance, owned by the condition:
 it is turned off when the condition clears on the instance that ran the plan (the one whose recovery the plan
-waited for). A switch a person turned on is never taken over. In other plans it turns on a switch for the instance
-that runs the plan. See [Shared control state](persistence-and-clusters.md#shared-control-state).
+waited for). If that instance stops or crashes first, the switch is no longer renewed, and any instance where the
+condition is not active turns it off within a minute or so. A switch a person turned on is never taken over. In other
+plans it turns on a switch for the instance that runs the plan. See
+[Shared control state](persistence-and-clusters.md#shared-control-state).
 
 When the condition clears, Homeostat turns the switch off and logs it, but only a switch that this plan actually
 turned on (not in dry-run, not one you turned on by hand), and only when no other active condition that turned
@@ -136,6 +138,12 @@ it on still needs it. Two cautions:
   clears, the switch goes off, and the cycle repeats.
 - Combine it with [`ClearAfter`](conditions.md#how-long-recovery-must-last-clearafter-hysteresis) so that
   a provider that is barely back does not get the full traffic at the first good answer.
+- The opposite trap: a switch that keeps its own condition active never comes off. A circuit isolated by a condition
+  on that same circuit stays isolated (an isolated circuit reports Unhealthy); consumers paused by a condition on a
+  dead-letter count stay paused (the count cannot fall while they are paused); an origin taken out of rotation by a
+  condition on its own traffic leaves the condition without signals. Base the condition on another signal, and add
+  `.HoldAtMost(duration)` after the step as a safety net: the switch goes off after that time even if the condition
+  has not cleared, and the plan runs again after its cooldown if it is still active.
 
 With `turnOffWhenCleared: false`, turning the switch off is up to you, for example from the
 [control endpoints](aspnetcore.md) (`POST /homeostat/switches/{name}/off`), the CLI (`homeostat switch off`) or your

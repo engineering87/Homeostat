@@ -28,6 +28,8 @@ internal sealed class DetectorHost : BackgroundService
         _logger = logger;
     }
 
+    private TimeSpan CallLimit => _interval > TimeSpan.FromSeconds(30) ? _interval : TimeSpan.FromSeconds(30);
+
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         if (_detectors.Length == 0)
@@ -40,19 +42,54 @@ internal sealed class DetectorHost : BackgroundService
 
         using var timer = new PeriodicTimer(_interval, _timeProvider);
 
+        // One call per detector at a time, each bounded (in real time, at least 30 seconds): a detector that never completes
+        // (a blocking call, a lost token) is skipped until it does, instead of stopping every other detector.
+        var pending = new Task?[_detectors.Length];
+        var failing = new bool[_detectors.Length];
+
         try
         {
             do
             {
-                foreach (var detector in _detectors)
+                for (var i = 0; i < _detectors.Length; i++)
                 {
+                    var detector = _detectors[i];
+                    if (pending[i] is { IsCompleted: false })
+                    {
+                        continue;
+                    }
+
                     try
                     {
-                        await detector.DetectAsync(_signals, stoppingToken).ConfigureAwait(false);
+                        var call = Task.Run(() => detector.DetectAsync(_signals, stoppingToken).AsTask(), CancellationToken.None);
+                        pending[i] = call;
+                        await call.WaitAsync(CallLimit, stoppingToken).ConfigureAwait(false);
+                        if (failing[i])
+                        {
+                            failing[i] = false;
+                            _logger.LogInformation("Detector {Detector} works again.", detector.GetType().Name);
+                        }
                     }
                     catch (Exception ex) when (ex is not OperationCanceledException || !stoppingToken.IsCancellationRequested)
                     {
-                        _logger.LogError(ex, "Detector {Detector} failed.", detector.GetType().Name);
+                        // Once when it starts failing, not at every interval.
+                        if (!failing[i])
+                        {
+                            failing[i] = true;
+                            _logger.LogError(ex, ex is TimeoutException
+                                ? "Detector {Detector} did not complete in time; it is skipped until it does."
+                                : "Detector {Detector} failed.", detector.GetType().Name);
+                        }
+                        else
+                        {
+                            _logger.LogDebug(ex, "Detector {Detector} still fails.", detector.GetType().Name);
+                        }
+
+                        if (pending[i] is { } abandoned)
+                        {
+                            _ = abandoned.ContinueWith(static t => _ = t.Exception, CancellationToken.None,
+                                TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
+                        }
                     }
                 }
             }

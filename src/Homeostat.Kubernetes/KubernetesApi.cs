@@ -36,8 +36,8 @@ internal sealed class KubernetesApi
 
     public string NodeName => KubernetesNames.Validate(Required(_options.NodeName, "node name", "NodeName (or the NODE_NAME variable, from the downward API)"), "node name");
 
-    public Task DeleteAsync(string path, JsonNode body, CancellationToken cancellationToken)
-        => SendAsync(HttpMethod.Delete, path, body, "application/json", cancellationToken);
+    public Task<JsonNode?> PostAsync(string path, JsonNode body, CancellationToken cancellationToken)
+        => SendAsync(HttpMethod.Post, path, body, "application/json", cancellationToken);
 
     public Task<JsonNode?> GetAsync(string path, CancellationToken cancellationToken)
         => SendAsync(HttpMethod.Get, path, null, null, cancellationToken);

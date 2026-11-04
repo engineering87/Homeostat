@@ -144,7 +144,14 @@ internal sealed class SignalRecorder : IHostedLifecycleService
     public async Task StoppedAsync(CancellationToken cancellationToken)
     {
         _queue.Writer.TryComplete();
-        await _loop.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            await _loop.WaitAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            // The shutdown timeout expired: the signals still queued are not recorded. Never an error for the host.
+        }
     }
 
     private async Task WriteLoopAsync()

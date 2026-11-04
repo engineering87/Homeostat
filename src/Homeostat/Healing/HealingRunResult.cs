@@ -64,7 +64,7 @@ public sealed record HealingStepResult
 
     /// <summary>
     /// Whether the compensating action (<see cref="HealingPlanBuilder.UndoWith{TAction}"/>) completed; <c>null</c> when
-    /// it did not run (no compensating action, or skipped because Homeostat was paused or the budget was exhausted).
+    /// it did not run (no compensating action, or the step was healed or inconclusive).
     /// </summary>
     public bool? UndoSucceeded { get; init; }
 }

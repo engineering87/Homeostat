@@ -6,7 +6,48 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
-Nothing yet.
+Failure isolation: Homeostat, or its store, failing must never block the application or leave it degraded.
+
+### Added
+
+- `HoldAtMost(maximum)` after `TurnOnSwitch` (and the steps built on it, such as `PauseConsumer`), and the
+  `HoldAtMost` step key in configuration: the switch is turned off after that time even if the condition never
+  clears, for actions whose effect can keep their own condition active.
+- `SwitchState.RenewedAt`: the instance that turned on a switch for a cluster plan renews it; when that instance
+  stops or crashes, another instance turns the switch off as soon as the condition is not active there.
+- `AddConditionsFromConfiguration(section, failOnInvalid)`: by default an invalid condition in configuration is
+  logged as critical and skipped instead of stopping the application.
+
+### Changed
+
+- With the store unavailable, changes that make Homeostat do less (pause, turning a switch off, releasing a switch
+  it turned on) apply at once on the instance and are written when the store answers again; changes that would let
+  it act (resume, turning a switch on) still fail, with `503` from the endpoints.
+- Every wait on the store is bounded and runs off the caller's thread, so a store with synchronous or never-ending
+  calls cannot block startup, shutdown, a request, the health check (one second at most) or a Slack or Teams command.
+- The file store opens lazily: a file locked by another process no longer stops the application; Homeostat fails
+  closed and tries again every 10 seconds.
+- Redis: the connection is resolved on first use and again after a failure, so a Redis server that is down at
+  startup no longer stops the application.
+- A compensating action (`UndoWith`) is never blocked by the pause, maintenance windows or the action budget, and runs
+  after a step that timed out (it may have half-applied); it does not run after an action that refused.
+- An action or compensating action abandoned at its timeout and still running is not started again until it ends,
+  so a blocked action cannot exhaust the thread pool.
+- Paused consumers: a pause that timed out leaves the state unknown, so the consumer is resumed when the condition
+  clears; calls to the same consumer never overlap.
+- `RestartHostedService` starts the service again even if stopping it failed or timed out.
+- Restart limits are counted atomically in the store; the in-memory store logs a warning that they reset with the
+  process.
+- Kubernetes `RestartPod` evicts the pod (respecting PodDisruptionBudgets; `429` is reported as such) instead of
+  deleting it. The RBAC rule needs `create` on `pods/eviction`.
+- Service Bus: resume restarts only a processor Homeostat stopped, not one the application stopped or closed. Kafka:
+  `KafkaPauseGate.Apply` takes the partitions the application paused, which it never resumes.
+- The `Homeostat.Switch` feature filter never throws: invalid parameters are logged once and the feature is enabled.
+- Detectors: a detector that hangs is skipped until its call returns, instead of piling up calls; failures are logged
+  once and then at debug level while they continue.
+- Call and HTTP counters saturate instead of overflowing.
+- Each alert source tracks at most 1,000 firing series.
+- Seasonal baselines and the signal recorder no longer delay or fail shutdown when the store does not answer.
 
 ## [1.0.0-rc.1] - 2026-11-02
 
@@ -388,7 +429,7 @@ repository (version `0.1.0` in the project files):
   a background service stopped outside a shutdown as failed (`BackgroundServiceExceptionBehavior.StopHost`); see the
   breaking changes above.
 - A condition that cleared while a switch step was running left the switch on: it is now turned off.
-- `AddConditionsFromConfiguration` without any `AddAction` registered its action catalog only when the conditions were
+- `AddConditionsFromConfiguration` without any `AddAction` registered its action mappings only when the conditions were
   first resolved, after the host had made the service collection read-only.
 - A signal that the engine cannot process is logged and skipped instead of stopping the engine.
 - A signed Slack interaction or Teams command with a value of the wrong JSON type is answered 400 instead of 500.

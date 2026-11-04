@@ -11,7 +11,8 @@ internal sealed class HomeostatHealthCheck : IHealthCheck
 
     private readonly IHomeostatControl _control;
     private readonly IHomeostatApprovals _approvals;
-    private static readonly TimeSpan StoreTimeout = TimeSpan.FromSeconds(2);
+    // For both store reads together: well under the one second Kubernetes gives a probe by default.
+    private static readonly TimeSpan StoreTimeout = TimeSpan.FromMilliseconds(800);
 
     private readonly HealthStatus _attentionStatus;
 
@@ -29,10 +30,16 @@ internal sealed class HomeostatHealthCheck : IHealthCheck
         int pending;
         try
         {
-            // Bounded: a store that does not answer must not make the health endpoint time out (a liveness probe that
-            // times out restarts the application).
-            budget = await _control.GetBudgetAsync(cancellationToken).AsTask().WaitAsync(StoreTimeout, cancellationToken).ConfigureAwait(false);
-            pending = (await _approvals.GetPendingAsync(cancellationToken).AsTask().WaitAsync(StoreTimeout, cancellationToken).ConfigureAwait(false)).Count;
+            // Bounded, both reads together, and started off the request thread (a store may block before returning its
+            // task): a store that does not answer must not make the health endpoint time out (a probe that times out
+            // can restart the application).
+            var reads = Task.Run(async () =>
+            {
+                var budgetRead = _control.GetBudgetAsync(cancellationToken).AsTask();
+                var pendingRead = _approvals.GetPendingAsync(cancellationToken).AsTask();
+                return (await budgetRead.ConfigureAwait(false), (await pendingRead.ConfigureAwait(false)).Count);
+            }, CancellationToken.None);
+            (budget, pending) = await reads.WaitAsync(StoreTimeout, cancellationToken).ConfigureAwait(false);
         }
         catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
         {

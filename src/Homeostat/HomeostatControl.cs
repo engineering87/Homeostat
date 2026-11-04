@@ -83,16 +83,26 @@ internal sealed class HomeostatControl : IHomeostatControl
 
     public bool IsDryRun => _options.DryRun;
 
-    public ValueTask PauseAsync(DateTimeOffset? until = null, string? by = null, CancellationToken cancellationToken = default)
+    public async ValueTask PauseAsync(DateTimeOffset? until = null, string? by = null, CancellationToken cancellationToken = default)
     {
+        // Pausing is the safe direction: when the store cannot take it, it applies here at once and is written when the
+        // store answers (unless a newer pause or resume is there by then), so an outage never prevents stopping Homeostat.
         var pause = new PauseState { Until = until, By = by, At = _timeProvider.GetUtcNow() };
-        return new ValueTask(_shared.ChangeAsync(
-            (store, ct) => store.SetPauseAsync(pause, ct), s => Engine.SharedControl.WithPause(s, pause), cancellationToken));
+        if (!await _shared.ChangeOrDeferAsync(
+            "pause",
+            (store, ct) => store.SetPauseAsync(pause, ct),
+            s => Engine.SharedControl.WithPause(s, pause),
+            s => s.Pause is { } stored && stored.At > pause.At,
+            cancellationToken).ConfigureAwait(false))
+        {
+            _logger.LogWarning("Homeostat paused on this instance; the store will take the pause when it answers.");
+        }
     }
 
     public async ValueTask ResumeAsync(string? by = null, CancellationToken cancellationToken = default)
     {
-        await _shared.ChangeAsync((store, ct) => store.SetPauseAsync(null, ct), s => Engine.SharedControl.WithPause(s, null), cancellationToken).ConfigureAwait(false);
+        // Resuming lets plans act again: it must reach the store, or it does not happen.
+        await _shared.ChangeAsync((store, ct) => store.SetPauseAsync(null, ct), s => Engine.SharedControl.WithPause(s, null), cancellationToken, "pause").ConfigureAwait(false);
         _logger.LogInformation("Homeostat resumed{By}.", by is { Length: > 0 } who ? $" by {who.ReplaceLineEndings(" ")}" : string.Empty);
     }
 

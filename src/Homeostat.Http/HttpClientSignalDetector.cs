@@ -7,19 +7,19 @@ namespace Homeostat.Http;
 /// <summary>Publishes one signal per instrumented client at every detection interval.</summary>
 internal sealed class HttpClientSignalDetector : ISignalDetector
 {
-    private readonly HttpClientSignalCatalog _catalog;
+    private readonly HttpClientSignalRegistry _registry;
     private readonly TimeProvider _timeProvider;
 
-    public HttpClientSignalDetector(HttpClientSignalCatalog catalog, TimeProvider timeProvider)
+    public HttpClientSignalDetector(HttpClientSignalRegistry registry, TimeProvider timeProvider)
     {
-        _catalog = catalog;
+        _registry = registry;
         _timeProvider = timeProvider;
     }
 
     public ValueTask DetectAsync(ISignalPublisher signals, CancellationToken cancellationToken)
     {
         var now = _timeProvider.GetUtcNow();
-        foreach (var window in _catalog.Windows)
+        foreach (var window in _registry.Windows)
         {
             var signal = Evaluate(window.Source, window.Options, window.Collect(), now);
             if (signal is not null)

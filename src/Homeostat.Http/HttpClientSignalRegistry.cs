@@ -4,11 +4,11 @@ namespace Homeostat.Http;
 internal sealed record HttpClientSignalRegistration(string ClientName, HttpClientSignalOptions Options);
 
 /// <summary>Holds the collection window of every instrumented client.</summary>
-internal sealed class HttpClientSignalCatalog
+internal sealed class HttpClientSignalRegistry
 {
     private readonly Dictionary<string, HttpClientWindow> _windows;
 
-    public HttpClientSignalCatalog(IEnumerable<HttpClientSignalRegistration> registrations)
+    public HttpClientSignalRegistry(IEnumerable<HttpClientSignalRegistration> registrations)
     {
         _windows = new Dictionary<string, HttpClientWindow>(StringComparer.Ordinal);
         foreach (var registration in registrations)

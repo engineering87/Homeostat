@@ -25,17 +25,21 @@ public static class HomeostatConfigurationExtensions
         ArgumentException.ThrowIfNullOrWhiteSpace(name);
 
         builder.Services.TryAddTransient<TAction>();
-        Catalog(builder).Map(name, p => p.With<TAction>(), p => p.UndoWith<TAction>());
+        MappedActions(builder).Map(name, p => p.With<TAction>(), p => p.UndoWith<TAction>());
         return builder;
     }
 
     /// <summary>
     /// Adds the conditions defined in a configuration section, one child per condition, and rebuilds them when the
     /// configuration changes (for example when <c>appsettings.json</c> is edited), keeping the state of conditions
-    /// whose name did not change. An invalid configuration fails at startup; an invalid change is logged and ignored.
+    /// whose name did not change. An invalid change is logged and ignored. An invalid configuration at startup is
+    /// logged as critical and its conditions are left out (the conditions defined in code still apply), so a typo pushed
+    /// to the configuration never stops new instances from starting; with <paramref name="failOnInvalid"/> it fails
+    /// the startup instead, for example in development or in tests.
     /// </summary>
     /// <param name="builder">The Homeostat builder.</param>
     /// <param name="section">The section, for example <c>builder.Configuration.GetSection("Homeostat:Conditions")</c>.</param>
+    /// <param name="failOnInvalid">Whether an invalid configuration at startup stops the application from starting.</param>
     /// <example>
     /// <code>
     /// "Homeostat": {
@@ -56,19 +60,19 @@ public static class HomeostatConfigurationExtensions
     /// }
     /// </code>
     /// </example>
-    public static HomeostatBuilder AddConditionsFromConfiguration(this HomeostatBuilder builder, IConfiguration section)
+    public static HomeostatBuilder AddConditionsFromConfiguration(this HomeostatBuilder builder, IConfiguration section, bool failOnInvalid = false)
     {
         ArgumentNullException.ThrowIfNull(builder);
         ArgumentNullException.ThrowIfNull(section);
 
-        // The catalog is registered now: after the host is built, the service collection is read-only.
-        var catalog = Catalog(builder);
-        builder.Services.AddSingleton(sp => new ConfigurationConditionSource(section, catalog));
+        // The mapped actions are registered now: after the host is built, the service collection is read-only.
+        var registry = MappedActions(builder);
+        builder.Services.AddSingleton(sp => new ConfigurationConditionSource(section, registry) { FailOnInvalid = failOnInvalid });
         builder.Services.TryAddEnumerable(ServiceDescriptor.Singleton<IHostedService, ConditionReloader>());
         return builder;
     }
 
-    private static ConfiguredActions Catalog(HomeostatBuilder builder)
+    private static ConfiguredActions MappedActions(HomeostatBuilder builder)
     {
         var descriptor = builder.Services.FirstOrDefault(d => d.ServiceType == typeof(ConfiguredActions));
         if (descriptor?.ImplementationInstance is ConfiguredActions existing)
@@ -76,8 +80,8 @@ public static class HomeostatConfigurationExtensions
             return existing;
         }
 
-        var catalog = new ConfiguredActions();
-        builder.Services.AddSingleton(catalog);
-        return catalog;
+        var registry = new ConfiguredActions();
+        builder.Services.AddSingleton(registry);
+        return registry;
     }
 }

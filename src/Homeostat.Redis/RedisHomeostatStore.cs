@@ -47,13 +47,24 @@ internal sealed class RedisHomeostatStore : IHomeostatStore
         return 1
         """;
 
-    private readonly IConnectionMultiplexer _redis;
+    private readonly Func<IConnectionMultiplexer> _redis;
     private readonly RedisStoreOptions _options;
     private readonly string _budgetKey;
     private readonly TimeProvider _timeProvider;
 
     public RedisHomeostatStore(IConnectionMultiplexer redis, IOptions<RedisStoreOptions> options, IOptions<HomeostatOptions> homeostat, TimeProvider? timeProvider = null)
+        : this(() => redis, options, homeostat, timeProvider)
     {
+    }
+
+    /// <summary>
+    /// Resolves the connection on first use, not when the services are built: connecting can take seconds when Redis is
+    /// unreachable, and the application's startup must not wait for it.
+    /// </summary>
+    internal RedisHomeostatStore(Func<IConnectionMultiplexer> redis, IOptions<RedisStoreOptions> options, IOptions<HomeostatOptions> homeostat, TimeProvider? timeProvider = null)
+    {
+        // Called on every use, not cached: a connection that failed is resolved again (the container keeps the first
+        // one that succeeds).
         _redis = redis;
         _timeProvider = timeProvider ?? TimeProvider.System;
         _options = options.Value;
@@ -62,7 +73,7 @@ internal sealed class RedisHomeostatStore : IHomeostatStore
             : $"{_options.KeyPrefix}budget:{homeostat.Value.InstanceId}";
     }
 
-    private IDatabase Db => _redis.GetDatabase();
+    private IDatabase Db => _redis().GetDatabase();
 
     public async ValueTask<PlanState> GetPlanStateAsync(string key, CancellationToken cancellationToken = default)
     {

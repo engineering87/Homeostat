@@ -21,6 +21,8 @@ internal sealed class RestartHostedServiceAction<TService> : IHealingAction
         _logger = logger;
     }
 
+    private static readonly TimeSpan StartTimeout = TimeSpan.FromSeconds(30);
+
     public async Task ExecuteAsync(HealingContext context, CancellationToken cancellationToken)
     {
         var service = _hostedServices.OfType<TService>().FirstOrDefault()
@@ -43,10 +45,18 @@ internal sealed class RestartHostedServiceAction<TService> : IHealingAction
         }
 
         _logger.LogInformation("Stopping hosted service {Service}.", typeof(TService).Name);
-        await service.StopAsync(cancellationToken).ConfigureAwait(false);
-
-        _logger.LogInformation("Starting hosted service {Service}.", typeof(TService).Name);
-        await service.StartAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            await service.StopAsync(cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            // Whatever happened to the stop (it threw, or the step's timeout canceled it), the service is started again:
+            // a restart must never leave it stopped. The start gets its own deadline, as the step's may have passed.
+            _logger.LogInformation("Starting hosted service {Service}.", typeof(TService).Name);
+            using var start = new CancellationTokenSource(StartTimeout);
+            await service.StartAsync(start.Token).ConfigureAwait(false);
+        }
     }
 
     /// <summary>
