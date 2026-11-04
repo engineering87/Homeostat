@@ -9,7 +9,7 @@ namespace Homeostat.Azure
   public sealed class AzureOptions
     public static readonly System.Uri PublicCloud
     public AzureOptions()
-    public System.Func<System.Threading.CancellationToken, System.Threading.Tasks.ValueTask<string>>? AccessToken { get; set; }
+    public System.Func<System.IServiceProvider, System.Threading.CancellationToken, System.Threading.Tasks.ValueTask<string>>? AccessToken { get; set; }
     public System.Uri ResourceManager { get; set; }
     public System.TimeSpan Timeout { get; set; }
   public sealed class ResourceManagerException : System.Exception

@@ -13,22 +13,29 @@ namespace Homeostat.Recording;
 /// <summary>
 /// One recorded signal, as written to the recording files (JSON Lines) and read back by replays.
 /// </summary>
-/// <param name="Timestamp">Signal time.</param>
-/// <param name="Source">Signal source.</param>
-/// <param name="Severity">Signal severity.</param>
-/// <param name="Value">Signal value, if any.</param>
-/// <param name="Message">Signal message, if recorded.</param>
-/// <param name="Tags">Signal tags, if recorded.</param>
-/// <param name="Instance">Instance that recorded the signal (<see cref="HomeostatOptions.InstanceId"/>).</param>
-public sealed record RecordedSignal(
-    DateTimeOffset Timestamp,
-    string Source,
-    SignalSeverity Severity,
-    double? Value = null,
-    string? Message = null,
-    IReadOnlyDictionary<string, string>? Tags = null,
-    string? Instance = null)
+public sealed record RecordedSignal
 {
+    /// <summary>Signal time.</summary>
+    public required DateTimeOffset Timestamp { get; init; }
+
+    /// <summary>Signal source.</summary>
+    public required string Source { get; init; }
+
+    /// <summary>Signal severity.</summary>
+    public required SignalSeverity Severity { get; init; }
+
+    /// <summary>Signal value, if any.</summary>
+    public double? Value { get; init; }
+
+    /// <summary>Signal message, if recorded.</summary>
+    public string? Message { get; init; }
+
+    /// <summary>Signal tags, if recorded.</summary>
+    public IReadOnlyDictionary<string, string>? Tags { get; init; }
+
+    /// <summary>Instance that recorded the signal (<see cref="HomeostatOptions.InstanceId"/>).</summary>
+    public string? Instance { get; init; }
+
     internal static readonly JsonSerializerOptions Json = HomeostatJsonContext.CreateOptions(o =>
     {
         o.DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull;
@@ -181,8 +188,7 @@ internal sealed class SignalRecorder : IHostedLifecycleService
                 text.Clear();
                 foreach (var signal in group)
                 {
-                    var recorded = new RecordedSignal(signal.Timestamp, signal.Source, signal.Severity, signal.Value,
-                        _options.IncludeDetails ? signal.Message : null, _options.IncludeDetails ? signal.Tags : null, _instance);
+                    var recorded = new RecordedSignal { Timestamp = signal.Timestamp, Source = signal.Source, Severity = signal.Severity, Value = signal.Value, Message = _options.IncludeDetails ? signal.Message : null, Tags = _options.IncludeDetails ? signal.Tags : null, Instance = _instance };
                     text.Append(JsonSerializer.Serialize(recorded, RecordedSignal.Json.TypeInfo<RecordedSignal>())).Append('\n');
                 }
 

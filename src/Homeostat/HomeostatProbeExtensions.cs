@@ -38,30 +38,31 @@ public static class HomeostatProbeExtensions
 
     /// <summary>
     /// Calls <paramref name="call"/> periodically and publishes how long it took, in milliseconds, as the value of a
-    /// signal from <paramref name="source"/>. Thresholds in <see cref="ProbeOptions"/> are milliseconds. A call that
+    /// signal from <paramref name="source"/>. Set the thresholds as durations with
+    /// <see cref="LatencyProbeOptions.DegradedLatency"/> and <see cref="LatencyProbeOptions.UnhealthyLatency"/>. A call that
     /// throws or times out publishes <see cref="ProbeOptions.FailureSeverity"/> without a value.
     /// </summary>
     /// <param name="builder">The Homeostat builder.</param>
     /// <param name="source">Source of the published signals.</param>
     /// <param name="call">A cheap call to the dependency, for example a ping. It runs in its own service scope.</param>
-    /// <param name="configure">Changes interval, timeout and thresholds (in milliseconds).</param>
+    /// <param name="configure">Changes interval, timeout and thresholds.</param>
     /// <example>
     /// <code>
     /// h.AddLatencyProbe("search-index", (sp, ct) => sp.GetRequiredService&lt;SearchClient&gt;().PingAsync(ct),
-    ///     p => p.DegradedAbove = 250);
+    ///     p => p.DegradedLatency = TimeSpan.FromMilliseconds(250));
     /// </code>
     /// </example>
     public static HomeostatBuilder AddLatencyProbe(
         this HomeostatBuilder builder,
         string source,
         Func<IServiceProvider, CancellationToken, Task> call,
-        Action<ProbeOptions>? configure = null)
+        Action<LatencyProbeOptions>? configure = null)
     {
         ArgumentNullException.ThrowIfNull(builder);
         ArgumentException.ThrowIfNullOrWhiteSpace(source);
         ArgumentNullException.ThrowIfNull(call);
 
-        var options = new ProbeOptions();
+        var options = new LatencyProbeOptions();
         configure?.Invoke(options);
         return Register(builder, source, "latency-probe", async (sp, ct) =>
         {

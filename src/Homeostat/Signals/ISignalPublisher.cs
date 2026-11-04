@@ -14,11 +14,16 @@ public interface ISignalPublisher
 
     /// <summary>
     /// Convenience overload that stamps the signal with the current time. Implementations need not provide it: by
-    /// default it uses the system clock and <see cref="TryPublish(Signal)"/>.
+    /// default it uses the system clock and <see cref="TryPublish(Signal)"/>; Homeostat's own publisher uses the
+    /// application's <see cref="TimeProvider"/>.
     /// </summary>
-    bool TryPublish(string source, SignalSeverity severity, string? message = null)
+    /// <param name="source">Signal source.</param>
+    /// <param name="severity">Signal severity.</param>
+    /// <param name="message">Optional message.</param>
+    /// <param name="value">Optional measured value (see <see cref="Signal.Value"/>).</param>
+    bool TryPublish(string source, SignalSeverity severity, string? message = null, double? value = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(source);
-        return TryPublish(new Signal(source, severity, TimeProvider.System.GetUtcNow()) { Message = message });
+        return TryPublish(new Signal(source, severity, TimeProvider.System.GetUtcNow()) { Message = message, Value = value });
     }
 }

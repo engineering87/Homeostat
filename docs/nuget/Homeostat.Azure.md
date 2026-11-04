@@ -20,7 +20,7 @@ using Homeostat;
 var credential = new DefaultAzureCredential();   // Azure.Identity, referenced by your application
 
 builder.Services.AddHomeostat(h => h
-    .UseAzure(o => o.AccessToken = async ct =>
+    .UseAzure(o => o.AccessToken = async (services, ct) =>
         (await credential.GetTokenAsync(new TokenRequestContext(["https://management.azure.com/.default"]), ct)).Token)
     .AddCondition("api-down", c => c
         .ForSource("alert:WeatherApiDown")

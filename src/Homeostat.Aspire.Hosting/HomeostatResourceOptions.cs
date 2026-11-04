@@ -25,5 +25,5 @@ public sealed class HomeostatResourceOptions
     /// Returns a bearer token for the control endpoints, when their policy needs one; <c>null</c> sends none (for
     /// endpoints mapped with <c>allowAnonymous</c> in development).
     /// </summary>
-    public Func<IServiceProvider, CancellationToken, Task<string?>>? BearerToken { get; set; }
+    public Func<IServiceProvider, CancellationToken, ValueTask<string?>>? BearerToken { get; set; }
 }

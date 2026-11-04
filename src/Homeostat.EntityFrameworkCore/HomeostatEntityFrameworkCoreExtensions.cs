@@ -86,7 +86,7 @@ public static class HomeostatEntityFrameworkCoreExtensions
     /// <param name="builder">The Homeostat builder.</param>
     /// <param name="configure">Source, interval, timeout and latency thresholds; optional.</param>
     /// <returns>The builder.</returns>
-    /// <example><code>h.AddDbContextProbe&lt;ReportsDbContext&gt;(p => p.DegradedAbove = 200)</code></example>
+    /// <example><code>h.AddDbContextProbe&lt;ReportsDbContext&gt;(p => p.DegradedLatency = TimeSpan.FromMilliseconds(200))</code></example>
     public static HomeostatBuilder AddDbContextProbe<TContext>(this HomeostatBuilder builder, Action<DbContextProbeOptions>? configure = null)
         where TContext : DbContext
     {

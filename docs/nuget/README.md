@@ -36,7 +36,7 @@ builder.Services
                 .With("renew-client", sp => sp.GetRequiredService<WeatherFeedClient>().Renew())   // step 1
                 .Then("switch-to-backup", sp => sp.GetRequiredService<WeatherFeedClient>().UseBackup())
                 .RequireApproval())))                                                         // step 2, after a person's yes
-    .AddHealthCheckSignals(o => o.Period = TimeSpan.FromSeconds(10));                                 // Homeostat.HealthChecks
+    .AddHealthCheckSignals(o => o.Interval = TimeSpan.FromSeconds(10));                                 // Homeostat.HealthChecks
 
 var app = builder.Build();
 app.Run();

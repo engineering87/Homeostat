@@ -5,17 +5,24 @@ namespace Homeostat.Diagnostics;
 /// never ran. After a game day (chaos turned on with switches), it shows what the experiments covered and what is
 /// still untested.
 /// </summary>
-/// <param name="Since">Start of the period.</param>
-/// <param name="Until">When the report was made.</param>
-/// <param name="Conditions">One entry per condition.</param>
-/// <param name="Truncated">
-/// Whether the run history or the condition history does not reach back to <paramref name="Since"/>: they keep the
-/// latest <see cref="HomeostatOptions.RunHistorySize"/> runs and <see cref="HomeostatOptions.ConditionHistorySize"/>
-/// events, and older entries of the period are not counted.
-/// </param>
-public sealed record CoverageReport(
-    DateTimeOffset Since, DateTimeOffset Until, IReadOnlyList<ConditionCoverage> Conditions, bool Truncated = false)
+public sealed record CoverageReport
 {
+    /// <summary>Start of the period.</summary>
+    public required DateTimeOffset Since { get; init; }
+
+    /// <summary>When the report was made.</summary>
+    public required DateTimeOffset Until { get; init; }
+
+    /// <summary>One entry per condition.</summary>
+    public required IReadOnlyList<ConditionCoverage> Conditions { get; init; }
+
+    /// <summary>
+    /// Whether the run history or the condition history does not reach back to <see cref="Since"/>: they keep the
+    /// latest <see cref="HomeostatOptions.RunHistorySize"/> runs and <see cref="HomeostatOptions.ConditionHistorySize"/>
+    /// events, and older entries of the period are not counted.
+    /// </summary>
+    public bool Truncated { get; init; }
+
     /// <summary>Conditions that never activated in the period.</summary>
     public IReadOnlyList<string> NeverActivated => [.. Conditions.Where(c => c.Activations == 0).Select(c => c.Name)];
 
@@ -37,25 +44,37 @@ public sealed record CoverageReport(
 }
 
 /// <summary>Coverage of one condition.</summary>
-/// <param name="Name">Condition name.</param>
-/// <param name="HasPlan">Whether the condition has a healing plan.</param>
-/// <param name="Activations">
-/// Times it became active in the period, from the condition history: with the file and Redis stores, on every instance
-/// sharing the store and across restarts; otherwise on this instance, since it started.
-/// </param>
-/// <param name="Runs">Runs of its plan in the period, from the run history (with a shared store, of every instance).</param>
-/// <param name="Outcomes">Runs by outcome.</param>
-/// <param name="StepsRun">Plan steps whose action completed at least once.</param>
-/// <param name="StepsFailed">Plan steps that were tried but whose action never completed.</param>
-/// <param name="StepsNeverRun">Plan steps that were never tried: escalation steps that the earlier steps always made unnecessary, or untested ones.</param>
-/// <param name="LastRunAt">End of the latest run in the period.</param>
-public sealed record ConditionCoverage(
-    string Name,
-    bool HasPlan,
-    int Activations,
-    int Runs,
-    IReadOnlyDictionary<string, int> Outcomes,
-    IReadOnlyList<string> StepsRun,
-    IReadOnlyList<string> StepsFailed,
-    IReadOnlyList<string> StepsNeverRun,
-    DateTimeOffset? LastRunAt);
+public sealed record ConditionCoverage
+{
+    /// <summary>Condition name.</summary>
+    public required string Name { get; init; }
+
+    /// <summary>Whether the condition has a healing plan.</summary>
+    public required bool HasPlan { get; init; }
+
+    /// <summary>
+    /// Times it became active in the period, from the condition history: with the file and Redis stores, on every instance
+    /// sharing the store and across restarts; otherwise on this instance, since it started.
+    /// </summary>
+    public required int Activations { get; init; }
+
+    /// <summary>Runs of its plan in the period, from the run history (with a shared store, of every instance).</summary>
+    public required int Runs { get; init; }
+
+    /// <summary>Runs by outcome.</summary>
+    public required IReadOnlyDictionary<string, int> Outcomes { get; init; }
+
+    /// <summary>Plan steps whose action completed at least once.</summary>
+    public required IReadOnlyList<string> StepsRun { get; init; }
+
+    /// <summary>Plan steps that were tried but whose action never completed.</summary>
+    public required IReadOnlyList<string> StepsFailed { get; init; }
+
+    /// <summary>
+    /// Plan steps that were never tried: escalation steps that the earlier steps always made unnecessary, or untested ones.
+    /// </summary>
+    public required IReadOnlyList<string> StepsNeverRun { get; init; }
+
+    /// <summary>End of the latest run in the period.</summary>
+    public DateTimeOffset? LastRunAt { get; init; }
+}

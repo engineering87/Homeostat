@@ -42,7 +42,7 @@ builder.Services.AddHealthChecks()
     .AddCheck<AirQualityApiHealthCheck>("air-quality");
 
 builder.Services.AddHomeostat(/* ... */)
-    .AddHealthCheckSignals(o => o.Period = TimeSpan.FromSeconds(10));
+    .AddHealthCheckSignals(o => o.Interval = TimeSpan.FromSeconds(10));
 ```
 
 | Health check | Signal |
@@ -56,9 +56,9 @@ Notes:
 
 - `AddHealthCheckSignals` calls `AddHealthChecks()` for you and plugs into the framework's periodic
   health check publisher.
-- Without `Period` (`HealthCheckSignalOptions`), the framework default applies: every **30 seconds**, after an initial delay of
+- Without `Interval` (`HealthCheckSignalOptions`), the framework default applies: every **30 seconds**, after an initial delay of
   5 seconds.
-- `Period` sets `HealthCheckPublisherOptions.Period`, which is shared by **every** `IHealthCheckPublisher` of the
+- `Interval` sets `HealthCheckPublisherOptions.Period`, which is shared by **every** `IHealthCheckPublisher` of the
   application: other publishers (for example one that pushes results to a monitoring service) run at the same
   period. Configure `HealthCheckPublisherOptions` yourself instead if they must differ; the last configuration wins.
 - Keep the period **shorter than the `SustainedFor`** of your conditions (see [Conditions](conditions.md)).

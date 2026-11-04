@@ -5,4 +5,4 @@ namespace Homeostat
 namespace Homeostat.HealthChecks
   public sealed class HealthCheckSignalOptions
     public HealthCheckSignalOptions()
-    public System.TimeSpan? Period { get; set; }
+    public System.TimeSpan? Interval { get; set; }

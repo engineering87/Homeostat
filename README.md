@@ -67,7 +67,7 @@ builder.Services.AddSingleton<WeatherFeedClient>();
 builder.Services.AddHealthChecks().AddCheck<WeatherFeedHealthCheck>("weather-feed");
 
 builder.Services.AddHomeostat(h => h
-    .AddHealthCheckSignals(o => o.Period = TimeSpan.FromSeconds(10))  // health check results become signals
+    .AddHealthCheckSignals(o => o.Interval = TimeSpan.FromSeconds(10))  // health check results become signals
     .AddCondition("weather-feed-down", c => c
         .ForSource("weather-feed")                         // the health check's name
         .SustainedFor(TimeSpan.FromSeconds(30))            // ignore short blips

@@ -75,7 +75,7 @@ public static class HomeostatRedisExtensions
     /// <param name="configure">Changes interval, timeout, thresholds and connection events.</param>
     /// <example>
     /// <code>
-    /// h.AddRedisSignals(o => { o.Source = "session-cache"; o.DegradedAbove = 50; })
+    /// h.AddRedisSignals(o => { o.Source = "session-cache"; o.DegradedLatency = TimeSpan.FromMilliseconds(50); })
     ///  .AddCondition("session-cache-down", c => c.ForSource("session-cache").SustainedFor(TimeSpan.FromSeconds(30))
     ///      .Heal(p => p.TurnOnSwitch("sessions-in-memory", turnOffWhenCleared: true)));
     /// </code>

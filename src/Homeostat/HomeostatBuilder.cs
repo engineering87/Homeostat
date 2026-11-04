@@ -138,6 +138,7 @@ public sealed class HomeostatBuilder
             throw new InvalidOperationException($"Maintenance window '{name}' needs a schedule, for example Daily(start, duration).");
         }
 
+        window.Freeze();
         Services.AddSingleton(window);
         return this;
     }

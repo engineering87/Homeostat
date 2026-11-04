@@ -24,7 +24,7 @@ public static class HomeostatDataExtensions
     /// <example>
     /// <code>
     /// h.AddDatabaseProbe("reports-db", _ => new SqlConnection(connectionString),
-    ///     p => { p.DegradedAbove = 200; p.UnhealthyAbove = 2_000; });
+    ///     p => { p.DegradedLatency = TimeSpan.FromMilliseconds(200); p.UnhealthyLatency = TimeSpan.FromSeconds(2); });
     /// </code>
     /// </example>
     public static HomeostatBuilder AddDatabaseProbe(

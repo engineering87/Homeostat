@@ -367,6 +367,7 @@ internal sealed class HealingRunner
         var startedAt = _timeProvider.GetUtcNow();
         var startTimestamp = _timeProvider.GetTimestamp();
         var steps = new List<HealingStepResult>();
+        var runId = Guid.NewGuid().ToString("N");
         var outcome = HealingRunOutcome.Failed;
         var held = false;
 
@@ -374,6 +375,7 @@ internal sealed class HealingRunner
         activity?.SetTag("homeostat.condition", name);
         activity?.SetTag("homeostat.signal.source", trigger.Source);
         activity?.SetTag("homeostat.instance", _options.InstanceId);
+        activity?.SetTag("homeostat.run.id", runId);
         if (TelemetryEnabled)
         {
             HomeostatDiagnostics.Runs.Add(1, new KeyValuePair<string, object?>("condition", name));
@@ -383,7 +385,7 @@ internal sealed class HealingRunner
         try
         {
             await slot.AcquireAsync(cancellationToken).ConfigureAwait(false);
-            (outcome, held) = await ExecutePlanAsync(tracker, plan, trigger, steps, slot, cancellationToken).ConfigureAwait(false);
+            (outcome, held) = await ExecutePlanAsync(tracker, plan, trigger, runId, steps, slot, cancellationToken).ConfigureAwait(false);
         }
         catch (Exception) when (cancellationToken.IsCancellationRequested)
         {
@@ -414,7 +416,16 @@ internal sealed class HealingRunner
         }
 
         var completedAt = _timeProvider.GetUtcNow();
-        var result = new HealingRunResult(name, outcome, steps.ToArray(), startedAt, completedAt);
+        var result = new HealingRunResult
+        {
+            RunId = runId,
+            ConditionName = name,
+            Instance = _options.InstanceId,
+            Outcome = outcome,
+            Steps = steps.ToArray(),
+            StartedAt = startedAt,
+            CompletedAt = completedAt,
+        };
         var saved = true;
 
         // Persist before notifying, so a test or an operator who sees the run also sees its cooldown. Use a fresh
@@ -509,6 +520,7 @@ internal sealed class HealingRunner
         ConditionTracker tracker,
         HealingPlan plan,
         Signal trigger,
+        string runId,
         List<HealingStepResult> results,
         ConcurrencySlot slot,
         CancellationToken cancellationToken)
@@ -620,7 +632,7 @@ internal sealed class HealingRunner
 
             if (!executed)
             {
-                Report(results, new HealingStepResult(name, i, step.Name, Succeeded: false, Verification: null, error));
+                Report(results, new HealingStepResult { RunId = runId, ConditionName = name, Step = i, Name = step.Name, Succeeded = false, Error = error });
                 continue;
             }
 
@@ -676,7 +688,17 @@ internal sealed class HealingRunner
                 undone = await TryUndoAsync(context, step, resolveUndo, plan, scope.ServiceProvider, cancellationToken).ConfigureAwait(false);
             }
 
-            Report(results, new HealingStepResult(name, i, step.Name, Succeeded: true, verification, verificationError, undone));
+            Report(results, new HealingStepResult
+            {
+                RunId = runId,
+                ConditionName = name,
+                Step = i,
+                Name = step.Name,
+                Succeeded = true,
+                Verification = verification,
+                Error = verificationError,
+                UndoSucceeded = undone,
+            });
 
             switch (verification)
             {
@@ -781,7 +803,16 @@ internal sealed class HealingRunner
     {
         var timeout = step.ApprovalTimeout ?? _options.DefaultApprovalTimeout;
         var requestedAt = _timeProvider.GetUtcNow();
-        var request = new PendingApproval(Guid.NewGuid().ToString("N"), name, index, step.Name, requestedAt, requestedAt + timeout, trigger);
+        var request = new PendingApproval
+        {
+            Id = Guid.NewGuid().ToString("N"),
+            ConditionName = name,
+            Step = index,
+            StepName = step.Name,
+            RequestedAt = requestedAt,
+            ExpiresAt = requestedAt + timeout,
+            TriggeringSignal = trigger,
+        };
         Task<(ApprovalStatus Status, string? By)> decision;
         try
         {
@@ -821,7 +852,7 @@ internal sealed class HealingRunner
         await _approvals.ForgetAsync(request.Id).ConfigureAwait(false);
 
         // Notify before anything else, so every request in the audit trail is closed, even on shutdown.
-        var resolution = new ApprovalResolution(request, status, by, _timeProvider.GetUtcNow());
+        var resolution = new ApprovalResolution { Request = request, Status = status, ResolvedBy = by, ResolvedAt = _timeProvider.GetUtcNow() };
         _notifier.Notify(o => o.OnApprovalResolved(resolution));
 
         switch (status)

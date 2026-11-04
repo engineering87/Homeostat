@@ -203,4 +203,38 @@ public class ConsolidationTests
         using var crossSite = await client.SendAsync(request);
         Assert.Equal(HttpStatusCode.Forbidden, crossSite.StatusCode);
     }
+
+    [Fact]
+    public void Latency_thresholds_are_durations_over_the_millisecond_value()
+    {
+        var options = new Probes.LatencyProbeOptions { DegradedLatency = TimeSpan.FromMilliseconds(250), UnhealthyLatency = TimeSpan.FromSeconds(2) };
+
+        Assert.Equal((250d, 2_000d), (options.DegradedAbove!.Value, options.UnhealthyAbove!.Value));
+        options.DegradedAbove = 100;
+        Assert.Equal(TimeSpan.FromMilliseconds(100), options.DegradedLatency);
+    }
+
+    [Fact]
+    public void A_maintenance_window_cannot_change_once_registered()
+    {
+        Guardrails.MaintenanceWindow? window = null;
+        new ServiceCollection().AddHomeostat(h => h.AddMaintenanceWindow("nightly", w => window = w.Daily(new TimeOnly(2, 0), TimeSpan.FromHours(1))));
+
+        Assert.Throws<InvalidOperationException>(() => window!.On(DayOfWeek.Monday));
+    }
+
+    [Fact]
+    public async Task Steps_and_run_share_the_run_id_and_the_run_names_its_instance()
+    {
+        await using var host = await HomeostatTestHost.StartAsync(h => h
+            .Configure(o => o.InstanceId = "web-7")
+            .AddCondition("feed-down", c => c.ForSource("feed").Heal(p => p.With("renew", _ => { }).VerifyWith<EngineTests.AlwaysHealedVerifier>())));
+
+        host.Publish("feed", SignalSeverity.Unhealthy);
+        var run = await host.WaitForRunAsync("feed-down");
+
+        Assert.Equal("web-7", run.Instance);
+        Assert.False(string.IsNullOrEmpty(run.RunId));
+        Assert.All(run.Steps, s => Assert.Equal(run.RunId, s.RunId));
+    }
 }

@@ -11,5 +11,5 @@ public sealed class HealthCheckSignalOptions
     /// <see cref="HealthCheckPublisherOptions.Period"/>, which is shared by every <see cref="IHealthCheckPublisher"/> of
     /// the application: other publishers run at the same pace.
     /// </summary>
-    public TimeSpan? Period { get; set; }
+    public TimeSpan? Interval { get; set; }
 }

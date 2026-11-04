@@ -1,6 +1,7 @@
 namespace Homeostat
   public static class HomeostatAlertEndpointExtensions
-    public static Microsoft.AspNetCore.Routing.RouteGroupBuilder MapHomeostatAlerts(this Microsoft.AspNetCore.Routing.IEndpointRouteBuilder endpoints, string? policy = null, string prefix = "/homeostat/alerts", System.Action<Homeostat.AspNetCore.AlertIngestionOptions>? configure = null, bool allowAnonymous = false)
+    public static Microsoft.AspNetCore.Routing.RouteGroupBuilder MapHomeostatAlerts(this Microsoft.AspNetCore.Routing.IEndpointRouteBuilder endpoints, System.Action<Microsoft.AspNetCore.Authorization.AuthorizationPolicyBuilder> configurePolicy, string prefix = "/homeostat/alerts", System.Action<Homeostat.AspNetCore.AlertIngestionOptions>? configure = null)
+    public static Microsoft.AspNetCore.Routing.RouteGroupBuilder MapHomeostatAlerts(this Microsoft.AspNetCore.Routing.IEndpointRouteBuilder endpoints, string? policy = null, string prefix = "/homeostat/alerts", bool allowAnonymous = false, System.Action<Homeostat.AspNetCore.AlertIngestionOptions>? configure = null)
   public static class HomeostatDashboardExtensions
     public static Microsoft.AspNetCore.Routing.RouteGroupBuilder MapHomeostatDashboard(this Microsoft.AspNetCore.Routing.IEndpointRouteBuilder endpoints, System.Action<Microsoft.AspNetCore.Authorization.AuthorizationPolicyBuilder> configurePolicy, string prefix = "/homeostat")
     public static Microsoft.AspNetCore.Routing.RouteGroupBuilder MapHomeostatDashboard(this Microsoft.AspNetCore.Routing.IEndpointRouteBuilder endpoints, string? policy = null, string prefix = "/homeostat", bool allowAnonymous = false)

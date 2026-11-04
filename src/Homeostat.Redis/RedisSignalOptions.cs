@@ -6,7 +6,7 @@ namespace Homeostat.Redis;
 /// Settings of the Redis client signals registered with <c>AddRedisSignals</c>. Thresholds are milliseconds of
 /// <c>PING</c> round trip.
 /// </summary>
-public sealed class RedisSignalOptions : ProbeOptions
+public sealed class RedisSignalOptions : LatencyProbeOptions
 {
     /// <summary>Signal source. Defaults to <c>"redis"</c>.</summary>
     public string Source { get; set; } = "redis";

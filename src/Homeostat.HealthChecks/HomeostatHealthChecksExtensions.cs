@@ -15,12 +15,12 @@ public static class HomeostatHealthChecksExtensions
     /// </summary>
     /// <param name="builder">The Homeostat builder.</param>
     /// <param name="configure">How often the checks run; optional.</param>
-    /// <exception cref="ArgumentOutOfRangeException"><see cref="HealthCheckSignalOptions.Period"/> is shorter than one second.</exception>
+    /// <exception cref="ArgumentOutOfRangeException"><see cref="HealthCheckSignalOptions.Interval"/> is shorter than one second.</exception>
     /// <example>
     /// <code>
     /// builder.Services.AddHealthChecks().AddCheck&lt;WeatherFeedHealthCheck&gt;("weather-feed");
     /// builder.Services.AddHomeostat(h => h
-    ///     .AddHealthCheckSignals(o => o.Period = TimeSpan.FromSeconds(10))
+    ///     .AddHealthCheckSignals(o => o.Interval = TimeSpan.FromSeconds(10))
     ///     .AddCondition("weather-feed-down", c => c.ForSource("weather-feed").SustainedFor(TimeSpan.FromMinutes(1))));
     /// </code>
     /// </example>
@@ -29,7 +29,7 @@ public static class HomeostatHealthChecksExtensions
         ArgumentNullException.ThrowIfNull(builder);
         var options = new HealthCheckSignalOptions();
         configure?.Invoke(options);
-        if (options.Period is { } requested && requested < TimeSpan.FromSeconds(1))
+        if (options.Interval is { } requested && requested < TimeSpan.FromSeconds(1))
         {
             throw new ArgumentOutOfRangeException(nameof(configure), "The health check period must be at least one second.");
         }
@@ -38,7 +38,7 @@ public static class HomeostatHealthChecksExtensions
         builder.Services.AddHealthChecks();
         builder.Services.TryAddEnumerable(ServiceDescriptor.Singleton<IHealthCheckPublisher, HealthCheckSignalPublisher>());
 
-        if (options.Period is { } value)
+        if (options.Interval is { } value)
         {
             builder.Services.Configure<HealthCheckPublisherOptions>(o => o.Period = value);
         }

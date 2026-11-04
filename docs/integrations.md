@@ -46,7 +46,7 @@ h.AddProbe("ingest-backlog",
 
 h.AddLatencyProbe("search-index",
     (sp, ct) => sp.GetRequiredService<SearchClient>().PingAsync(ct),
-    p => p.DegradedAbove = 250);                 // milliseconds
+    p => p.DegradedLatency = TimeSpan.FromMilliseconds(250));
 ```
 
 | Setting | Default | Meaning |
@@ -55,6 +55,7 @@ h.AddLatencyProbe("search-index",
 | `Timeout` | 5 s | Longest call; then `outcome=timeout` |
 | `DegradedAbove`, `UnhealthyAbove` | none | Upper thresholds: a value strictly above reaches them |
 | `DegradedBelow`, `UnhealthyBelow` | none | Lower thresholds (free disk space, consumers online): a value strictly below reaches them |
+| `DegradedLatency`, `UnhealthyLatency` | none | Latency probes only (`AddLatencyProbe`, database, Redis and MongoDB pings): the upper thresholds as durations |
 | `FailureSeverity` | `Unhealthy` | Severity when the probe throws or times out |
 | `Origin` | `probe`, `latency-probe` | Value of the `origin` tag; integration packages set their own (`database-probe`, `redis-ping`, ...) |
 
@@ -103,8 +104,8 @@ h.AddDatabaseProbe("reports-db",
     _ => new SqlConnection(builder.Configuration.GetConnectionString("Reports")),
     p =>
     {
-        p.DegradedAbove = 200;        // ms to open (from the pool) and run SELECT 1
-        p.UnhealthyAbove = 2_000;
+        p.DegradedLatency = TimeSpan.FromMilliseconds(200);   // to open (from the pool) and run SELECT 1
+        p.UnhealthyLatency = TimeSpan.FromSeconds(2);
         // p.CommandText = "SELECT 1 FROM DUAL";   // Oracle; null only opens the connection
     });
 ```
@@ -115,7 +116,7 @@ owned by something else, such as the one of an Entity Framework Core `DbContext`
 | Setting | Default | Meaning |
 |---|---|---|
 | `CommandText` | `SELECT 1` | Query run after opening; `null` only opens the connection |
-| Other settings | as for [probes](#probes-any-number-as-a-signal) | `Interval`, `Timeout` (also the command timeout), thresholds in milliseconds, `FailureSeverity`, `Origin` (`database-probe`) |
+| Other settings | as for [probes](#probes-any-number-as-a-signal) | `Interval`, `Timeout` (also the command timeout), `DegradedLatency` and `UnhealthyLatency` (or the same thresholds in milliseconds), `FailureSeverity`, `Origin` (`database-probe`) |
 
 ### Transient errors
 
@@ -212,7 +213,7 @@ builder.Services.AddDbContext<ReportsDbContext>(o => o.UseNpgsql(connectionStrin
 
 builder.Services.AddHomeostat(h => h
     .AddDbContextSignals<ReportsDbContext>(o => o.UnhealthyLatency = TimeSpan.FromSeconds(3))
-    .AddDbContextProbe<ReportsDbContext>(p => p.DegradedAbove = 200)   // efcore:ReportsDbContext:ping
+    .AddDbContextProbe<ReportsDbContext>(p => p.DegradedLatency = TimeSpan.FromMilliseconds(200))   // efcore:ReportsDbContext:ping
     .AddCondition("reports-db-failing", c => c
         .ForSource("efcore:ReportsDbContext")
         .SustainedFor(TimeSpan.FromMinutes(1))
@@ -251,7 +252,7 @@ Command signals depend on traffic: when the application sends no commands, no si
 waits for recovery may end `Inconclusive` in a quiet period. `AddDbContextProbe<TContext>()` covers that: at every
 probe interval it calls `Database.CanConnectAsync` on a new context, in its own scope, and publishes the round trip
 in milliseconds as `efcore:{context type name}:ping`, `Unhealthy` when the context cannot connect. Its options (`DbContextProbeOptions`) are the
-[probe settings](#probes-any-number-as-a-signal) (`Interval`, `Timeout`, thresholds in milliseconds) plus `Source`;
+[probe settings](#probes-any-number-as-a-signal) (`Interval`, `Timeout`, `DegradedLatency`, `UnhealthyLatency`) plus `Source`;
 the context must be registered with `AddDbContext` or `AddDbContextPool`. Use the probe as the condition's source when
 the plan needs verification even without traffic, and the command signals when what matters is what users see.
 
@@ -283,7 +284,7 @@ builder.Services.AddSingleton<IMongoClient>(sp =>
 builder.Services.AddHomeostat(h => h
     .AddMongoSignals("archive", o =>
     {
-        o.Ping.DegradedAbove = 100;                    // milliseconds
+        o.Ping.DegradedLatency = TimeSpan.FromMilliseconds(100);
         o.ReplicationLag = true;                       // needs the clusterMonitor role
         o.Lag.UnhealthyAbove = 30;                     // seconds
     })
@@ -319,7 +320,7 @@ builder.Services.AddHomeostat(h => h
 | `Client` | the registered `IMongoClient` | Returns the client the probes use |
 | `Source` | `mongodb:{name}` | Prefix of the `:ping`, `:primary`, `:pool` and `:replication-lag` sources |
 | `Interval` | 30 seconds | How often the probes run and the event-based signals are published |
-| `Ping` | no thresholds | Thresholds of the ping round trip, in milliseconds |
+| `Ping` | no thresholds | Thresholds of the ping round trip (`DegradedLatency`, `UnhealthyLatency`) |
 | `PoolTimeoutsUnhealthyAbove` | 0 | Checkout timeouts per interval above which `pool` is Unhealthy |
 | `ReplicationLag` | `false` | Publishes `replication-lag` (needs `replSetGetStatus`, for example the `clusterMonitor` role) |
 | `Lag` | no thresholds | Thresholds of the replication lag, in seconds |
@@ -340,7 +341,7 @@ builder.Services.AddSingleton<IConnectionMultiplexer>(_ =>
     ConnectionMultiplexer.Connect("redis:6379,abortConnect=false"));
 
 builder.Services.AddHomeostat(h => h
-    .AddRedisSignals(o => { o.Source = "session-cache"; o.DegradedAbove = 50; })
+    .AddRedisSignals(o => { o.Source = "session-cache"; o.DegradedLatency = TimeSpan.FromMilliseconds(50); })
     .AddCondition("session-cache-down", c => c
         .ForSource("session-cache")
         .SustainedFor(TimeSpan.FromSeconds(30))
@@ -354,7 +355,7 @@ StackExchange.Redis reconnects by itself, so Homeostat does not tear the multipl
 (`UseRedis(connectionString)` sets it for you). Connection events are subscribed the first time the probe reaches the
 client, so they work even when Redis was down at startup.
 
-`RedisSignalOptions` has the [probe settings](#probes-any-number-as-a-signal) (thresholds in milliseconds of `PING`
+`RedisSignalOptions` has the [probe settings](#probes-any-number-as-a-signal) (`DegradedLatency` and `UnhealthyLatency` of the `PING`
 round trip, `Interval`, `Timeout`, `FailureSeverity`, `Origin`, by default `redis-ping`) and
 `PublishConnectionEvents` (default `true`): set it to `false` to rely on the periodic ping alone. The default source
 is `redis`. The Redis store and coordinator (`UseRedis`) are described in

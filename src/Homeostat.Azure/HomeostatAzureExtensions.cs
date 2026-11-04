@@ -20,7 +20,7 @@ public static class HomeostatAzureExtensions
     /// <example>
     /// <code>
     /// var credential = new DefaultAzureCredential();
-    /// h.UseAzure(o => o.AccessToken = async ct =>
+    /// h.UseAzure(o => o.AccessToken = async (services, ct) =>
     ///     (await credential.GetTokenAsync(new TokenRequestContext(["https://management.azure.com/.default"]), ct)).Token);
     /// </code>
     /// </example>

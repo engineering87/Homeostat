@@ -6,7 +6,7 @@ namespace Homeostat
     public static Homeostat.HomeostatBuilder AddNpgsqlPoolSignal(this Homeostat.HomeostatBuilder builder, System.Action<Homeostat.Data.NpgsqlPoolSignalOptions>? configure = null)
     public static Homeostat.HomeostatBuilder AddSqlClientPoolSignal(this Homeostat.HomeostatBuilder builder, System.Action<Homeostat.Data.SqlClientPoolSignalOptions>? configure = null)
 namespace Homeostat.Data
-  public sealed class DatabaseProbeOptions : Homeostat.Probes.ProbeOptions
+  public sealed class DatabaseProbeOptions : Homeostat.Probes.LatencyProbeOptions
     public DatabaseProbeOptions()
     public string? CommandText { get; set; }
   public sealed class NpgsqlPoolSignalOptions : Homeostat.Data.PoolSignalOptions

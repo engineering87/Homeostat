@@ -28,7 +28,7 @@ public static class HealingContextFactory
         var startedAt = now ?? DateTimeOffset.UtcNow;
         var signal = triggeringSignal ?? new Signal("test", SignalSeverity.Unhealthy, startedAt);
         var state = conditionState
-            ?? new ConditionSnapshot(conditionName, ConditionStatus.Active, startedAt, startedAt, signal.Timestamp, signal);
+            ?? new ConditionSnapshot { Name = conditionName, Status = ConditionStatus.Active, PendingSince = startedAt, ActiveSince = startedAt, LastSignalAt = signal.Timestamp, LastSignal = signal };
 
         return new HealingContext(
             conditionName,

@@ -182,7 +182,7 @@ dotnet add package Homeostat.Azure --prerelease
 ```csharp
 var credential = new DefaultAzureCredential();       // Azure.Identity: managed identity in Azure
 builder.Services.AddHomeostat(h => h
-    .UseAzure(o => o.AccessToken = async ct =>
+    .UseAzure(o => o.AccessToken = async (services, ct) =>
         (await credential.GetTokenAsync(new TokenRequestContext(["https://management.azure.com/.default"]), ct)).Token)
     .AddCondition("region-down", c => c
         .ForSource("alert:WestEuropeApiDown")

@@ -12,7 +12,7 @@ namespace Homeostat.Kubernetes
   public sealed class KubernetesOptions
     public const string ServiceAccountDirectory = "/var/run/secrets/kubernetes.io/serviceaccount"
     public KubernetesOptions()
-    public System.Func<System.Threading.CancellationToken, System.Threading.Tasks.ValueTask<string>>? AccessToken { get; set; }
+    public System.Func<System.IServiceProvider, System.Threading.CancellationToken, System.Threading.Tasks.ValueTask<string>>? AccessToken { get; set; }
     public System.Uri? ApiServer { get; set; }
     public string CertificateAuthorityPath { get; set; }
     public string? Namespace { get; set; }

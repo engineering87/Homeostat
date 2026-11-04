@@ -4,7 +4,7 @@ namespace Homeostat
     public static Homeostat.HomeostatBuilder UseRedis(this Homeostat.HomeostatBuilder builder, System.Action<Homeostat.Redis.RedisStoreOptions>? configure = null)
     public static Homeostat.HomeostatBuilder UseRedis(this Homeostat.HomeostatBuilder builder, string connectionString, System.Action<Homeostat.Redis.RedisStoreOptions>? configure = null)
 namespace Homeostat.Redis
-  public sealed class RedisSignalOptions : Homeostat.Probes.ProbeOptions
+  public sealed class RedisSignalOptions : Homeostat.Probes.LatencyProbeOptions
     public RedisSignalOptions()
     public bool PublishConnectionEvents { get; set; }
     public string Source { get; set; }

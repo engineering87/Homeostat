@@ -20,7 +20,7 @@ builder.Services.AddDbContext<ReportsDbContext>(o => o.UseSqlServer(builder.Conf
 
 builder.Services.AddHomeostat(h => h
     .AddDbContextSignals<ReportsDbContext>(o => o.UnhealthyLatency = TimeSpan.FromSeconds(3))   // source "efcore:ReportsDbContext"
-    .AddDbContextProbe<ReportsDbContext>(p => p.DegradedAbove = 200)                           // source "efcore:ReportsDbContext:ping"
+    .AddDbContextProbe<ReportsDbContext>(p => p.DegradedLatency = TimeSpan.FromMilliseconds(200))                           // source "efcore:ReportsDbContext:ping"
     .AddCondition("reports-db-failing", c => c
         .ForSource("efcore:ReportsDbContext")
         .SustainedFor(TimeSpan.FromMinutes(1))

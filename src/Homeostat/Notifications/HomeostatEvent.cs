@@ -26,18 +26,29 @@ public enum HomeostatEventKind
 /// Flat, serializable description of something Homeostat did, used by the built-in notification and audit
 /// observers. <see cref="Summary"/> is a ready-to-read sentence.
 /// </summary>
-/// <param name="Kind">What happened.</param>
-/// <param name="Timestamp">When it happened.</param>
-/// <param name="Application">Application name (<see cref="HomeostatOptions.ApplicationName"/>).</param>
-/// <param name="Condition">Condition concerned.</param>
-/// <param name="Summary">One human-readable sentence.</param>
-public sealed record HomeostatEvent(
-    HomeostatEventKind Kind,
-    DateTimeOffset Timestamp,
-    string Application,
-    string Condition,
-    string Summary)
+public sealed record HomeostatEvent
 {
+    /// <summary>What happened.</summary>
+    public required HomeostatEventKind Kind { get; init; }
+
+    /// <summary>When it happened.</summary>
+    public required DateTimeOffset Timestamp { get; init; }
+
+    /// <summary>Application name (<see cref="HomeostatOptions.ApplicationName"/>).</summary>
+    public required string Application { get; init; }
+
+    /// <summary>Condition concerned.</summary>
+    public required string Condition { get; init; }
+
+    /// <summary>One human-readable sentence.</summary>
+    public required string Summary { get; init; }
+
+    /// <summary>Identifier of the healing run, for step and run events (<see cref="Healing.HealingRunResult.RunId"/>).</summary>
+    public string? RunId { get; init; }
+
+    /// <summary>The instance that ran the plan, for run events.</summary>
+    public string? Instance { get; init; }
+
     /// <summary>Step name, for step and approval events.</summary>
     public string? Step { get; init; }
 

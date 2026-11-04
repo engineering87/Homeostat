@@ -59,6 +59,20 @@ HOMEOSTAT_ACCEPT_API=1 dotnet test Homeostat.slnx --filter PublicApiTests
 
 then review the diff of `api/*.txt` and include it in the pull request: reviewers see every API change there.
 
+Conventions that new APIs follow:
+
+- **Durations** are `TimeSpan` (`Interval`, `Timeout`, `DegradedLatency`); a number is a count, a ratio or a value in
+  the unit of the signal it describes, and its name or documentation says the unit.
+- **Signal sources**: a source the caller must choose is a method parameter (`AddProbe(source, ...)`); a default that
+  Homeostat derives from a name or a type is a `string?` `Source` property (`null` means derived); a fixed default is a
+  `string` property with that default (`RedisSignalOptions.Source = "redis"`).
+- **Options callbacks** come last (`Action<TOptions>? configure = null`), and options are validated when they are
+  registered or at startup, never at first use.
+- **Who acted** is a `string? by` parameter, before the `CancellationToken`, which is always last.
+- **Results and events** are records with `required` and `init` properties, never positional records, so that adding
+  a property later is not a breaking change.
+- **Interfaces** that users implement get new members only with a default implementation after 1.0.
+
 From 1.0 on, removing or changing a public member is a breaking change and waits for a major version. To keep
 additions non-breaking:
 

@@ -16,7 +16,7 @@ public sealed class MongoSignalOptions
     public string? Source { get; set; }
 
     /// <summary>Thresholds of the ping round trip, in milliseconds (<c>mongodb:{name}:ping</c>).</summary>
-    public ProbeOptions Ping { get; } = new();
+    public LatencyProbeOptions Ping { get; } = new();
 
     /// <summary>
     /// Publishes the replication lag of the replica set, in seconds (<c>mongodb:{name}:replication-lag</c>): how far

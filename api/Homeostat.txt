@@ -60,7 +60,7 @@ namespace Homeostat
     public static Homeostat.HomeostatBuilder AddWebApiDefaults(this Homeostat.HomeostatBuilder builder, System.Action<Homeostat.Presets.HomeostatDefaults>? configure = null)
     public static Homeostat.HomeostatBuilder AddWorkerDefaults(this Homeostat.HomeostatBuilder builder, System.Action<Homeostat.Presets.HomeostatDefaults>? configure = null)
   public static class HomeostatProbeExtensions
-    public static Homeostat.HomeostatBuilder AddLatencyProbe(this Homeostat.HomeostatBuilder builder, string source, System.Func<System.IServiceProvider, System.Threading.CancellationToken, System.Threading.Tasks.Task> call, System.Action<Homeostat.Probes.ProbeOptions>? configure = null)
+    public static Homeostat.HomeostatBuilder AddLatencyProbe(this Homeostat.HomeostatBuilder builder, string source, System.Func<System.IServiceProvider, System.Threading.CancellationToken, System.Threading.Tasks.Task> call, System.Action<Homeostat.Probes.LatencyProbeOptions>? configure = null)
     public static Homeostat.HomeostatBuilder AddProbe(this Homeostat.HomeostatBuilder builder, string source, System.Func<System.IServiceProvider, System.Threading.CancellationToken, System.Threading.Tasks.Task<double>> measure, System.Action<Homeostat.Probes.ProbeOptions>? configure = null)
   public static class HomeostatRecordingExtensions
     public static Homeostat.HomeostatBuilder AddSignalRecording(this Homeostat.HomeostatBuilder builder, System.Action<Homeostat.Recording.SignalRecordingOptions>? configure = null)
@@ -128,9 +128,6 @@ namespace Homeostat.Calls
     public double UnhealthyFailureRatio { get; set; }
     public System.TimeSpan? UnhealthyLatency { get; set; }
 namespace Homeostat.Conditions
-  public enum CompositeMode : int
-    All = 0
-    Any = 1
   public sealed class ConditionBuilder
     public Homeostat.Conditions.ConditionBuilder ClearAfter(System.TimeSpan duration)
     public Homeostat.Conditions.ConditionBuilder ClearWhen(System.Func<Homeostat.Signals.Signal, bool> predicate)
@@ -155,7 +152,7 @@ namespace Homeostat.Conditions
     public Homeostat.Conditions.ConditionBuilder WhenValueBelow(double threshold)
     public Homeostat.Conditions.ConditionBuilder Where(System.Func<Homeostat.Signals.Signal, bool> filter)
   public sealed record ConditionSnapshot
-    public ConditionSnapshot(string Name, Homeostat.Conditions.ConditionStatus Status, System.DateTimeOffset? PendingSince, System.DateTimeOffset? ActiveSince, System.DateTimeOffset? LastSignalAt, Homeostat.Signals.Signal? LastSignal)
+    public ConditionSnapshot()
     public System.DateTimeOffset? ActiveSince { get; init; }
     public System.DateTimeOffset? ClearingSince { get; init; }
     public Homeostat.Signals.Signal? LastSignal { get; init; }
@@ -164,7 +161,6 @@ namespace Homeostat.Conditions
     public System.DateTimeOffset? PendingSince { get; init; }
     public Homeostat.Conditions.ConditionStatus Status { get; init; }
     public string? SuppressedBy { get; init; }
-    public void Deconstruct(out string Name, out Homeostat.Conditions.ConditionStatus Status, out System.DateTimeOffset? PendingSince, out System.DateTimeOffset? ActiveSince, out System.DateTimeOffset? LastSignalAt, out Homeostat.Signals.Signal? LastSignal)
     public bool Equals(Homeostat.Conditions.ConditionSnapshot? other)
     public override bool Equals(object? obj)
     public override int GetHashCode()
@@ -231,7 +227,7 @@ namespace Homeostat.Detectors
     public System.TimeSpan UnhealthyLatency { get; set; }
 namespace Homeostat.Diagnostics
   public sealed record ConditionCoverage
-    public ConditionCoverage(string Name, bool HasPlan, int Activations, int Runs, System.Collections.Generic.IReadOnlyDictionary<string, int> Outcomes, System.Collections.Generic.IReadOnlyList<string> StepsRun, System.Collections.Generic.IReadOnlyList<string> StepsFailed, System.Collections.Generic.IReadOnlyList<string> StepsNeverRun, System.DateTimeOffset? LastRunAt)
+    public ConditionCoverage()
     public int Activations { get; init; }
     public bool HasPlan { get; init; }
     public System.DateTimeOffset? LastRunAt { get; init; }
@@ -241,7 +237,6 @@ namespace Homeostat.Diagnostics
     public System.Collections.Generic.IReadOnlyList<string> StepsFailed { get; init; }
     public System.Collections.Generic.IReadOnlyList<string> StepsNeverRun { get; init; }
     public System.Collections.Generic.IReadOnlyList<string> StepsRun { get; init; }
-    public void Deconstruct(out string Name, out bool HasPlan, out int Activations, out int Runs, out System.Collections.Generic.IReadOnlyDictionary<string, int> Outcomes, out System.Collections.Generic.IReadOnlyList<string> StepsRun, out System.Collections.Generic.IReadOnlyList<string> StepsFailed, out System.Collections.Generic.IReadOnlyList<string> StepsNeverRun, out System.DateTimeOffset? LastRunAt)
     public bool Equals(Homeostat.Diagnostics.ConditionCoverage? other)
     public override bool Equals(object? obj)
     public override int GetHashCode()
@@ -249,7 +244,7 @@ namespace Homeostat.Diagnostics
     public static bool op_Equality(Homeostat.Diagnostics.ConditionCoverage? left, Homeostat.Diagnostics.ConditionCoverage? right)
     public static bool op_Inequality(Homeostat.Diagnostics.ConditionCoverage? left, Homeostat.Diagnostics.ConditionCoverage? right)
   public sealed record CoverageReport
-    public CoverageReport(System.DateTimeOffset Since, System.DateTimeOffset Until, System.Collections.Generic.IReadOnlyList<Homeostat.Diagnostics.ConditionCoverage> Conditions, bool Truncated = false)
+    public CoverageReport()
     public System.Collections.Generic.IReadOnlyList<Homeostat.Diagnostics.ConditionCoverage> Conditions { get; init; }
     public System.Collections.Generic.IReadOnlyList<string> NeverActivated { get; }
     public System.Collections.Generic.IReadOnlyList<string> PlansNeverRun { get; }
@@ -257,7 +252,6 @@ namespace Homeostat.Diagnostics
     public double StepCoverage { get; }
     public bool Truncated { get; init; }
     public System.DateTimeOffset Until { get; init; }
-    public void Deconstruct(out System.DateTimeOffset Since, out System.DateTimeOffset Until, out System.Collections.Generic.IReadOnlyList<Homeostat.Diagnostics.ConditionCoverage> Conditions, out bool Truncated)
     public bool Equals(Homeostat.Diagnostics.CoverageReport? other)
     public override bool Equals(object? obj)
     public override int GetHashCode()
@@ -293,12 +287,11 @@ namespace Homeostat.Guardrails
     public Homeostat.Guardrails.MaintenanceWindow On(params System.DayOfWeek[] days)
 namespace Homeostat.Healing
   public sealed record ApprovalResolution
-    public ApprovalResolution(Homeostat.Healing.PendingApproval Request, Homeostat.Healing.ApprovalStatus Status, string? ResolvedBy, System.DateTimeOffset ResolvedAt)
+    public ApprovalResolution()
     public Homeostat.Healing.PendingApproval Request { get; init; }
     public System.DateTimeOffset ResolvedAt { get; init; }
     public string? ResolvedBy { get; init; }
     public Homeostat.Healing.ApprovalStatus Status { get; init; }
-    public void Deconstruct(out Homeostat.Healing.PendingApproval Request, out Homeostat.Healing.ApprovalStatus Status, out string? ResolvedBy, out System.DateTimeOffset ResolvedAt)
     public bool Equals(Homeostat.Healing.ApprovalResolution? other)
     public override bool Equals(object? obj)
     public override int GetHashCode()
@@ -358,13 +351,14 @@ namespace Homeostat.Healing
     Canceled = 10
     Failed = 11
   public sealed record HealingRunResult
-    public HealingRunResult(string ConditionName, Homeostat.Healing.HealingRunOutcome Outcome, System.Collections.Generic.IReadOnlyList<Homeostat.Healing.HealingStepResult> Steps, System.DateTimeOffset StartedAt, System.DateTimeOffset CompletedAt)
+    public HealingRunResult()
     public System.DateTimeOffset CompletedAt { get; init; }
     public string ConditionName { get; init; }
+    public string Instance { get; init; }
     public Homeostat.Healing.HealingRunOutcome Outcome { get; init; }
+    public string RunId { get; init; }
     public System.DateTimeOffset StartedAt { get; init; }
     public System.Collections.Generic.IReadOnlyList<Homeostat.Healing.HealingStepResult> Steps { get; init; }
-    public void Deconstruct(out string ConditionName, out Homeostat.Healing.HealingRunOutcome Outcome, out System.Collections.Generic.IReadOnlyList<Homeostat.Healing.HealingStepResult> Steps, out System.DateTimeOffset StartedAt, out System.DateTimeOffset CompletedAt)
     public bool Equals(Homeostat.Healing.HealingRunResult? other)
     public override bool Equals(object? obj)
     public override int GetHashCode()
@@ -372,15 +366,15 @@ namespace Homeostat.Healing
     public static bool op_Equality(Homeostat.Healing.HealingRunResult? left, Homeostat.Healing.HealingRunResult? right)
     public static bool op_Inequality(Homeostat.Healing.HealingRunResult? left, Homeostat.Healing.HealingRunResult? right)
   public sealed record HealingStepResult
-    public HealingStepResult(string ConditionName, int Step, string Name, bool Succeeded, Homeostat.Healing.VerificationOutcome? Verification, System.Exception? Error, bool? UndoSucceeded = null)
+    public HealingStepResult()
     public string ConditionName { get; init; }
     public System.Exception? Error { get; init; }
     public string Name { get; init; }
+    public string RunId { get; init; }
     public int Step { get; init; }
     public bool Succeeded { get; init; }
     public bool? UndoSucceeded { get; init; }
     public Homeostat.Healing.VerificationOutcome? Verification { get; init; }
-    public void Deconstruct(out string ConditionName, out int Step, out string Name, out bool Succeeded, out Homeostat.Healing.VerificationOutcome? Verification, out System.Exception? Error, out bool? UndoSucceeded)
     public bool Equals(Homeostat.Healing.HealingStepResult? other)
     public override bool Equals(object? obj)
     public override int GetHashCode()
@@ -392,7 +386,7 @@ namespace Homeostat.Healing
   public interface IHealingVerifier
     public System.Threading.Tasks.Task<Homeostat.Healing.VerificationOutcome> VerifyAsync(Homeostat.Healing.HealingContext context, System.TimeSpan timeout, System.Threading.CancellationToken cancellationToken)
   public sealed record PendingApproval
-    public PendingApproval(string Id, string ConditionName, int Step, string StepName, System.DateTimeOffset RequestedAt, System.DateTimeOffset ExpiresAt, Homeostat.Signals.Signal TriggeringSignal)
+    public PendingApproval()
     public string ConditionName { get; init; }
     public System.DateTimeOffset ExpiresAt { get; init; }
     public string Id { get; init; }
@@ -400,7 +394,6 @@ namespace Homeostat.Healing
     public int Step { get; init; }
     public string StepName { get; init; }
     public Homeostat.Signals.Signal TriggeringSignal { get; init; }
-    public void Deconstruct(out string Id, out string ConditionName, out int Step, out string StepName, out System.DateTimeOffset RequestedAt, out System.DateTimeOffset ExpiresAt, out Homeostat.Signals.Signal TriggeringSignal)
     public bool Equals(Homeostat.Healing.PendingApproval? other)
     public override bool Equals(object? obj)
     public override int GetHashCode()
@@ -480,19 +473,20 @@ namespace Homeostat.Notifications
     public System.Collections.Generic.ISet<Homeostat.Notifications.HomeostatEventKind> Events { get; }
     public string Path { get; set; }
   public sealed record HomeostatEvent
-    public HomeostatEvent(Homeostat.Notifications.HomeostatEventKind Kind, System.DateTimeOffset Timestamp, string Application, string Condition, string Summary)
+    public HomeostatEvent()
     public string Application { get; init; }
     public string? ApprovalId { get; init; }
     public string? By { get; init; }
     public string Condition { get; init; }
     public string? Error { get; init; }
     public System.DateTimeOffset? ExpiresAt { get; init; }
+    public string? Instance { get; init; }
     public Homeostat.Notifications.HomeostatEventKind Kind { get; init; }
     public string? Outcome { get; init; }
+    public string? RunId { get; init; }
     public string? Step { get; init; }
     public string Summary { get; init; }
     public System.DateTimeOffset Timestamp { get; init; }
-    public void Deconstruct(out Homeostat.Notifications.HomeostatEventKind Kind, out System.DateTimeOffset Timestamp, out string Application, out string Condition, out string Summary)
     public bool Equals(Homeostat.Notifications.HomeostatEvent? other)
     public override bool Equals(object? obj)
     public override int GetHashCode()
@@ -698,6 +692,10 @@ namespace Homeostat.Presets
     public Homeostat.Presets.DefaultCondition ServerLatency { get; }
     public Homeostat.Presets.DefaultCondition ThreadPoolStarvation { get; }
 namespace Homeostat.Probes
+  public class LatencyProbeOptions : Homeostat.Probes.ProbeOptions
+    public LatencyProbeOptions()
+    public System.TimeSpan? DegradedLatency { get; set; }
+    public System.TimeSpan? UnhealthyLatency { get; set; }
   public class ProbeOptions
     public ProbeOptions()
     public double? DegradedAbove { get; set; }
@@ -711,7 +709,7 @@ namespace Homeostat.Probes
     public void CopyTo(Homeostat.Probes.ProbeOptions target)
 namespace Homeostat.Recording
   public sealed record RecordedSignal
-    public RecordedSignal(System.DateTimeOffset Timestamp, string Source, Homeostat.Signals.SignalSeverity Severity, double? Value = null, string? Message = null, System.Collections.Generic.IReadOnlyDictionary<string, string>? Tags = null, string? Instance = null)
+    public RecordedSignal()
     public string? Instance { get; init; }
     public string? Message { get; init; }
     public Homeostat.Signals.SignalSeverity Severity { get; init; }
@@ -719,7 +717,6 @@ namespace Homeostat.Recording
     public System.Collections.Generic.IReadOnlyDictionary<string, string>? Tags { get; init; }
     public System.DateTimeOffset Timestamp { get; init; }
     public double? Value { get; init; }
-    public void Deconstruct(out System.DateTimeOffset Timestamp, out string Source, out Homeostat.Signals.SignalSeverity Severity, out double? Value, out string? Message, out System.Collections.Generic.IReadOnlyDictionary<string, string>? Tags, out string? Instance)
     public bool Equals(Homeostat.Recording.RecordedSignal? other)
     public override bool Equals(object? obj)
     public override int GetHashCode()
@@ -738,7 +735,7 @@ namespace Homeostat.Recording
 namespace Homeostat.Signals
   public interface ISignalPublisher
     public bool TryPublish(Homeostat.Signals.Signal signal)
-    public default bool TryPublish(string source, Homeostat.Signals.SignalSeverity severity, string? message = null)
+    public default bool TryPublish(string source, Homeostat.Signals.SignalSeverity severity, string? message = null, double? value = null)
   public sealed record Signal
     public Signal(string Source, Homeostat.Signals.SignalSeverity Severity, System.DateTimeOffset Timestamp)
     public string? Message { get; init; }

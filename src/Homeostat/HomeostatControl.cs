@@ -159,18 +159,20 @@ internal sealed class HomeostatControl : IHomeostatControl
             var tried = mine.SelectMany(r => r.Steps).Select(s => s.Name).ToHashSet(StringComparer.Ordinal);
             var ran = mine.SelectMany(r => r.Steps).Where(s => s.Succeeded).Select(s => s.Name).ToHashSet(StringComparer.Ordinal);
             var planSteps = definition.Plan?.Steps.Select(s => s.Name).ToList() ?? [];
-            conditions.Add(new ConditionCoverage(
-                definition.Name,
-                definition.Plan is not null,
-                Activations(definition.Name),
-                mine.Count,
-                mine.GroupBy(r => r.Outcome.ToString()).ToDictionary(g => g.Key, g => g.Count(), StringComparer.Ordinal),
-                [.. planSteps.Where(ran.Contains)],
-                [.. planSteps.Where(s => tried.Contains(s) && !ran.Contains(s))],
-                [.. planSteps.Where(s => !tried.Contains(s))],
-                mine.Count == 0 ? null : mine.Max(r => r.CompletedAt)));
+            conditions.Add(new ConditionCoverage
+            {
+                Name = definition.Name,
+                HasPlan = definition.Plan is not null,
+                Activations = Activations(definition.Name),
+                Runs = mine.Count,
+                Outcomes = mine.GroupBy(r => r.Outcome.ToString()).ToDictionary(g => g.Key, g => g.Count(), StringComparer.Ordinal),
+                StepsRun = [.. planSteps.Where(ran.Contains)],
+                StepsFailed = [.. planSteps.Where(s => tried.Contains(s) && !ran.Contains(s))],
+                StepsNeverRun = [.. planSteps.Where(s => !tried.Contains(s))],
+                LastRunAt = mine.Count == 0 ? null : mine.Max(r => r.CompletedAt),
+            });
         }
 
-        return new CoverageReport(since, _timeProvider.GetUtcNow(), conditions, truncated);
+        return new CoverageReport { Since = since, Until = _timeProvider.GetUtcNow(), Conditions = conditions, Truncated = truncated };
     }
 }

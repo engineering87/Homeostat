@@ -72,7 +72,7 @@ builder.Services
             .ForSource("weather-feed")
             .SustainedFor(TimeSpan.FromSeconds(30))
             .Heal(p => p.With<RenewFeedClientAction>())))
-    .AddHealthCheckSignals(o => o.Period = TimeSpan.FromSeconds(10));
+    .AddHealthCheckSignals(o => o.Interval = TimeSpan.FromSeconds(10));
 ```
 
 Read it as a sentence:

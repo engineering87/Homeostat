@@ -3,7 +3,7 @@ namespace Homeostat
     public static Homeostat.HomeostatBuilder AddDbContextProbe<TContext>(this Homeostat.HomeostatBuilder builder, System.Action<Homeostat.EntityFrameworkCore.DbContextProbeOptions>? configure = null) where TContext : Microsoft.EntityFrameworkCore.DbContext
     public static Homeostat.HomeostatBuilder AddDbContextSignals<TContext>(this Homeostat.HomeostatBuilder builder, System.Action<Homeostat.EntityFrameworkCore.DbContextSignalOptions>? configure = null) where TContext : Microsoft.EntityFrameworkCore.DbContext
 namespace Homeostat.EntityFrameworkCore
-  public sealed class DbContextProbeOptions : Homeostat.Probes.ProbeOptions
+  public sealed class DbContextProbeOptions : Homeostat.Probes.LatencyProbeOptions
     public DbContextProbeOptions()
     public string? Source { get; set; }
   public sealed class DbContextSignalOptions

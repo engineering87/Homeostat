@@ -16,14 +16,16 @@ internal sealed class KubernetesApi
     private readonly IHttpClientFactory _clients;
     private readonly KubernetesOptions _options;
     private readonly TimeProvider _timeProvider;
+    private readonly IServiceProvider _services;
     private readonly SemaphoreSlim _tokenGate = new(1, 1);
     private (string Token, DateTimeOffset ReadAt)? _token;
 
-    public KubernetesApi(IHttpClientFactory clients, IOptions<KubernetesOptions> options, TimeProvider timeProvider)
+    public KubernetesApi(IHttpClientFactory clients, IOptions<KubernetesOptions> options, TimeProvider timeProvider, IServiceProvider services)
     {
         _clients = clients;
         _options = options.Value;
         _timeProvider = timeProvider;
+        _services = services;
     }
 
     public KubernetesOptions Options => _options;
@@ -151,7 +153,7 @@ internal sealed class KubernetesApi
     {
         if (_options.AccessToken is { } provider)
         {
-            return await provider(cancellationToken).ConfigureAwait(false);
+            return await provider(_services, cancellationToken).ConfigureAwait(false);
         }
 
         await _tokenGate.WaitAsync(cancellationToken).ConfigureAwait(false);

@@ -24,7 +24,7 @@ builder.Services.AddSingleton<IMongoClient>(sp =>
 });
 
 builder.Services.AddHomeostat(h => h
-    .AddMongoSignals("archive", o => o.Ping.DegradedAbove = 100)   // milliseconds
+    .AddMongoSignals("archive", o => o.Ping.DegradedLatency = TimeSpan.FromMilliseconds(100))
     .AddCondition("archive-no-primary", c => c
         .ForSource("mongodb:archive:primary")
         .SustainedFor(TimeSpan.FromSeconds(30))

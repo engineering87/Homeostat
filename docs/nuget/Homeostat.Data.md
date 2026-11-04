@@ -21,8 +21,8 @@ var connectionString = builder.Configuration.GetConnectionString("Reports");
 builder.Services.AddHomeostat(h => h
     .AddDatabaseProbe("reports-db", _ => new SqlConnection(connectionString), p =>
     {
-        p.DegradedAbove = 200;      // ms to open a connection and run SELECT 1
-        p.UnhealthyAbove = 2_000;
+        p.DegradedLatency = TimeSpan.FromMilliseconds(200);   // to open a connection and run SELECT 1
+        p.UnhealthyLatency = TimeSpan.FromSeconds(2);
     })
     .AddSqlClientPoolSignal(o => o.MaxPoolSize = 100)   // source "sqlclient:pool"
     .AddCondition("reports-db-stale", c => c

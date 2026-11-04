@@ -29,6 +29,6 @@ internal sealed class CollectingPublisher : ISignalPublisher
         return true;
     }
 
-    public bool TryPublish(string source, SignalSeverity severity, string? message = null)
-        => TryPublish(new Signal(source, severity, DateTimeOffset.UtcNow) { Message = message });
+    public bool TryPublish(string source, SignalSeverity severity, string? message = null, double? value = null)
+        => TryPublish(new Signal(source, severity, DateTimeOffset.UtcNow) { Message = message, Value = value });
 }

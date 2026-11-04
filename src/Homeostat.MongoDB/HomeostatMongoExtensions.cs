@@ -38,7 +38,7 @@ public static class HomeostatMongoExtensions
     ///     settings.AddHomeostatSignals(sp, "archive");
     ///     return new MongoClient(settings);
     /// });
-    /// builder.Services.AddHomeostat(h => h.AddMongoSignals("archive", o => o.Ping.DegradedAbove = 100));
+    /// builder.Services.AddHomeostat(h => h.AddMongoSignals("archive", o => o.Ping.DegradedLatency = TimeSpan.FromMilliseconds(100)));
     /// </code>
     /// </example>
     public static HomeostatBuilder AddMongoSignals(this HomeostatBuilder builder, string name = "default", Action<MongoSignalOptions>? configure = null)

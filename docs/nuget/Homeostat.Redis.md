@@ -17,7 +17,7 @@ using Homeostat;
 
 builder.Services.AddHomeostat(h => h
     .UseRedis("redis:6379", o => o.KeyPrefix = "weather-api:homeostat:")   // one prefix per application and environment
-    .AddRedisSignals(o => { o.Source = "redis:session-cache"; o.DegradedAbove = 50; })   // milliseconds of PING
+    .AddRedisSignals(o => { o.Source = "redis:session-cache"; o.DegradedLatency = TimeSpan.FromMilliseconds(50); })   // PING round trip
     .AddCondition("forecast-provider-down", c => c
         .ForSource("http:forecast")
         .SustainedFor(TimeSpan.FromSeconds(30))

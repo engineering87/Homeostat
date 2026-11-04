@@ -36,7 +36,7 @@ public sealed class KubernetesOptions
     public string? NodeName { get; set; }
 
     /// <summary>Obtains the bearer token instead of reading <see cref="TokenPath"/>, for example outside a cluster.</summary>
-    public Func<CancellationToken, ValueTask<string>>? AccessToken { get; set; }
+    public Func<IServiceProvider, CancellationToken, ValueTask<string>>? AccessToken { get; set; }
 
     internal bool PodNameFromHostName { get; private set; }
 

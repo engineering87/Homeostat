@@ -460,7 +460,7 @@ public class DistributedTests
         Assert.Null(state.Condition);
 
         // The first answer wins; an answer this version cannot read leaves the request pending.
-        var request = new PendingApproval("r1", "feed-down", 0, "renew", now, now.AddMinutes(5), new Signal("feed", SignalSeverity.Unhealthy, now));
+        var request = new PendingApproval { Id = "r1", ConditionName = "feed-down", Step = 0, StepName = "renew", RequestedAt = now, ExpiresAt = now.AddMinutes(5), TriggeringSignal = new Signal("feed", SignalSeverity.Unhealthy, now) };
         await store.AddApprovalAsync(new ApprovalRecord { Request = request, Instance = "a" });
         Assert.True(await store.TryResolveApprovalAsync("r1", ApprovalStatus.Approved, "on-call"));
         Assert.False(await store.TryResolveApprovalAsync("r1", ApprovalStatus.Rejected, "someone else"));

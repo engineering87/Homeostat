@@ -50,9 +50,9 @@ builder.Services.AddHomeostat(h => h
     {
         o.ApiServer = new Uri("https://kubernetes.invalid");
         o.Namespace = "smoke";
-        o.AccessToken = _ => ValueTask.FromResult("token");
+        o.AccessToken = (_, _) => ValueTask.FromResult("token");
     })
-    .UseAzure(o => o.AccessToken = _ => ValueTask.FromResult("token"))
+    .UseAzure(o => o.AccessToken = (_, _) => ValueTask.FromResult("token"))
     .AddCallSignals("geocoding:api")
     .AddWebhookNotifications(o =>
     {

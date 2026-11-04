@@ -37,8 +37,8 @@ public static class HomeostatAlertEndpointExtensions
     /// <param name="endpoints">The endpoint route builder.</param>
     /// <param name="policy">Authorization policy required to call the endpoints.</param>
     /// <param name="prefix">Route prefix.</param>
-    /// <param name="configure">Changes the token, source and severity mapping, and limits.</param>
     /// <param name="allowAnonymous"><c>true</c> maps the endpoints without a policy or token; only for local demos and tests.</param>
+    /// <param name="configure">Changes the token, source and severity mapping, and limits.</param>
     /// <exception cref="ArgumentException">None of <paramref name="policy"/>, a token or <paramref name="allowAnonymous"/> was given.</exception>
     /// <example>
     /// <code>
@@ -53,8 +53,35 @@ public static class HomeostatAlertEndpointExtensions
         this IEndpointRouteBuilder endpoints,
         string? policy = null,
         string prefix = "/homeostat/alerts",
-        Action<AlertIngestionOptions>? configure = null,
-        bool allowAnonymous = false)
+        bool allowAnonymous = false,
+        Action<AlertIngestionOptions>? configure = null)
+        => MapAlerts(endpoints, prefix, configure, string.IsNullOrWhiteSpace(policy) ? null : g => g.RequireAuthorization(policy), allowAnonymous);
+
+    /// <summary>
+    /// Same as <see cref="MapHomeostatAlerts(IEndpointRouteBuilder, string?, string, bool, Action{AlertIngestionOptions}?)"/>,
+    /// with the authorization policy built inline instead of registered by name.
+    /// </summary>
+    /// <param name="endpoints">The endpoint route builder.</param>
+    /// <param name="configurePolicy">Builds the policy, for example <c>p => p.RequireRole("monitoring")</c>.</param>
+    /// <param name="prefix">Route prefix.</param>
+    /// <param name="configure">Changes the source and severity mapping, and limits.</param>
+    /// <example><code>app.MapHomeostatAlerts(p => p.RequireAuthenticatedUser().AddAuthenticationSchemes("Certificate"));</code></example>
+    public static RouteGroupBuilder MapHomeostatAlerts(
+        this IEndpointRouteBuilder endpoints,
+        Action<Microsoft.AspNetCore.Authorization.AuthorizationPolicyBuilder> configurePolicy,
+        string prefix = "/homeostat/alerts",
+        Action<AlertIngestionOptions>? configure = null)
+    {
+        ArgumentNullException.ThrowIfNull(configurePolicy);
+        return MapAlerts(endpoints, prefix, configure, g => g.RequireAuthorization(configurePolicy), allowAnonymous: false);
+    }
+
+    private static RouteGroupBuilder MapAlerts(
+        IEndpointRouteBuilder endpoints,
+        string prefix,
+        Action<AlertIngestionOptions>? configure,
+        Action<RouteGroupBuilder>? authorize,
+        bool allowAnonymous)
     {
         ArgumentNullException.ThrowIfNull(endpoints);
         ArgumentException.ThrowIfNullOrWhiteSpace(prefix);
@@ -63,18 +90,18 @@ public static class HomeostatAlertEndpointExtensions
         configure?.Invoke(options);
         options.Validate();
 
-        if (string.IsNullOrWhiteSpace(policy) && options.Token is null && !allowAnonymous)
+        if (authorize is null && options.Token is null && !allowAnonymous)
         {
             throw new ArgumentException(
                 "Alert endpoints need an authorization policy or a token, for example " +
                 "MapHomeostatAlerts(configure: o => o.Token = secret). For a local demo only, pass allowAnonymous: true.",
-                nameof(policy));
+                "policy");
         }
 
         var group = endpoints.MapGroup(prefix).WithTags("Homeostat");
-        if (!string.IsNullOrWhiteSpace(policy))
+        if (authorize is not null)
         {
-            group.RequireAuthorization(policy);
+            authorize(group);
         }
         else if (options.Token is not null)
         {

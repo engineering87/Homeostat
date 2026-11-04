@@ -319,6 +319,24 @@ repository (version `0.1.0` in the project files):
   `IHomeostatSwitches.TurnOn`/`TurnOff` are `TurnOnAsync`/`TurnOffAsync`; `IHomeostatApprovals.GetPending`, `Approve`
   and `Reject` are `GetPendingAsync`, `ApproveAsync` and `RejectAsync`. Custom stores implement the control-state
   members of `IHomeostatStore`.
+- Results and events are records with `required` and `init` properties instead of positional records, so properties
+  can be added after 1.0 without breaking: `HealingStepResult`, `HealingRunResult`, `PendingApproval`,
+  `ApprovalResolution`, `ConditionSnapshot`, `HomeostatEvent`, `CoverageReport`, `ConditionCoverage`, `RecordedSignal`,
+  `ReplayReport`, `ReplayEvent`, `ReplayConditionSummary`. Create them with object initializers
+  (`new RecordedSignal { Timestamp = t, Source = "feed", Severity = SignalSeverity.Unhealthy }`); deconstruction is
+  gone. `HealingRunResult` gains `RunId` and `Instance`, `HealingStepResult` gains `RunId`, `HomeostatEvent` gains
+  `RunId` and `Instance`, and traces carry `homeostat.run.id`.
+- Latency probes (`AddLatencyProbe`, `AddDatabaseProbe`, `AddDbContextProbe`, `AddRedisSignals`,
+  `MongoSignalOptions.Ping`) take `LatencyProbeOptions`, with `DegradedLatency` and `UnhealthyLatency` as durations;
+  the millisecond thresholds (`DegradedAbove`, `UnhealthyAbove`) still work and are the same values.
+- `HealthCheckSignalOptions.Period` is `Interval`, like every other periodic setting.
+- `MapHomeostatAlerts(policy, prefix, allowAnonymous, configure)` takes the options callback last, and gains an
+  overload with an inline policy (`MapHomeostatAlerts(p => p.RequireRole("monitoring"))`).
+- `AzureOptions.AccessToken` and `KubernetesOptions.AccessToken` receive the services
+  (`(services, ct) => ...`), and `HomeostatResourceOptions.BearerToken` returns a `ValueTask`, so the three token
+  callbacks have the same shape.
+- `ISignalPublisher.TryPublish(source, severity, message, value)` takes an optional value.
+- `CompositeMode` is internal; a maintenance window cannot change once `AddMaintenanceWindow` registered it.
 - `IHomeostatSwitches.TurnOffAsync(name, by)` and `IHomeostatControl.ResumeAsync(by)` take who acted, like
   `TurnOnAsync` and `PauseAsync`: pass the cancellation token by name. The answer parameters of `ApproveAsync` and
   `RejectAsync` are named `by`. `IHomeostatStore` gains `SupportsDocuments` (default `false`).

@@ -357,8 +357,8 @@ public class HistoryAndSeasonalityTests
     {
         var start = new DateTimeOffset(2026, 11, 1, 8, 0, 0, TimeSpan.Zero);
         var lines = Enumerable.Range(0, 13)
-            .Select(i => new RecordedSignal(start.AddSeconds(i * 10), "weather-feed", SignalSeverity.Unhealthy, Message: "timeout"))
-            .Append(new RecordedSignal(start.AddSeconds(130), "weather-feed", SignalSeverity.Healthy))
+            .Select(i => new RecordedSignal { Timestamp = start.AddSeconds(i * 10), Source = "weather-feed", Severity = SignalSeverity.Unhealthy, Message = "timeout" })
+            .Append(new RecordedSignal { Timestamp = start.AddSeconds(130), Source = "weather-feed", Severity = SignalSeverity.Healthy })
             .Select(s => JsonSerializer.Serialize(s, RecordedSignal.Json));
         var file = Path.Combine(directory, "signals-web-1-2026-11-01.jsonl");
         await File.WriteAllLinesAsync(file, lines);
@@ -542,9 +542,7 @@ public class HistoryAndSeasonalityTests
     [Fact]
     public void Teams_approval_cards_say_how_to_answer_from_the_channel()
     {
-        var e = new Notifications.HomeostatEvent(
-            Notifications.HomeostatEventKind.ApprovalRequested, DateTimeOffset.UnixEpoch, "weather-api", "feed-down", "Approval needed.")
-        { ApprovalId = "a1b2" };
+        var e = new Notifications.HomeostatEvent { Kind = Notifications.HomeostatEventKind.ApprovalRequested, Timestamp = DateTimeOffset.UnixEpoch, Application = "weather-api", Condition = "feed-down", Summary = "Approval needed.", ApprovalId = "a1b2" };
 
         var with = JsonDocument.Parse(TeamsSink.Payload(e, new TeamsOptions { ApprovalCommand = "Homeostat" }).ToJsonString(HttpEventSink.Json)).RootElement;
         var without = JsonDocument.Parse(TeamsSink.Payload(e, new TeamsOptions()).ToJsonString(HttpEventSink.Json)).RootElement;
@@ -679,7 +677,7 @@ public class HistoryAndSeasonalityTests
         {
             var start = new DateTimeOffset(2026, 11, 1, 8, 0, 0, TimeSpan.Zero);
             async Task WriteAsync(string name, params int[] seconds) => await File.WriteAllLinesAsync(Path.Combine(directory, name),
-                seconds.Select(s => JsonSerializer.Serialize(new RecordedSignal(start.AddSeconds(s), "feed", SignalSeverity.Unhealthy), RecordedSignal.Json)));
+                seconds.Select(s => JsonSerializer.Serialize(new RecordedSignal { Timestamp = start.AddSeconds(s), Source = "feed", Severity = SignalSeverity.Unhealthy }, RecordedSignal.Json)));
             await WriteAsync("signals-a-2026-11-01.jsonl", 30, 40);
             await WriteAsync("signals-b-2026-11-01.jsonl", 0, 10, 20);
 
@@ -701,8 +699,8 @@ public class HistoryAndSeasonalityTests
         var start = new DateTimeOffset(2026, 11, 1, 8, 0, 0, TimeSpan.Zero);
         var signals = new[] { 0, 600 }.SelectMany(offset => new[]
         {
-            new RecordedSignal(start.AddSeconds(offset), "feed", SignalSeverity.Unhealthy),
-            new RecordedSignal(start.AddSeconds(offset + 60), "feed", SignalSeverity.Healthy),
+            new RecordedSignal { Timestamp = start.AddSeconds(offset), Source = "feed", Severity = SignalSeverity.Unhealthy },
+            new RecordedSignal { Timestamp = start.AddSeconds(offset + 60), Source = "feed", Severity = SignalSeverity.Healthy },
         }).ToList();
         var config = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
         {

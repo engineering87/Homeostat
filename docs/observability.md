@@ -88,6 +88,7 @@ Each run produces an activity named `homeostat.heal` with these tags:
 | `homeostat.condition` | `weather-feed-down` |
 | `homeostat.signal.source` | `weather-feed` |
 | `homeostat.instance` | `weather-api-7d9f8` (`HomeostatOptions.InstanceId`) |
+| `homeostat.run.id` | `3f2b9c0d...` (`HealingRunResult.RunId`, also on the step events) |
 | `homeostat.outcome` | `Healed` |
 
 ### Metrics
@@ -177,7 +178,7 @@ public sealed class IncidentNotifier(IncidentQueue queue) : IHealingObserver
 | `OnConditionActivated(ConditionSnapshot)` | A condition becomes active |
 | `OnConditionCleared(ConditionSnapshot)` | An active condition clears |
 | `OnStepCompleted(HealingStepResult)` | A step finishes: name, success, verification outcome, error |
-| `OnRunCompleted(HealingRunResult)` | A run ends: outcome, all steps, start and end time |
+| `OnRunCompleted(HealingRunResult)` | A run ends: outcome, all steps, start and end time, run id (also on each step) and instance |
 | `OnApprovalRequested(PendingApproval)` | A step waits for approval: id, step, expiry |
 | `OnApprovalResolved(ApprovalResolution)` | The request was approved, rejected, expired or withdrawn, and by whom |
 

@@ -296,7 +296,7 @@ public class IntelligenceTests
     public async Task Replay_stays_in_dry_run_even_if_the_configuration_post_configures_it_off()
     {
         var acted = false;
-        var signals = Enumerable.Range(0, 5).Select(i => new RecordedSignal(Start.AddSeconds(i * 10), "feed", SignalSeverity.Unhealthy));
+        var signals = Enumerable.Range(0, 5).Select(i => new RecordedSignal { Timestamp = Start.AddSeconds(i * 10), Source = "feed", Severity = SignalSeverity.Unhealthy });
 
         var report = await HomeostatReplay.RunAsync(signals, h =>
         {
@@ -318,12 +318,12 @@ public class IntelligenceTests
             var signals = new List<RecordedSignal>();
             for (var s = 0; s <= 120; s += 10)
             {
-                signals.Add(new(Start.AddSeconds(s), "weather-feed", SignalSeverity.Unhealthy, Message: "timeout"));
+                signals.Add(new RecordedSignal { Timestamp = Start.AddSeconds(s), Source = "weather-feed", Severity = SignalSeverity.Unhealthy, Message = "timeout" });
             }
 
-            signals.Add(new(Start.AddSeconds(130), "weather-feed", SignalSeverity.Healthy));
-            signals.Add(new(Start.AddHours(4), "weather-feed", SignalSeverity.Unhealthy));
-            signals.Add(new(Start.AddHours(4).AddSeconds(10), "weather-feed", SignalSeverity.Healthy));
+            signals.Add(new RecordedSignal { Timestamp = Start.AddSeconds(130), Source = "weather-feed", Severity = SignalSeverity.Healthy });
+            signals.Add(new RecordedSignal { Timestamp = Start.AddHours(4), Source = "weather-feed", Severity = SignalSeverity.Unhealthy });
+            signals.Add(new RecordedSignal { Timestamp = Start.AddHours(4).AddSeconds(10), Source = "weather-feed", Severity = SignalSeverity.Healthy });
             var file = Path.Combine(directory, "signals.jsonl");
             await File.WriteAllLinesAsync(file, signals.Select(s => JsonSerializer.Serialize(s, RecordedSignal.Json)));
             var acted = false;
