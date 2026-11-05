@@ -65,6 +65,14 @@ public sealed class SwitchState
     /// active.
     /// </summary>
     public DateTimeOffset? RenewedAt { get; init; }
+
+    /// <summary>
+    /// For a switch a cluster plan turned on: how often <see cref="Instance"/> renews its claim. Other instances wait
+    /// for at least four of these periods without a renewal before they treat the claim as abandoned, so an instance
+    /// that renews less often than they would keeps its switch. <c>null</c> in records written before it existed: the
+    /// observing instance then uses its own period.
+    /// </summary>
+    public TimeSpan? RenewInterval { get; init; }
 }
 
 /// <summary>An approval request as the store keeps it.</summary>

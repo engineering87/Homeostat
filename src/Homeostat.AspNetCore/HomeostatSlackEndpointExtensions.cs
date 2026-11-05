@@ -119,14 +119,28 @@ public static class HomeostatSlackEndpointExtensions
         bool answered;
         try
         {
+            // The answer runs without the request's token: a disconnect must not cut it short; only the wait ends.
             answered = action.Approve
-                ? await StoreCall.Run(() => approvals.ApproveAsync(action.ApprovalId, by, http.RequestAborted), StoreTimeout, http.RequestAborted)
-                : await StoreCall.Run(() => approvals.RejectAsync(action.ApprovalId, by, http.RequestAborted), StoreTimeout, http.RequestAborted);
+                ? await StoreCall.Run(() => approvals.ApproveAsync(action.ApprovalId, by, CancellationToken.None), StoreTimeout, http.RequestAborted)
+                : await StoreCall.Run(() => approvals.RejectAsync(action.ApprovalId, by, CancellationToken.None), StoreTimeout, http.RequestAborted);
         }
-        catch (Exception ex) when (!http.RequestAborted.IsCancellationRequested)
+        catch (OperationCanceledException) when (http.RequestAborted.IsCancellationRequested)
+        {
+            return Results.Empty;   // Slack is gone; the answer goes on by itself.
+        }
+        catch (Exception ex) when (StoreCall.IsOutcomeUnknown(ex))
+        {
+            // The store may still record the answer after this reply: say so, rather than inviting a second answer.
+            logger.LogError(ex, "Slack answer to approval {ApprovalId}: the Homeostat store did not answer in time; it may still be recorded.", action.ApprovalId);
+            Respond(http, action.ResponseUrl,
+                "Homeostat's store did not answer in time: the answer may still be recorded. Check the pending approvals before answering again.",
+                replaceOriginal: false, logger);
+            return Results.Ok();
+        }
+        catch (Exception ex)
         {
             logger.LogError(ex, "Slack answer to approval {ApprovalId} not recorded: the Homeostat store is unavailable.", action.ApprovalId);
-            Respond(http, action.ResponseUrl, "Homeostat cannot record the answer now (its store is unavailable). Try again.", replaceOriginal: false, logger);
+            Respond(http, action.ResponseUrl, "Homeostat cannot record the answer now (its store is unavailable); nothing was changed. Try again.", replaceOriginal: false, logger);
             return Results.Ok();
         }
 

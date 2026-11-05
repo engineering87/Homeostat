@@ -504,6 +504,13 @@ public sealed class ConditionBuilder
                 if (lastMatched)
                 {
                     matches.Enqueue(s.Timestamp);
+
+                    // Only the latest `count` matches decide whether the count is reached: keeping every match of the
+                    // window would grow with the signal rate (millions for 1,000 failures a second over an hour).
+                    while (matches.Count > occurrences.Count)
+                    {
+                        matches.Dequeue();
+                    }
                 }
 
                 while (matches.Count > 0 && s.Timestamp - matches.Peek() > occurrences.Within)

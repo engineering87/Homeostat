@@ -5,7 +5,7 @@ before upgrading or before depending on Homeostat's JSON, routes or source names
 
 Homeostat follows [Semantic Versioning 2.0](https://semver.org) from version 1.0.0. All packages are released
 together with the same version number, so `Homeostat.Redis 1.2.0` always goes with `Homeostat 1.2.0` (and
-`Homeostat.Grpc 1.2.0-preview`, see [Stable and preview packages](#stable-and-preview-packages)).
+`Homeostat.Grpc 1.2.0-preview.1`, see [Stable and preview packages](#stable-and-preview-packages)).
 
 ## Current status
 
@@ -26,15 +26,15 @@ Every package is released with every version, but not every package makes the sa
 | Stability | Packages | Version (release 1.2.0) | Promise |
 |---|---|---|---|
 | Stable | `Homeostat`, `Homeostat.HealthChecks`, `Homeostat.AspNetCore`, `Homeostat.Http`, `Homeostat.Polly`, `Homeostat.Redis`, `Homeostat.MongoDB`, `Homeostat.ServiceBus`, `Homeostat.RabbitMQ`, `Homeostat.Kafka`, `Homeostat.Artemis`, `Homeostat.Kubernetes`, `Homeostat.Testing`, `Homeostat.Cli`, `Homeostat.Templates` | `1.2.0` | The rules below |
-| Preview | `Homeostat.Azure`, `Homeostat.EntityFrameworkCore`, `Homeostat.Grpc`, `Homeostat.Caching`, `Homeostat.FeatureManagement`, `Homeostat.OpenFeature`, `Homeostat.Aspire.Hosting` | `1.2.0-preview` | Works and is tested, depends on the stable packages of the same release; its public API may still change in a minor version, listed in the changelog |
+| Preview | `Homeostat.Azure`, `Homeostat.EntityFrameworkCore`, `Homeostat.Grpc`, `Homeostat.Caching`, `Homeostat.FeatureManagement`, `Homeostat.OpenFeature`, `Homeostat.Aspire.Hosting` | `1.2.0-preview.1` | Works and is tested, depends on the stable packages of the same release; its public API may still change in a minor version, listed in the changelog |
 
 A preview package becomes stable in a minor version, once it has been used in production and its API has settled; it
 then follows the rules below like the others. A stable package never goes back to preview. During a release candidate
-(`1.0.0-rc.1`) every package has the same prerelease version.
+(`1.0.0-rc.1`) preview packages are numbered `1.0.0-preview.0.rc.1`, which sorts below `1.0.0-preview.1`, so the
+release is offered as an update to everyone who installed the candidate.
 
 In the build, a project is a preview with `<HomeostatPreview>true</HomeostatPreview>`. `Directory.Build.targets` adds
-the suffix when the version has none (a release candidate keeps its own), and the release workflow sets the version
-from the tag (`-p:HomeostatVersion=1.2.0`).
+the suffix, and the release workflow sets the version from the tag (`-p:HomeostatVersion=1.2.0`).
 
 ## What the version number promises
 

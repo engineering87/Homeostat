@@ -135,13 +135,15 @@ In a `OncePerCluster()` plan the step turns on an application switch, on every i
   waited for).
 - The owning instance renews its claim while it holds the switch. If that instance stops or crashes first, the claim
   is no longer renewed, and any instance where the condition is not active turns the switch off within a minute or so
-  (at once if it stopped cleanly).
+  (at once if it stopped cleanly; later if the owner renews less often, as the claim records its renewal period).
+- If the switch was turned off after the step started (a later decision is in the store), the step fails with an
+  `InvalidOperationException`: the switch is not on, so the step did not do what it reports.
 - A switch a person turned on is never taken over. A person who turns the switch off while the plan holds it keeps it
   off: a renewal of the claim is not a new decision, so a turn-off decided between the claim and its renewal still
   applies. Writes to the store are ordered by decision time.
 - An application switch has one owner. When two conditions with cluster plans turn on the same switch, the first one
   owns it, and it goes off when that condition clears even if the other is still active (the other's step reports
-  success, as the switch is on). Give each condition its own switch when they must hold it independently.
+  success, as the switch is on; the same when a person turned it on). Give each condition its own switch when they must hold it independently.
 - One edge case: an instance that restarts with the same `InstanceId` and claims the switch again within a few
   seconds (a plan with almost no cooldown) may see it released once by another instance; its next run claims it
   again.

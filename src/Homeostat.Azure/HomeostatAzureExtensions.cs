@@ -46,6 +46,13 @@ public static class HomeostatAzureExtensions
     /// Appends a step that restarts an App Service app or deployment slot. Needs <c>Microsoft.Web/sites/restart/action</c>
     /// (or <c>sites/slots/restart/action</c>), included in the Website Contributor role.
     /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The step acts on a shared resource, not on this instance: mark the plan <c>OncePerCluster()</c>. With the default
+    /// scope every instance that sees the condition runs the plan, so a condition active on N replicas sends the request
+    /// N times.
+    /// </para>
+    /// </remarks>
     /// <param name="plan">The plan builder.</param>
     /// <param name="siteResourceId">Resource id of the app or slot: <c>/subscriptions/.../providers/Microsoft.Web/sites/{name}</c>.</param>
     /// <param name="softRestart">Azure's soft restart: applies the configuration settings and restarts the app only if necessary; defaults to <c>false</c> (always restart).</param>
@@ -62,6 +69,13 @@ public static class HomeostatAzureExtensions
     /// Appends a step that restarts a virtual machine (the operation is asynchronous: the step completes when Azure
     /// accepts it). Needs <c>Microsoft.Compute/virtualMachines/restart/action</c> (Virtual Machine Contributor).
     /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The step acts on a shared resource, not on this instance: mark the plan <c>OncePerCluster()</c>. With the default
+    /// scope every instance that sees the condition runs the plan, so a condition active on N replicas sends the request
+    /// N times.
+    /// </para>
+    /// </remarks>
     /// <param name="plan">The plan builder.</param>
     /// <param name="vmResourceId">Resource id of the virtual machine.</param>
     /// <param name="requireApproval">Whether a person approves first; defaults to <c>true</c>.</param>
@@ -79,6 +93,13 @@ public static class HomeostatAzureExtensions
     /// origin is enabled again before escalating; enable it by hand after the incident otherwise.
     /// Needs write access to the Front Door profile (CDN Profile Contributor).
     /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The step acts on a shared resource, not on this instance: mark the plan <c>OncePerCluster()</c>. With the default
+    /// scope every instance that sees the condition runs the plan, so a condition active on N replicas sends the request
+    /// N times.
+    /// </para>
+    /// </remarks>
     /// <param name="plan">The plan builder.</param>
     /// <param name="originResourceId">Resource id of the origin: <c>.../providers/Microsoft.Cdn/profiles/{profile}/originGroups/{group}/origins/{origin}</c>.</param>
     /// <param name="requireApproval">Whether a person approves first; defaults to <c>true</c>.</param>
@@ -102,17 +123,28 @@ public static class HomeostatAzureExtensions
             // Never take the last enabled origin of the group out of rotation: that is a full outage, not a failover.
             var group = id[..id.LastIndexOf("/origins/", StringComparison.OrdinalIgnoreCase)];
             var origins = await api.SendAsync(HttpMethod.Get, group, "/origins", FrontDoorApiVersion, null, ct).ConfigureAwait(false);
-            var othersEnabled = (origins?["value"] as System.Text.Json.Nodes.JsonArray ?? [])
-                .Count(o => !string.Equals(o?["id"]?.GetValue<string>(), id, StringComparison.OrdinalIgnoreCase)
-                    && string.Equals(o?["properties"]?["enabledState"]?.GetValue<string>(), "Enabled", StringComparison.OrdinalIgnoreCase));
-            if (othersEnabled == 0)
+            if (OthersEnabled(origins, id) == 0)
             {
                 throw new InvalidOperationException($"Front Door origin {Name(id)} is the only enabled origin of its group: disabling it would stop all traffic.");
             }
 
-            context.Services.GetService<ILoggerFactory>()?.CreateLogger("Homeostat.Azure")
-                .LogWarning("Disabling Front Door origin {Origin} for condition {Condition}.", Name(id), context.ConditionName);
+            var logger = context.Services.GetService<ILoggerFactory>()?.CreateLogger("Homeostat.Azure");
+            logger?.LogWarning("Disabling Front Door origin {Origin} for condition {Condition}.", Name(id), context.ConditionName);
             await api.SendAsync(HttpMethod.Patch, id, null, FrontDoorApiVersion, new JsonObject { ["properties"] = new JsonObject { ["enabledState"] = "Disabled" } }, ct).ConfigureAwait(false);
+
+            // The check above and the change are not atomic: another plan (another condition, or another instance)
+            // may have disabled the other origins meanwhile. Read the group again; if no other origin is enabled any
+            // more, this one goes back into rotation and the step fails. When two steps race, both may restore their
+            // origin, which keeps traffic flowing: the safe outcome. The restore does not take the step's token, so a
+            // step timeout cannot cut it short (the request has its own timeout).
+            origins = await api.SendAsync(HttpMethod.Get, group, "/origins", FrontDoorApiVersion, null, ct).ConfigureAwait(false);
+            if (OthersEnabled(origins, id) == 0)
+            {
+                logger?.LogError("Front Door origin {Origin} was the last enabled origin of its group after it was disabled: enabling it again.", Name(id));
+                await api.SendAsync(HttpMethod.Patch, id, null, FrontDoorApiVersion, new JsonObject { ["properties"] = new JsonObject { ["enabledState"] = "Enabled" } }, CancellationToken.None).ConfigureAwait(false);
+                throw new InvalidOperationException(
+                    $"Front Door origin {Name(id)} was enabled again: the other origins of its group were disabled meanwhile (by another plan or a person), and disabling it would stop all traffic.");
+            }
         });
         plan.UndoWith($"Enable Front Door origin {Name(id)}", (context, ct) => context.Services.GetRequiredService<ResourceManagerApi>()
             .SendAsync(HttpMethod.Patch, id, null, FrontDoorApiVersion, new JsonObject { ["properties"] = new JsonObject { ["enabledState"] = "Enabled" } }, ct));
@@ -123,6 +155,13 @@ public static class HomeostatAzureExtensions
     /// Appends a step that sends any Azure Resource Manager request, for operations without a dedicated action (for
     /// example restarting a Container Apps revision or a Redis cache). The step succeeds when ARM accepts the request.
     /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The step acts on a shared resource, not on this instance: mark the plan <c>OncePerCluster()</c>. With the default
+    /// scope every instance that sees the condition runs the plan, so a condition active on N replicas sends the request
+    /// N times.
+    /// </para>
+    /// </remarks>
     /// <param name="plan">The plan builder.</param>
     /// <param name="name">Step name, shown in logs and approvals.</param>
     /// <param name="method">HTTP method, for example POST.</param>
@@ -170,4 +209,10 @@ public static class HomeostatAzureExtensions
     }
 
     private static string Name(string resourceId) => resourceId[(resourceId.LastIndexOf('/') + 1)..];
+
+    /// <summary>Enabled origins of a group listing, other than <paramref name="originId"/>.</summary>
+    private static int OthersEnabled(JsonNode? origins, string originId)
+        => (origins?["value"] as JsonArray ?? [])
+            .Count(o => !string.Equals(o?["id"]?.GetValue<string>(), originId, StringComparison.OrdinalIgnoreCase)
+                && string.Equals(o?["properties"]?["enabledState"]?.GetValue<string>(), "Enabled", StringComparison.OrdinalIgnoreCase));
 }

@@ -124,6 +124,10 @@ Releasing lifts the hold and resets the cooldown backoff. For a `OncePerCluster(
 state; for an instance plan, the plan state of the instance that answers. The endpoint answers `204`, `404` for an
 unknown condition or one without a plan, and `503` when the store cannot be reached.
 
+> [!NOTE]
+> The hold of a `OncePerCluster()` plan ends when its condition clears on the instance that ran it. If that instance
+> is gone (scaled in, or restarted under another `InstanceId`), the hold stays until a person releases it as above.
+
 ## Writing actions
 
 Besides action classes, plans accept inline lambdas and built-in actions (restart a hosted service, reload
@@ -266,7 +270,10 @@ then no answer), Homeostat runs the compensating action before moving to the nex
 when there is nothing to undo. It has the step's action timeout and counts in the action budget, but the
 pause, the maintenance windows, an exhausted budget and an unreachable store never block it: it reverts what the run
 just changed, and leaving that in place would keep the application degraded. Its success is reported in
-`HealingStepResult.UndoSucceeded`. It does not run when the action threw (it may have refused on purpose, for example
+`HealingStepResult.UndoSucceeded`. If the action that timed out is still running (it ignored its cancellation and
+was abandoned), the compensating action waits for it to end, at most the step's action timeout, so the action cannot
+apply its change after the undo; if it is still running then, the compensating action is not run, `UndoSucceeded` is
+`false` and an error asks for a person. It does not run when the action threw (it may have refused on purpose, for example
 an origin someone else disabled), when verification is `Healed` (the change helped) or `Inconclusive` (Homeostat cannot
 tell, and stops), nor when the application stops during the step.
 

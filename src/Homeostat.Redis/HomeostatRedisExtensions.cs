@@ -21,7 +21,8 @@ public static class HomeostatRedisExtensions
     /// <param name="configure">Changes the settings.</param>
     /// <example>
     /// <code>
-    /// builder.Services.AddSingleton&lt;IConnectionMultiplexer&gt;(_ => ConnectionMultiplexer.Connect("redis:6379"));
+    /// // abortConnect=false: the application starts, and the client reconnects in the background, while Redis is down.
+    /// builder.Services.AddSingleton&lt;IConnectionMultiplexer&gt;(_ => ConnectionMultiplexer.Connect("redis:6379,abortConnect=false"));
     /// builder.Services.AddHomeostat(h => h.UseRedis(o => o.KeyPrefix = "weather-api:homeostat:"));
     /// </code>
     /// </example>
@@ -45,7 +46,8 @@ public static class HomeostatRedisExtensions
             () => sp.GetRequiredService<IConnectionMultiplexer>(),
             sp.GetRequiredService<IOptions<RedisStoreOptions>>(),
             sp.GetRequiredService<IOptions<HomeostatOptions>>(),
-            sp.GetService<TimeProvider>())));
+            sp.GetService<TimeProvider>(),
+            sp.GetService<Microsoft.Extensions.Logging.ILogger<RedisHomeostatStore>>())));
         builder.Services.Replace(ServiceDescriptor.Singleton<IHomeostatCoordinator>(sp => new RedisCoordinator(
             () => sp.GetRequiredService<IConnectionMultiplexer>(),
             sp.GetRequiredService<IOptions<RedisStoreOptions>>(),

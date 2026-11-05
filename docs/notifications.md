@@ -204,7 +204,8 @@ Like the webhook, the incident and chat notifiers post through named `IHttpClien
 
 ## Delivery guarantees
 
-- Events are queued in memory, up to 1000 per sink; the oldest are dropped if the sink falls behind.
+- Events are queued in memory, up to 1000 per sink; the oldest are dropped if the sink falls behind, and a warning
+  gives the number dropped (at most once a minute per sink, and once more when the application stops).
 - When the application stops, sinks keep accepting events until every other hosted service has stopped, so
   runs canceled by the shutdown are recorded too. Then they deliver what is queued within the host's shutdown
   timeout. During shutdown the HTTP notifiers make a single attempt per event, of at most 5 seconds, to leave time to

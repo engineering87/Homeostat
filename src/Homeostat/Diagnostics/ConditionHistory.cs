@@ -23,6 +23,8 @@ internal sealed class ConditionHistory : IHostedService
     private readonly object _gate = new();
     private Task _loop = Task.CompletedTask;
     private bool _failing;
+    private const string ReadKey = "history";
+    private readonly Engine.InFlight<IReadOnlyList<ConditionEventRecord>> _reads = new();
 
     internal static readonly TimeSpan RetryInterval = TimeSpan.FromSeconds(30);
 
@@ -123,9 +125,15 @@ internal sealed class ConditionHistory : IHostedService
         IReadOnlyList<ConditionEventRecord> stored;
         try
         {
-            stored = await Engine.SharedControl.Bounded(
-                () => _store.GetConditionEventsAsync(_options.ConditionHistorySize, cancellationToken),
-                Engine.SharedControl.ReadTimeout, cancellationToken).ConfigureAwait(false);
+            // One read at a time: a read abandoned at its timeout and still running (a store that blocks a thread) is
+            // not started again by every request; until it ends, this instance's events are shown at once.
+            if (_reads.IsRunning(ReadKey))
+            {
+                throw new TimeoutException("The previous read of the condition history, abandoned at its timeout, has not returned yet.");
+            }
+
+            stored = await _reads.Start(ReadKey, () => _store.GetConditionEventsAsync(_options.ConditionHistorySize, cancellationToken).AsTask())
+                .WaitAsync(Engine.SharedControl.ReadTimeout, cancellationToken).ConfigureAwait(false);
         }
         catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
         {
@@ -152,6 +160,11 @@ internal sealed class ConditionHistory : IHostedService
     {
         // Events the store refused are kept (up to 1000, the oldest dropped) and retried, so an outage leaves no gap.
         var pending = new Queue<ConditionEventRecord>();
+
+        // The write of the oldest pending event, kept while it runs after its timeout: it is waited for again at the next
+        // retry instead of being started again, so a store that blocks a thread does not get one more every retry.
+        Task? appending = null;
+        ConditionEventRecord? appendingRecord = null;
         var reader = _queue.Reader;
         var completed = false;
         while (!completed || pending.Count > 0)
@@ -183,7 +196,37 @@ internal sealed class ConditionHistory : IHostedService
                 try
                 {
                     var next = pending.Peek();
-                    await Engine.SharedControl.Bounded(() => _store.AppendConditionEventAsync(next, _options.ConditionHistorySize), Engine.SharedControl.WriteTimeout, CancellationToken.None).ConfigureAwait(false);
+                    if (appending is not null && !ReferenceEquals(appendingRecord, next))
+                    {
+                        // Its event was dropped from the full queue meanwhile.
+                        if (!appending.IsCompleted)
+                        {
+                            throw new TimeoutException("The previous write of the condition history, abandoned at its timeout, has not returned yet.");
+                        }
+
+                        appending = null;
+                    }
+
+                    if (appending is null)
+                    {
+                        appending = Task.Run(() => _store.AppendConditionEventAsync(next, _options.ConditionHistorySize).AsTask(), CancellationToken.None);
+                        appendingRecord = next;
+                    }
+
+                    var current = appending;
+                    try
+                    {
+                        await current.WaitAsync(Engine.SharedControl.WriteTimeout).ConfigureAwait(false);
+                    }
+                    finally
+                    {
+                        if (current.IsCompleted)
+                        {
+                            // Ended, written or failed: a failed write is started again at the next retry.
+                            appending = null;
+                        }
+                    }
+
                     pending.Dequeue();
                     if (_failing)
                     {

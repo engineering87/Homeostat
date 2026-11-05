@@ -377,10 +377,15 @@ Tags: `state`; `origin` = `circuit-breaker`.
 
 Until its pipeline is built (usually on first use), Polly reports the circuit as Closed, so the signal is `Healthy`.
 
-One source follows one pipeline instance: a pipeline rebuilt on reload replaces the previous one. With keyed or
-dynamic pipelines (`AddResiliencePipeline<string, ...>`, a resilience handler that selects a pipeline per authority),
-give each instance its own source, for example `TrackCircuitBreaker($"forecast-circuit:{context.PipelineKey}")`;
-with one source shared by several instances, only the last one built is reported.
+A source can follow several pipeline instances: it reports the worst state among them (Open or Isolated, then
+HalfOpen, then Closed), so with keyed or dynamic pipelines (`AddResiliencePipeline<string, ...>`, a resilience handler
+that selects a pipeline per authority) one open circuit is enough to make the source `Unhealthy`. To tell the instances
+apart, give each its own source, for example `TrackCircuitBreaker($"forecast-circuit:{context.PipelineKey}")`. A
+pipeline rebuilt on reload gets a new provider; the previous one is dropped when Polly disposes the old pipeline. At
+most 32 providers are kept per source (the most recent ones), so pipelines rebuilt without being disposed cannot grow
+the list without bound. A pipeline you rebuild yourself without disposing the old one keeps the old breaker's last
+state in the source (an open breaker nobody calls again stays open): dispose the old pipeline, or give each pipeline
+instance its own source.
 
 Notes:
 
@@ -428,7 +433,7 @@ thresholds and published as a signal whose `Value` is the statistic.
 | `Where(tag, value)`, `Where(predicate)` | Only measurements with these tags |
 | `RatioOf((value, tags) => ...)` | Uses `Ratio`, counting the matching measurements. Calling `Statistic(...)` with another statistic after it is refused at startup (`InvalidOperationException`), since the match would be ignored |
 | `Statistic(statistic)` | Statistic compared with the thresholds (default `Mean`) |
-| `DegradedAbove`, `UnhealthyAbove`, `DegradedBelow`, `UnhealthyBelow` | Thresholds (at least one is required), inclusive: a value at or above (at or below) the threshold reaches it |
+| `DegradedAbove`, `UnhealthyAbove`, `DegradedBelow`, `UnhealthyBelow` | Thresholds (at least one is required), inclusive: a value at or above (at or below) the threshold reaches it. They must be finite, with `DegradedAbove` at most `UnhealthyAbove` and `DegradedBelow` at least `UnhealthyBelow`; otherwise registration fails (`InvalidOperationException`) |
 | `MinimumCount(n)` | No signal for intervals with fewer measurements (default 1, at least 1) |
 | `Scale(factor)` | Multiplies the statistic before the thresholds and the published value (default 1; finite and not zero), for example `Scale(1.0 / 200)` (a pool of 200 connections) to turn a count into a share, or `Scale(1000)` for milliseconds |
 | `Source(name)` | Signal source (default `metric:{instrument}`) |
@@ -534,9 +539,10 @@ public sealed class DiskSpaceDetector(TimeProvider time) : ISignalDetector
 .AddHomeostat(h => h.AddDetector<DiskSpaceDetector>())
 ```
 
-Detectors are singletons and run every `DetectionInterval`. An exception is logged once when the detector starts
-failing (and again when it works again), and the next sample runs as usual. A call that takes longer than the
-interval, or 30 seconds if that is longer, is abandoned and the detector is skipped until it returns. Prefer a detector
+Detectors are singletons and run every `DetectionInterval`, concurrently: a slow detector does not delay the others.
+An exception is logged once when the detector starts failing (and again when it works again), and the next sample
+runs as usual. A call that takes longer than the interval, or 30 seconds if that is longer, is abandoned and the
+detector is skipped until it returns. Prefer a detector
 over a hand-written background loop: it shares the interval, the logging and the testing support.
 
 A library that has only an `IServiceCollection` (an extension method of your own package, for example) registers a

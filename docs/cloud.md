@@ -59,7 +59,9 @@ Notes:
 - Restarts are counted in the store for the whole application, in fixed windows of the configured length (aligned on
   UTC time). A restart is allowed only while the current and the previous window together hold fewer than the limit,
   so no period of one window length ever holds more, even when every replica restarts at the same moment. A refused
-  attempt counts only within its own window, so a condition that keeps trying never blocks restarts for good.
+  attempt counts only within its own window, so a condition that keeps trying never blocks restarts for good. The
+  counters are plan states that record, as their end, the moment they stop being read (the end of their window, or of
+  the next one), so the store's plan state retention removes them afterwards.
 - Keep the store persistent (`UseFileStore` on a volume that survives the restart, or `UseRedis`): the in-memory store
   starts empty in the new process, and so would the count, the cooldown and the history. With the in-memory store the
   step logs a warning.
@@ -99,13 +101,23 @@ defaults work.
 ```csharp
 builder.Services.AddHomeostat(h => h
     .UseKubernetes()                           // in-cluster defaults
+    .AddCondition("forecast-backlog", c => c
+        .ForSource("servicebus:forecast:messages")
+        .SustainedFor(TimeSpan.FromMinutes(5))
+        .Heal(p => p
+            .ScaleDeployment("weather-api", by: 2, maximum: 10)           // more replicas, with approval
+            .OncePerCluster()))                                           // one instance acts for the cluster
     .AddCondition("pod-degraded", c => c
         .ForSource("threadpool")
         .SustainedFor(TimeSpan.FromMinutes(2))
-        .Heal(p => p
-            .ScaleDeployment("weather-api", by: 2, maximum: 10)           // more replicas, with approval
-            .RestartPod())));                                             // last resort: this pod, with approval; ends the run
+        .Heal(p => p.RestartPod())));                                     // this pod, with approval; ends the run
 ```
+
+> **Cluster-wide steps need `OncePerCluster()`.** `RolloutRestart` and `ScaleDeployment` act on a deployment, not on
+> the instance that runs the plan. With the default scope every instance that sees the condition runs the plan, so a
+> condition active on N replicas restarts the deployment N times, or scales it N times (up to `maximum`). Put these
+> steps in a plan marked `OncePerCluster()`, with a shared store and coordinator (for example `Homeostat.Redis`).
+> `RestartPod` and `CordonNode` act on the instance's own pod and node, and belong in per-instance plans.
 
 | Action | Kubernetes call | Permission |
 |---|---|---|
@@ -228,14 +240,20 @@ builder.Services.AddHomeostat(h => h
         .ForSource("alert:WestEuropeApiDown")
         .Heal(p => p
             .RestartAppService("/subscriptions/.../resourceGroups/weather-rg/providers/Microsoft.Web/sites/weather-api-weu")
-            .DisableFrontDoorOrigin("/subscriptions/.../providers/Microsoft.Cdn/profiles/weather-fd/originGroups/api/origins/westeurope"))));
+            .DisableFrontDoorOrigin("/subscriptions/.../providers/Microsoft.Cdn/profiles/weather-fd/originGroups/api/origins/westeurope")
+            .OncePerCluster())));                    // shared resources: one instance acts for the cluster
 ```
+
+> **Mark plans with Azure steps `OncePerCluster()`.** Every Azure step acts on a shared resource (an app, a virtual
+> machine, a Front Door origin, any Resource Manager resource), not on the instance that runs the plan. With the
+> default scope every instance that sees the condition runs the plan, so a condition active on N replicas restarts
+> the app N times. `OncePerCluster()` needs a shared store and coordinator (for example `Homeostat.Redis`).
 
 | Action | Resource Manager call | Role |
 |---|---|---|
 | `RestartAppService(siteId, softRestart)` | `POST {site or slot}/restart`; `softRestart` (`false` by default) applies the settings and restarts only if needed | Website Contributor |
 | `RestartVirtualMachine(vmId)` | `POST {vm}/restart` (asynchronous) | Virtual Machine Contributor |
-| `DisableFrontDoorOrigin(originId)` | `GET` the origin and its group, then `PATCH {origin}` `enabledState: Disabled`; enabled again if it did not help. Refused when the origin is already disabled or is the last enabled one of its group | CDN Profile Contributor |
+| `DisableFrontDoorOrigin(originId)` | `GET` the origin and its group, then `PATCH {origin}` `enabledState: Disabled`; enabled again if it did not help. Refused when the origin is already disabled or is the last enabled one of its group. The group is read again after the change: if no other origin is enabled any more (another plan or a person disabled them meanwhile), the origin is enabled again and the step fails | CDN Profile Contributor |
 | `AzureResourceManager(name, method, resourceId, action, apiVersion, body)` | Any operation | As required |
 
 | `AzureOptions` | Default | Meaning |

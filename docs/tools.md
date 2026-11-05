@@ -52,8 +52,9 @@ endpoints (`MapHomeostatAlerts`), and the other commands except `replay` the con
 
 `pause`, `resume`, `approve`, `reject`, `release` and `switch` change the [shared control
 state](persistence-and-clusters.md#shared-control-state): with a shared store, they apply to every instance, whichever
-instance answers the request (`switch on --instance` excepted). When the store is down the endpoint answers `503` and
-the command exits with `1`. `homeostat release <condition>` lifts the hold of a plan after a rejected approval, without
+instance answers the request (`switch on --instance` excepted). When the store is down, `pause` and `switch off` still
+apply at once on the instance that answers and exit with `0`; they reach the store, and the other instances, when it
+answers again. `resume`, `approve`, `reject`, `release` and `switch on` answer `503` and exit with `1`. `homeostat release <condition>` lifts the hold of a plan after a rejected approval, without
 waiting for the condition to clear: see [Releasing a hold](healing-plans.md#releasing-a-hold).
 
 `homeostat coverage [--last 4h] [--fail-below 0.8] [--json]` shows which conditions activated, which plans ran and

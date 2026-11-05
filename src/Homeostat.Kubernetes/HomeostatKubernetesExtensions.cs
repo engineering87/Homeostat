@@ -66,6 +66,13 @@ public static class HomeostatKubernetesExtensions
     /// Appends a step that replaces every pod of <paramref name="deployment"/> with a rolling update, like
     /// <c>kubectl rollout restart</c>. Needs <c>patch</c> on <c>deployments</c>.
     /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The step acts on a shared resource, not on this instance: mark the plan <c>OncePerCluster()</c>. With the default
+    /// scope every instance that sees the condition runs the plan, so a condition active on N replicas acts N times
+    /// (N rollouts, or N changes of the replica count).
+    /// </para>
+    /// </remarks>
     /// <param name="plan">The plan builder.</param>
     /// <param name="deployment">Deployment name, in the application's namespace.</param>
     /// <param name="requireApproval">Whether a person approves first; defaults to <c>true</c>.</param>
@@ -82,6 +89,13 @@ public static class HomeostatKubernetesExtensions
     /// deployment is already at or beyond the limit, so the plan escalates. With a HorizontalPodAutoscaler on the deployment, change the autoscaler instead:
     /// it would undo this. Needs <c>get</c> and <c>patch</c> on <c>deployments/scale</c>.
     /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The step acts on a shared resource, not on this instance: mark the plan <c>OncePerCluster()</c>. With the default
+    /// scope every instance that sees the condition runs the plan, so a condition active on N replicas acts N times
+    /// (N rollouts, or N changes of the replica count).
+    /// </para>
+    /// </remarks>
     /// <param name="plan">The plan builder.</param>
     /// <param name="deployment">Deployment name, in the application's namespace.</param>
     /// <param name="by">Replicas to add (negative to remove).</param>

@@ -45,6 +45,7 @@ internal sealed class HomeostatEngine : BackgroundService
         _activations = activations;
         _recorders = recorders.ToArray();
         _timeProvider = timeProvider;
+        _systemClock = ReferenceEquals(timeProvider, TimeProvider.System);
         // Resolved here, when the host starts, so the clock records the application's start time.
         _ = clock;
         _channel = channel;
@@ -71,10 +72,12 @@ internal sealed class HomeostatEngine : BackgroundService
             // starts first, but hosts can start services concurrently). Signals queue meanwhile.
             await _keeper.Ready.WaitAsync(stoppingToken).ConfigureAwait(false);
 
-            await foreach (var signal in _channel.Reader.ReadAllAsync(stoppingToken).ConfigureAwait(false))
+            await foreach (var received in _channel.Reader.ReadAllAsync(stoppingToken).ConfigureAwait(false))
             {
+                var signal = received;
                 try
                 {
+                    signal = FromThePast(received);
                     foreach (var recorder in _recorders)
                     {
                         recorder.Record(signal);
@@ -124,6 +127,44 @@ internal sealed class HomeostatEngine : BackgroundService
 
         // Runs observe the stopping token, so they finish quickly; the wait is bounded by the host's shutdown token.
         await Task.WhenAny(_runner.WhenIdleAsync(), Task.Delay(Timeout.Infinite, cancellationToken)).ConfigureAwait(false);
+    }
+
+    /// <summary>How far ahead of this instance's clock a signal's timestamp may be before it is taken as clock skew.</summary>
+    internal static readonly TimeSpan FutureTolerance = TimeSpan.FromMinutes(1);
+
+    private DateTimeOffset _lastSkewWarning = DateTimeOffset.MinValue;
+
+    private readonly bool _systemClock;
+
+    /// <summary>
+    /// The signal, with a timestamp further in the future than <see cref="FutureTolerance"/> replaced by now. One
+    /// timestamp from a clock that runs ahead would otherwise hold trend and anomaly windows, occurrence counts and the
+    /// freshness of suppressions for as long as the skew; timestamps in the past are kept as they are. Only on the
+    /// system clock: with a simulated one (HomeostatTestHost, a replay) the signals' timestamps drive the scenario, and
+    /// tests publish hours of signals ahead of it on purpose.
+    /// </summary>
+    private Signal FromThePast(Signal signal)
+    {
+        if (!_systemClock)
+        {
+            return signal;
+        }
+
+        var now = _timeProvider.GetUtcNow();
+        if (signal.Timestamp <= now + FutureTolerance)
+        {
+            return signal;
+        }
+
+        if (now - _lastSkewWarning >= TimeSpan.FromMinutes(1))
+        {
+            _lastSkewWarning = now;
+            _logger.LogWarning(
+                "A signal from {Source} is timestamped {Timestamp:O}, ahead of this instance's clock ({Now:O}): it is processed as of now. Check the clock of its source.",
+                signal.Source, signal.Timestamp, now);
+        }
+
+        return signal with { Timestamp = now };
     }
 
     private void ResetSwitches(ConditionDefinition definition)

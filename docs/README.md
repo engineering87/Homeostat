@@ -69,3 +69,4 @@ it. If you are new to Homeostat, read the two pages under Learn first, then the 
 | [Platforms](platforms.md) | Supported .NET and operating systems, minimum client library versions, Native AOT per package |
 | [Roadmap](ROADMAP.md) | What is planned and what is out of scope |
 | [Design notes](design.md) | Architecture, pipeline, threading model and design principles |
+| [Design decisions](decisions.md) | Behavior chosen on purpose after reviews, why, and the tests that guard it: read before changing it |

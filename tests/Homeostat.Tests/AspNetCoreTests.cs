@@ -196,7 +196,9 @@ public class AspNetCoreTests
         using var __ = client;
 
         var status = await GetStatusAsync(client);
-        Assert.Equal("store down", status.GetProperty("storeError").GetString());
+        // The type of the error, never its message (which can carry connection details).
+        Assert.Contains(nameof(InvalidOperationException), status.GetProperty("storeError").GetString());
+        Assert.False(status.GetProperty("storeError").GetString()!.Contains("store down", StringComparison.Ordinal));
         Assert.Equal(JsonValueKind.Null, status.GetProperty("budget").ValueKind);
         Assert.Single(status.GetProperty("conditions").EnumerateArray().ToList());
     }

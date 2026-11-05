@@ -66,17 +66,33 @@ Which store keeps what:
 | File | Across restarts | Across restarts | Not kept: the condition starts again from scratch | Not kept: the run that waits does not survive a restart |
 | Redis | Shared, across restarts | Shared, across restarts | Shared | Shared |
 
-Requests whose instance stopped before collecting the answer are dropped by the Redis store a day after they expired.
+Requests whose instance stopped before collecting the answer are dropped a day after they expired (by the Redis store
+when it reads the control state, by the in-memory and file stores when a new request is added). An answer to an
+approval that the store does not confirm in time is checked once more: if the store recorded it, the call succeeds;
+if it recorded another answer, the call returns `false`; otherwise it throws a `TimeoutException` saying the outcome is
+unknown, since the store may still apply it.
+
 When the store cannot be reached, a change that lets Homeostat act (resume, turn a switch on, answer an approval,
 release a hold) fails, with `503` from the control endpoints: it was not made. A change in the safe direction (pause,
 turn a switch off, release a switch Homeostat turned on) applies at once on the instance where it is made. That
 instance writes it to the store at every refresh until the store takes it, unless the store shows a newer decision by
 then (see [ASP.NET Core](aspnetcore.md#control)).
 
-A switch that a cluster plan turned on is renewed by the instance that holds it, every 3 refresh intervals. If that
-instance stops or crashes, another instance turns the switch off as soon as the condition is not active there (at once
-when the instance stopped cleanly, otherwise once the claim has not been renewed for 12 refresh intervals, at least
-one minute). See [Actions](actions.md).
+Every change carries the time it was decided, by the clock of the instance where it was made, and the store keeps the
+latest decision about the pause and about each switch. **Keep the clocks of the instances synchronized (NTP)**: an
+instance whose clock is ahead takes decisions that look later than they are. When the store refuses a change in the
+safe direction because it holds a later decision (for example a pause written after a resume decided later on another
+instance), the instance logs a warning that names what the store holds (`Homeostat resumed by a decision taken after
+this pause`, or the switch and who turned it on), and the change stops applying there at its next read of the store. A
+refusal that loses nothing (the switch was already off, a later pause is in place) is logged at debug level only.
+
+A switch that a cluster plan turned on is renewed by the instance that holds it, every 3 refresh intervals, and the
+claim records that period (`SwitchState.RenewInterval`). If that instance stops or crashes, another instance turns the
+switch off as soon as the condition is not active there: at once when the instance stopped cleanly, otherwise once the
+claim has not been renewed for 4 renewal periods (12 refresh intervals, at least one minute). The observing instance
+uses the longer of its own period and the owner's, plus 30 seconds for the difference between the clocks, so an
+instance configured with a longer `ControlRefreshInterval` keeps its switch; a claim written by an older version
+without the period is judged by the observer's own. See [Actions](actions.md).
 
 ## Choosing a store
 
@@ -91,7 +107,8 @@ one minute). See [Actions](actions.md).
 // One instance, state in a file (written atomically after every change)
 .AddHomeostat(h => h.UseFileStore("data/homeostat.json"))
 
-// Several instances (dotnet add package Homeostat.Redis --prerelease)
+// Several instances (dotnet add package Homeostat.Redis --prerelease). abortConnect=false (AbortOnConnectFail = false):
+// the application starts while Redis is down, and the client reconnects in the background.
 builder.Services.AddSingleton<IConnectionMultiplexer>(_ => ConnectionMultiplexer.Connect("redis:6379,abortConnect=false"));
 builder.Services.AddHomeostat(h => h.UseRedis(o => o.KeyPrefix = "weather-api:homeostat:"));
 ```
@@ -101,7 +118,10 @@ builder.Services.AddHomeostat(h => h.UseRedis(o => o.KeyPrefix = "weather-api:ho
 The file store writes atomically (temporary file, flushed, then renamed). A change that cannot be written (a full
 disk, a read-only volume) fails and is undone in memory too, so what the store reports always matches the file. A
 file that cannot be read (bad JSON, or null records from a hand edit) is renamed to `*.corrupt` and the store starts
-empty. While open, the store holds an exclusive lock on `{path}.lock`: a second process opening the same file (the
+empty but **paused**, with the reason `store file unreadable (set aside as ...)`, and logs a critical error: the file may
+have held a person's pause, so Homeostat does not act until a person resumes it on purpose. The new file with that
+pause is written before the old one is set aside; if it cannot be written, the store does not open and is tried again
+later. While open, the store holds an exclusive lock on `{path}.lock`: a second process opening the same file (the
 old and new process of a rolling deploy on a shared volume) fails at startup with a clear error instead of
 overwriting the other's state. Use a path that survives a restart (a volume, in a container) and that only the
 application's user can write.
@@ -117,8 +137,12 @@ application's user can write.
 ### Redis store
 
 `UseRedis()` uses the `IConnectionMultiplexer` already registered in your container; `UseRedis("redis:6379")`
-creates one, with `abortConnect=false`, if none is registered. The connection is resolved on first use, so the
-application starts while Redis is unreachable; Homeostat stays paused until it can read the control state. Instances
+creates one, with `abortConnect=false`, if none is registered. Register yours with `AbortOnConnectFail = false` too:
+otherwise resolving it blocks a thread for the whole connect timeout while Redis is down. The connection is resolved
+on first use, so the application starts while Redis is unreachable; Homeostat stays paused until it can read the
+control state. A resolution that fails is tried again after 10 seconds, not on every store call. A pause record that
+cannot be read (written by another version, or damaged) counts as a pause that lasts until a person resumes, with the
+reason `unreadable pause record in the store`, never as "not paused"; it is logged as critical. Instances
 with the same `KeyPrefix` share their state: use one prefix per application and environment. `UseRedis` also
 registers the Redis coordinator, so `OncePerCluster()` plans coordinate every instance.
 
@@ -126,7 +150,7 @@ registers the Redis coordinator, so `OncePerCluster()` plans coordinate every in
 |---|---|---|
 | `KeyPrefix` | `homeostat:` | Prefix of every key; instances that share it share cooldowns, budget, history and leases. Cannot be empty |
 | `ShareBudget` | `true` | One action budget for every instance; `false` counts it per instance |
-| `PlanStateRetention` | 7 days | How long plan state is kept after its last change; refreshed at every run. Must be positive |
+| `PlanStateRetention` | 7 days | How long plan state is kept after its last change; refreshed at every run. A held plan is kept until its hold ends. Must be positive |
 | `DocumentRetention` | 90 days | How long documents (such as seasonal baselines) are kept after their last update. Must be positive |
 
 ### When the store fails
@@ -257,16 +281,16 @@ Kubernetes, a StatefulSet gives each pod a stable name; a Deployment gives a new
 
 | Key | Type | Content |
 |---|---|---|
-| `{prefix}plan:{key}` | hash | `ended`, `failures`, `held`, `by`; updated by an atomic script; expires after `PlanStateRetention` (7 days) without changes |
+| `{prefix}plan:{key}` | hash | `ended`, `failures`, `held`, `by`; updated by an atomic script; expires after `PlanStateRetention` (7 days) without changes, except while the plan is held |
 | `{prefix}budget` | sorted set | One member per action, scored by time; updated by an atomic script |
 | `{prefix}runs` | list | Run records as JSON, newest first, trimmed to `RunHistorySize` |
 | `{prefix}lease:plan:{condition}` | string | Lease token, with an expiry |
 | `{prefix}conditions` | list | Condition events as JSON, newest first, trimmed to `ConditionHistorySize` |
 | `{prefix}doc:{key}` | string | A document, such as `doc:baseline:{condition}:{cycle}`; expires after `DocumentRetention` (90 days) without updates |
 | `{prefix}{control}:pause` | string | The pause as JSON (`until`, `by`, `at`) |
-| `{prefix}{control}:switches` | hash | Application switches by name, as JSON (`name`, `condition`, `instance`, `by`, `at`, `renewedAt`); a plan claims, renews or releases one with an atomic script |
+| `{prefix}{control}:switches` | hash | Application switches by name, as JSON (`name`, `condition`, `instance`, `by`, `at`, `renewedAt`, `renewInterval`); a plan claims, renews or releases one with an atomic script |
 | `{prefix}{control}:approvals` | hash | Approval requests by id, as JSON, with the waiting instance |
-| `{prefix}{control}:answers` | hash | Answers by request id, written by an atomic script so that only the first answer wins |
+| `{prefix}{control}:answers` | hash | Answers by request id, written by an atomic script so that only the first answer wins; removed with their request by one script |
 | `{prefix}{control}:decided` | hash | When the latest decision about the pause and each switch was taken (Unix microseconds), and when a plan's claim on a switch was made and last renewed: a write that arrives late is refused |
 
 The control keys share the hash tag `{control}`, so on Redis Cluster they are in one slot, as the approval script needs.
@@ -333,7 +357,10 @@ Requirements:
 - `TryReleaseSwitchAsync` turns a switch off only if the condition still owns it and, when `instance` is given, that
   instance turned it on. A switch that a person took over, or that the condition claimed again or renewed after
   `decidedAt`, stays on. It returns `true` if the switch was turned off.
-- `GetControlStateAsync` skips records it cannot read rather than failing: one bad record must not hide the pause.
+- `GetControlStateAsync` skips switch and approval records it cannot read rather than failing: one bad record must not
+  hide the pause. A pause record it cannot read is returned as a pause without an end (fail closed), never as no pause.
+- Keep `SwitchState.RenewInterval` with a claim and its renewals: other instances use it to tell a live owner from one
+  that is gone.
 - `GetPlanStateAsync` returns `PlanState.Empty` for unknown plans. `GetRecentRunsAsync` and `GetConditionEventsAsync`
   return the newest first; `AppendRunAsync` and `AppendConditionEventAsync` keep at most the given number of entries.
 - Throw on failure: Homeostat handles it (fail closed).

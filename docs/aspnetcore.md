@@ -85,7 +85,8 @@ Enums are written as names (`"Unhealthy"`, `"Healed"`), never as numbers, and pr
 shape of this document, and of the history and coverage documents below, is part of the public contract: fields
 are added in minor versions, never renamed or removed before a major version (see [Versioning](versioning.md)).
 
-If the store cannot be read, the endpoint still answers: `storeError` says why, and each of `budget`,
+If the store cannot be read, the endpoint still answers: `storeError` says so, with the type of the error (for
+example `TimeoutException`; the message itself, which can name servers, is only in the application log), and each of `budget`,
 `recentRuns` and `pendingApprovals` that could not be read is `null` (budget) or empty (runs, approvals). Times are
 those of the application's `TimeProvider`. Conditions are those of the instance that answers; `switches` lists the
 application switches and the switches of that instance. Budget, runs and pending approvals come from the
@@ -125,14 +126,22 @@ why it needs a policy too.
 | `POST /homeostat/switches/{name}/on?scope=instance` | Turns the switch on for the instance that answers only | `204`, or `400` for any other `scope` value |
 | `POST /homeostat/switches/{name}/off` | Turns a switch off, for the application and the instance that answers | `204` |
 
-Both switch endpoints answer `400` for a name that is longer than 200 characters or contains control characters.
+The switch endpoints and the release endpoint answer `400` for a name that is longer than 200 characters or contains
+control characters. A name with a slash (`feed/eu`) is sent escaped (`feed%2Feu`), as the dashboard and the CLI do;
+ASP.NET Core leaves `%2F` escaped in route values, so the endpoints decode it (only it: the other escapes are already
+decoded).
 
 Pause, approvals and switches are kept in the [store](persistence-and-clusters.md#shared-control-state). When the
 store cannot be reached, a change that lets Homeostat act (resume, turn a switch on, answer an approval, release a
-hold) answers `503` and is not made. A change in the safe direction (pause, turn a switch off) applies at once on the
-instance that answers, answers `204`, and is written to the store as soon as the store takes it, so an outage never
-keeps chaos, an isolated circuit or a paused consumer on. A request waits at most 15 seconds for the store; a change
-that is aborted by the client still applies. Changes reach the other instances within `ControlRefreshInterval`
+hold) answers `503` and is not made ("nothing was changed"). A change in the safe direction (pause, turn a switch off)
+applies at once on the instance that answers, answers `204`, and is written to the store as soon as the store takes it,
+so an outage never keeps chaos, an isolated circuit or a paused consumer on. A request waits at most 15 seconds for
+the store. A store that does not answer in time (a timeout) also answers `503`, with a message that depends on the
+change: a resume or a turn-on that times out is decided again in the safe direction (Homeostat pauses again, the switch
+is turned off), so it was not made; an approval or the release of a hold may still be applied by the store after the
+answer, so check `GET /status` before trying again. A change runs to its
+end even when the client disconnects (the store call does not take the request's token); the endpoint then returns
+without an answer. Changes reach the other instances within `ControlRefreshInterval`
 (5 seconds by default).
 
 The name of the authenticated user (`User.Identity.Name`) is recorded as the approver in logs, events and the audit
@@ -197,7 +206,8 @@ app.MapHomeostatSlackInteractions(o =>
 
 Slack expects an answer within 3 seconds, so the endpoint waits at most 2 seconds for the store and answers Slack at
 once; the message is updated in the background, through the response URL of the click. When the store does not answer
-in time, the user is told privately that Homeostat cannot record the answer now and to try again.
+in time, the user is told privately that the answer may still be recorded and to check the pending approvals before
+answering again; when the store fails, that nothing was changed and to try again.
 
 The endpoint authenticates Slack by its signature, so it is mapped without an authorization policy.
 
@@ -228,8 +238,10 @@ app.MapHomeostatTeamsCommands(o =>
 | User | `approve` and `reject` need the sender's Entra object ID in `AllowedUserIds`, unless `AllowAnyTeamMember`; `pending` is open to the team |
 | Decision | Recorded with the approver `teams:{name} ({object id})`; the reply appears in the thread |
 
-The endpoint waits at most 4 seconds for the store; when the store does not answer, the reply asks to send the
-command again.
+The endpoint waits at most 4 seconds for the store. When the store fails, the reply says that nothing was changed
+and asks to send the command again. When it does not answer in time, the command may still be carried out: the reply
+asks to check with `pending` first, and the message stays marked as handled, so a replay of the same message cannot
+apply it a second time.
 
 With `AddTeamsNotifications(o => o.ApprovalCommand = "Homeostat")`, approval request cards say what to type. Outgoing
 webhooks work in standard (public) channels of the team where they are created, not in private channels or chats, so
@@ -255,11 +267,13 @@ builder.Services.AddHealthChecks()
 |---|---|---|
 | Nothing to report | Healthy | `No active condition.` |
 | Paused, budget exhausted, a step waiting for approval, or an active condition | Degraded (configurable) | The reasons, for example `paused by alice; active: weather-feed-down` |
-| Store unavailable | Degraded (configurable) | `The Homeostat store is unavailable.` |
+| Store unavailable | Degraded (always) | `The Homeostat store is unavailable.` |
 
 The result data contains `paused`, `dry_run`, `active_conditions`, `budget_remaining` and `pending_approvals`.
 Use `attentionStatus: HealthStatus.Unhealthy` to make it stricter, and `tags` to select it in a dedicated
-endpoint. This check is never turned into a Homeostat signal, so it cannot trigger conditions about itself. It
+endpoint. A store outage is always reported as Degraded, whatever `attentionStatus`: the store is shared, so an
+Unhealthy result would take every replica out of rotation at once for a problem of Homeostat, not of the application
+(Degraded answers `200` by default). This check is never turned into a Homeostat signal, so it cannot trigger conditions about itself. It
 answers within one second even when the store does not.
 
 > [!WARNING]

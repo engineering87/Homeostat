@@ -678,6 +678,8 @@ builder.Services.AddFeatureManagement().AddHomeostatSwitchFilter();
 
 `ForecastMaps` is enabled while the switch is off; a plan with `.TurnOnSwitch("shed-forecast-maps")` turns it off and
 brings it back when the condition clears. Use `"RequirementType": "All"` to combine the filter with a rollout filter.
+Invalid parameters never make the feature check throw: the feature is enabled, as when the switch is off, and a
+warning is logged once per feature (for up to 1,000 features).
 
 ### OpenFeature
 

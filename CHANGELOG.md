@@ -383,6 +383,45 @@ Also, compared with earlier builds:
 - `ChaosEnabledBySwitch` starts a new round when the switch is turned off and on again, also with no call in between.
 - Hot paths: `KafkaPauseGate.Apply` returns before reading the assignment when there is nothing to do; Prometheus and
   Alertmanager sources pick their worst series in one pass; the analyzer compares symbols instead of formatting names.
+- After an independent review, checked against the [design decisions](docs/decisions.md) so that no earlier fix is
+  undone:
+  - Bounded memory and threads: `Occurrences` keeps only the latest `count` matches; plan state reads, cluster lease
+    requests, condition history reads and writes, and seasonal baseline loads and saves are not started again while one
+    abandoned at its timeout still runs; seasonal baselines load in the background (startup no longer waits for them)
+    and their saves are bounded, also at shutdown; restart counters carry an end, so the file store's retention removes
+    them; detectors run concurrently, so a slow one no longer delays the others; a failed Redis connection is resolved
+    again at most every 10 seconds, by the store and the coordinator; a sink that drops events from its full queue logs
+    how many.
+  - Healing: after an action abandoned at its timeout, its compensation runs once the action has ended (waiting at most
+    the action timeout; if it is still running, the compensation is not run and an error asks for a person); a verifier
+    whose constructor throws makes the step `Inconclusive`; a service that fails to dispose no longer turns a healed run
+    into a failed one; a signal stamped more than a minute ahead of the instance's clock is processed as of now (on the
+    system clock).
+  - Shared control: a pause or a switch-off refused because the store holds a later decision is logged as a warning
+    naming it (decisions follow the instances' clocks: keep them synchronized); a pause record that cannot be read
+    counts as a pause (Redis), and an unreadable store file is set aside and the file store starts paused; a pause
+    written while an older resume returns stays shown; a cluster plan's turn-on step fails when its claim is refused
+    and the switch is off; claims record their owner's renewal period (`SwitchState.RenewInterval`), so an owner that
+    renews less often is not taken for gone; the owner's release applies at once and is never older than its own
+    renewal; Redis keeps a held plan until its hold ends (it expired after `PlanStateRetention`).
+  - Approvals: listing pending requests is bounded; an answer whose write times out is read back (succeeds if
+    recorded, returns `false` if another answer was, otherwise a `TimeoutException` says the outcome is unknown); a
+    request written after its registration timed out is removed; every store drops requests a day after they expired;
+    Redis removes a request and its answer atomically; a lease whose acquisition failed is released with its token.
+  - Endpoints: a store timeout and a store failure get different answers (an approval or a hold release may still be
+    applied; a resume or a turn-on was not made); store calls no longer take the request's token, so a disconnect
+    neither cuts a change short nor logs an unhandled error; `GET /status` reports the type of a store error, not its
+    message; `%2F` in switch and condition names is decoded; release names are validated; Teams keeps a timed-out
+    command marked as handled. The Homeostat health check reports a store outage as `Degraded`, whatever
+    `attentionStatus`.
+  - Integrations: a Service Bus processor paused before it starts is stopped as soon as the application starts it;
+    `DisableFrontDoorOrigin` reads the origin group again and enables its origin again if none is left; a circuit
+    breaker source reports the worst state of every pipeline tracked for it (at most 32); the `Homeostat.Switch` feature
+    filter warns once per feature; metric thresholds must be finite and ordered; `RolloutRestart`, `ScaleDeployment`
+    and the Azure steps are documented as needing `OncePerCluster()`.
+  - Packaging: preview packages are numbered `X-preview.1` on a release and `X-preview.0.rc.N` on a release
+    candidate, so the release sorts above the candidate; `Homeostat.Testing` depends on exactly its own Homeostat
+    version.
 
 ### Security
 
@@ -487,7 +526,7 @@ repository (version `0.1.0` in the project files):
   Remove the package reference; the namespaces and the API are unchanged.
 - Packages have a stability level: the integrations not yet proven in production (`Homeostat.Azure`,
   `Homeostat.EntityFrameworkCore`, `Homeostat.Grpc`, `Homeostat.Caching`, `Homeostat.FeatureManagement`,
-  `Homeostat.OpenFeature`, `Homeostat.Aspire.Hosting`) ship as previews (`1.0.0-preview` when the others are `1.0.0`),
+  `Homeostat.OpenFeature`, `Homeostat.Aspire.Hosting`) ship as previews (`1.0.0-preview.1` when the others are `1.0.0`, `1.0.0-preview.0.rc.1` in this release candidate),
   so their API can still change in a minor version. See [Versioning](docs/versioning.md#stable-and-preview-packages).
 - Homeostat.Aspire.Hosting: `HomeostatResourceOptions` is in the `Homeostat.Aspire.Hosting` namespace.
 - Homeostat.Testing: `StartAsync`, `WaitForRunAsync`, `WaitForConditionAsync` and `WaitForApprovalAsync` take a
@@ -511,12 +550,13 @@ repository (version `0.1.0` in the project files):
   so a cluster run stops before another instance can take the lease.
 - When the plan state cannot be saved at the end of a cluster run, the lease is kept for the cooldown instead of
   released, so another instance does not run the plan again at once.
-- Compensating actions (`UndoWith`) obey the pause, maintenance windows and the action budget.
+- Compensating actions (`UndoWith`) count in the action budget (best effort); the pause, maintenance windows and the
+  budget never block them (see Failure isolation).
 - A cached hold is read again from the store after a minute, so a hold lifted on another instance applies;
   `ReleaseHoldAsync` lifts it at once.
 - A pending cause that receives no signal for `max(SustainedFor, 1 minute)` no longer suppresses its symptoms.
 - A condition removed by a configuration reload stops its running plan before the next step.
-- `RestartLimits.Window` is a fixed window starting at the first restart counted in it.
+- `RestartLimits.Window` is counted in fixed windows aligned on UTC time (see Failure isolation).
 - Homeostat can no longer hold up the application it heals: startup waits at most 5 seconds for the control state; the
   control, status, history and coverage endpoints, the Slack and Teams endpoints and the health check stop waiting for
   a store that does not answer; an action, compensating action or verifier that ignores its cancellation no longer
@@ -532,8 +572,8 @@ repository (version `0.1.0` in the project files):
   only lengthens it. Cooldowns are limited to about 49 days, like the other timers, and the cluster lease kept for the
   cooldown is always released.
 - A rejection or a failure count saved just after the condition cleared outlived the episode: it is reset again.
-- A compensating action skipped because Homeostat was paused or the budget was exhausted reports
-  `UndoSucceeded = null` (not run), not `false`; its XML documentation said it does not consume the budget, it does.
+- A compensating action that is not run reports `UndoSucceeded = null`, not `false`; its XML documentation said it does
+  not consume the budget, it does.
 - Configuration refuses values that were silently ignored: numeric or combined enum values (`"Severity": "7"`),
   `AllActive` with `AnyActive`, `ApprovalTimeout` without `RequireApproval`, `TurnOffWhenCleared` on a step that is
   not a switch. A change made to the configuration while the application started is applied.

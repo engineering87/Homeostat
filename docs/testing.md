@@ -8,6 +8,10 @@ signals against new conditions.
 dotnet add package Homeostat.Testing --prerelease
 ```
 
+`Homeostat.Testing` depends on **exactly** the Homeostat version it was released with (`[x]`, not `>= x`): it uses
+Homeostat internals (signal replay), which change between versions. Update the two packages together, to the same
+version; NuGet reports a version conflict otherwise.
+
 ## Scenario tests with `HomeostatTestHost`
 
 `HomeostatTestHost` runs the real Homeostat engine in memory with a simulated clock (`FakeTimeProvider`). From the

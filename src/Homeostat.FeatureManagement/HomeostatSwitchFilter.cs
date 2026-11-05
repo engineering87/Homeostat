@@ -13,7 +13,7 @@ namespace Homeostat.FeatureManagement;
 /// <remarks>
 /// Parameters: <c>Switch</c> (required), the switch name; <c>EnabledWhen</c>, <c>Off</c> (default) or <c>On</c>. Invalid
 /// parameters never make the feature check throw (that would fail every request that checks the feature): they are
-/// logged once, and the feature is enabled, as when the switch is off.
+/// logged once per feature, and the feature is enabled, as when the switch is off.
 /// Combine it with other filters using <c>"RequirementType": "All"</c> to keep, for example, a percentage rollout
 /// while still letting Homeostat shed the feature.
 /// </remarks>
@@ -34,7 +34,12 @@ public sealed class HomeostatSwitchFilter : IFeatureFilter, IFilterParametersBin
 
     private readonly IHomeostatSwitches _switches;
     private readonly ILogger _logger;
-    private int _warned;
+    // Features whose invalid parameters were logged: once per feature, each with its own mistake. Bounded: beyond the
+    // limit (a configuration generating feature names) the warnings stop rather than the memory growing.
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, byte> _warned = new(StringComparer.Ordinal);
+
+    /// <summary>Most feature names remembered as warned about.</summary>
+    internal const int MaxWarnedFeatures = 1000;
 
     /// <summary>Creates the filter.</summary>
     /// <param name="switches">Homeostat switches.</param>
@@ -73,7 +78,7 @@ public sealed class HomeostatSwitchFilter : IFeatureFilter, IFilterParametersBin
         var settings = context.Settings as Settings ?? (Settings)BindParameters(context.Parameters);
         if (settings.Switch is not { } name)
         {
-            if (Interlocked.Exchange(ref _warned, 1) == 0)
+            if (_warned.Count < MaxWarnedFeatures && _warned.TryAdd(context.FeatureName ?? string.Empty, 0))
             {
                 _logger.LogWarning("{Error} Feature {Feature} is enabled, as when the switch is off.", settings.Error, context.FeatureName);
             }

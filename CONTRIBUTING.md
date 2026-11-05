@@ -144,6 +144,9 @@ and run the same checks (`CI`, `CodeQL`, `Commit lint`) on every pull request an
   generated inputs, and reports the smallest failing case.
 - Public APIs must have XML documentation: missing comments are build warnings, and errors in CI.
 - New guardrail-relevant behavior must default to the safe option.
+- Check the change against the [design decisions](docs/decisions.md): a change that goes against one needs a new
+  argument in the pull request, and the decision, its guarding test and this page change together. Review findings
+  that contradict a decision are answered by pointing to it, so review cycles do not undo earlier fixes.
 - Update `CHANGELOG.md` under `[Unreleased]`.
 
 ## Releasing
@@ -156,7 +159,7 @@ Maintainers only.
 3. The `Release` workflow builds, tests, packs (with symbols and SourceLink), signs the packages when a certificate is
    configured, produces an SBOM and a build provenance attestation, pushes the packages to NuGet and creates a GitHub
    release with the packages and the SBOM. Versions with a suffix (`-rc.1`) are marked as pre-releases. The version
-   comes from the tag (`-p:HomeostatVersion=1.0.0`); preview packages get `-preview` on top of a stable version (see
+   comes from the tag (`-p:HomeostatVersion=1.0.0`); preview packages get `-preview.1` on a release and `-preview.0.rc.N` on a release candidate (see
    [Stable and preview packages](docs/versioning.md#stable-and-preview-packages)). To promote a preview package,
    remove `<HomeostatPreview>true</HomeostatPreview>` from its project and move it to the stable rows of
    `docs/versioning.md` and `docs/packages.md` (a test checks that they agree).
@@ -171,7 +174,7 @@ Before the first release, reserve the `Homeostat` ID prefix on nuget.org
 ([ID prefix reservation](https://learn.microsoft.com/nuget/nuget-org/id-prefix-reservation)), so that no one else can
 publish a package named `Homeostat.*` and the packages show as verified.
 After the first release, set `PackageValidationBaselineVersion` in `Directory.Build.props` to the latest
-published version (for example `1.0.0`; preview packages compare with `1.0.0-preview` by themselves), so that
+published version (for example `1.0.0`; preview packages compare with `1.0.0-preview.1` by themselves), so that
 accidental breaking changes fail the build. A package added after that release has no baseline yet: set
 `<EnablePackageValidation>false</EnablePackageValidation>` in its project until it has been published once.
 

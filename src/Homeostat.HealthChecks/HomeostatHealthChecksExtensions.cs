@@ -49,7 +49,9 @@ public static class HomeostatHealthChecksExtensions
     /// <summary>
     /// Adds a health check that reports Homeostat itself: <paramref name="attentionStatus"/> (Degraded by default)
     /// while it is paused, its action budget is exhausted, a step waits for approval or a condition is active;
-    /// Healthy otherwise. The details are in the result data. This check is never turned into a signal.
+    /// Healthy otherwise. The details are in the result data. This check is never turned into a signal. A store that
+    /// cannot be read is always reported as Degraded, whatever <paramref name="attentionStatus"/>: the store is shared,
+    /// and an Unhealthy result would take every replica out of rotation at once.
     /// </summary>
     /// <param name="builder">The health checks builder.</param>
     /// <param name="name">Name of the check.</param>

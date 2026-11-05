@@ -698,6 +698,7 @@ namespace Homeostat.Persistence
     public string? Condition { get; init; }
     public string? Instance { get; init; }
     public string Name { get; init; }
+    public System.TimeSpan? RenewInterval { get; init; }
     public System.DateTimeOffset? RenewedAt { get; init; }
 namespace Homeostat.Presets
   public sealed class DefaultCondition

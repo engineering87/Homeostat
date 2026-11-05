@@ -61,7 +61,10 @@ internal sealed class HomeostatHealthCheck : IHealthCheck
         }
         catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
         {
-            return new HealthCheckResult(_attentionStatus, "The Homeostat store is unavailable.", ex);
+            // Degraded whatever the attention status: the store is shared, so an outage fails this check on every
+            // replica at once, and Unhealthy would take them all out of rotation for a problem of Homeostat, not of
+            // the application (which keeps serving; Homeostat fails closed). Degraded answers 200 by default.
+            return HealthCheckResult.Degraded("The Homeostat store is unavailable.", ex);
         }
 
         var data = new Dictionary<string, object>

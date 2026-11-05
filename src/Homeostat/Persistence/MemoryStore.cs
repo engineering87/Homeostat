@@ -353,11 +353,24 @@ internal class MemoryStore : IHomeostatStore
         ArgumentNullException.ThrowIfNull(approval);
         lock (_gate)
         {
+            // A request whose instance stopped before collecting the answer is dropped a day after it expired, as the
+            // Redis store does, so the requests do not grow for ever. Measured by the new request's clock (the store
+            // has none): the clock of the instances that write them.
+            var requestedAt = approval.Request.RequestedAt;
+            var cutoff = requestedAt > DateTimeOffset.MinValue + AbandonedApprovalRetention ? requestedAt - AbandonedApprovalRetention : DateTimeOffset.MinValue;
+            foreach (var id in _approvals.Where(a => a.Value.Request.ExpiresAt < cutoff).Select(a => a.Key).ToArray())
+            {
+                _approvals.Remove(id);
+            }
+
             _approvals[approval.Request.Id] = approval;
         }
 
         return ValueTask.CompletedTask;
     }
+
+    /// <summary>How long after it expired a request nobody collected is kept.</summary>
+    internal static readonly TimeSpan AbandonedApprovalRetention = TimeSpan.FromDays(1);
 
     /// <inheritdoc />
     public ValueTask<bool> TryResolveApprovalAsync(string id, ApprovalStatus status, string? resolvedBy, CancellationToken cancellationToken = default)

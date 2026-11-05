@@ -1,13 +1,16 @@
 using System.Text.Json;
 using Homeostat.Healing;
 using System.Text.Json.Serialization;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace Homeostat.Persistence;
 
 /// <summary>
 /// Store for a single instance that must remember its state across restarts: keeps everything in memory and
 /// writes a JSON file after every change (atomically, through a temporary file flushed to disk). A file that cannot
-/// be read is renamed to <c>*.corrupt</c> and the store starts empty, so a damaged file never prevents startup. While
+/// be read is renamed to <c>*.corrupt</c> and the store starts empty but paused (the file may have held a person's
+/// pause), so a damaged file never prevents startup and Homeostat does not act until a person resumes it. While
 /// the store is open it holds an exclusive lock on <c>{path}.lock</c>: a second process opening the same file fails
 /// at once instead of overwriting the other's state.
 /// </summary>
@@ -37,6 +40,12 @@ public sealed class FileHomeostatStore : IHomeostatStore, IDisposable
     /// <exception cref="ArgumentOutOfRangeException"><see cref="FileStoreOptions.PlanStateRetention"/> is not positive.</exception>
     /// <exception cref="IOException">Another process (or another store in this one) has the file open.</exception>
     public FileHomeostatStore(string path, FileStoreOptions options)
+        : this(path, options, logger: null)
+    {
+    }
+
+    /// <summary>Opens the store, logging a file that cannot be read.</summary>
+    internal FileHomeostatStore(string path, FileStoreOptions options, ILogger? logger)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
         ArgumentNullException.ThrowIfNull(options);
@@ -47,7 +56,27 @@ public sealed class FileHomeostatStore : IHomeostatStore, IDisposable
 
         try
         {
-            if (File.Exists(_path) && Load(_path) is { } document)
+            Document? document = null;
+            Exception? error = null;
+            var unreadable = File.Exists(_path) && !TryLoad(_path, out document, out error);
+            if (unreadable)
+            {
+                // The file may have held a person's pause: starting empty would let Homeostat act through it. Start
+                // paused instead, until a person resumes on purpose. Written before the file is set aside: if it cannot
+                // be written, the unreadable file stays and the store does not open (tried again later), rather than
+                // opening without the pause.
+                var at = DateTimeOffset.UtcNow;
+                var pause = new PauseState { At = at, By = $"store file unreadable (set aside as {System.IO.Path.GetFileName(_path)}.corrupt at {at:O})" };
+                _store.Restore(new MemoryStore.StoreSnapshot(new Dictionary<string, PlanState>(StringComparer.Ordinal), [], []) { Pause = pause });
+                WriteTemporary(_store.Snapshot());
+                File.Move(_path, _path + ".corrupt", overwrite: true);
+                File.Move(_path + ".tmp", _path, overwrite: true);
+                (logger ?? NullLogger.Instance).LogCritical(
+                    error,
+                    "The Homeostat store file {Path} could not be read: it was set aside as {Corrupt} and Homeostat is paused until a person resumes it.",
+                    _path, _path + ".corrupt");
+            }
+            else if (document is not null)
             {
                 // Forget plans that have not run for a long time (renamed conditions, old instance names).
                 var cutoff = DateTimeOffset.UtcNow - options.PlanStateRetention;
@@ -98,18 +127,22 @@ public sealed class FileHomeostatStore : IHomeostatStore, IDisposable
         }
     }
 
-    // Anything that cannot be read (bad JSON, a hand edit with nulls where records belong) is set aside, never fatal.
-    private static Document? Load(string path)
+    // Anything that cannot be read (bad JSON, a document that is only null, a hand edit with nulls where records belong)
+    // is set aside by the caller, never fatal.
+    private static bool TryLoad(string path, out Document? document, out Exception? error)
     {
+        error = null;
         try
         {
             using var stream = File.OpenRead(path);
-            return JsonSerializer.Deserialize(stream, Json.TypeInfo<Document>());
+            document = JsonSerializer.Deserialize(stream, Json.TypeInfo<Document>());
+            return document is not null;
         }
         catch (Exception ex) when (ex is JsonException or NotSupportedException or InvalidOperationException)
         {
-            File.Move(path, path + ".corrupt", overwrite: true);
-            return null;
+            error = ex;
+            document = null;
+            return false;
         }
     }
 
@@ -118,6 +151,13 @@ public sealed class FileHomeostatStore : IHomeostatStore, IDisposable
         => items is null ? [] : items.Where(i => i is not null).ToArray();
 
     private void Save(MemoryStore.StoreSnapshot snapshot)
+    {
+        WriteTemporary(snapshot);
+        File.Move(_path + ".tmp", _path, overwrite: true);
+    }
+
+    // Writes the state to {path}.tmp, flushed to disk; the caller moves it into place.
+    private void WriteTemporary(MemoryStore.StoreSnapshot snapshot)
     {
         var directory = System.IO.Path.GetDirectoryName(_path);
         if (!string.IsNullOrEmpty(directory))
@@ -140,8 +180,6 @@ public sealed class FileHomeostatStore : IHomeostatStore, IDisposable
                 Json.TypeInfo<Document>());
             stream.Flush(flushToDisk: true);
         }
-
-        File.Move(temporary, _path, overwrite: true);
     }
 
     internal sealed record Document(

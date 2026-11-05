@@ -28,7 +28,7 @@ internal sealed class RedisCoordinator : IHomeostatCoordinator
         return 0
         """;
 
-    private readonly Func<IConnectionMultiplexer> _connection;
+    private readonly RedisConnection _connection;
     private readonly RedisStoreOptions _options;
     private readonly ILogger<RedisCoordinator> _logger;
 
@@ -40,7 +40,8 @@ internal sealed class RedisCoordinator : IHomeostatCoordinator
     /// <summary>Resolves the connection on first use, so the application's startup never waits for Redis.</summary>
     internal RedisCoordinator(Func<IConnectionMultiplexer> redis, IOptions<RedisStoreOptions> options, ILogger<RedisCoordinator> logger)
     {
-        _connection = redis;
+        // Kept once resolved; a resolution that failed is tried again after a few seconds, not on every call.
+        _connection = new RedisConnection(redis);
         _options = options.Value;
         _logger = logger;
     }
@@ -53,8 +54,37 @@ internal sealed class RedisCoordinator : IHomeostatCoordinator
 
         // The expiry runs from when Redis applies the command, which is after this moment: measuring from here is safe.
         var requestedAt = Stopwatch.GetTimestamp();
-        var acquired = await _connection().GetDatabase().StringSetAsync(key, token, duration, When.NotExists).ConfigureAwait(false);
+        var database = _connection.Get().GetDatabase();
+        bool acquired;
+        try
+        {
+            acquired = await database.StringSetAsync(key, token, duration, When.NotExists).ConfigureAwait(false);
+        }
+        catch (Exception)
+        {
+            // The command may have reached Redis even though the reply did not (a client-side timeout): the lease would
+            // then have no owner until it expires, and the plan could not run anywhere meanwhile. Released with its
+            // token, which only this call knows, so nobody else's lease is touched. Best effort and bounded.
+            await TryReleaseAsync(database, key, token).ConfigureAwait(false);
+            throw;
+        }
+
         return acquired ? new Lease(this, key, token, duration, requestedAt) : null;
+    }
+
+    internal static readonly TimeSpan ReleaseAfterFailureTimeout = TimeSpan.FromSeconds(2);
+
+    private async Task TryReleaseAsync(IDatabase database, RedisKey key, string token)
+    {
+        try
+        {
+            await Task.Run(() => database.ScriptEvaluateAsync(ReleaseScript, [key], [token]), CancellationToken.None)
+                .WaitAsync(ReleaseAfterFailureTimeout).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Could not release the Homeostat lease {Lease} after a failed acquisition; it expires by itself.", (string?)key);
+        }
     }
 
     private sealed class Lease : IHomeostatLease
@@ -111,7 +141,7 @@ internal sealed class RedisCoordinator : IHomeostatCoordinator
 
             try
             {
-                await _owner._connection().GetDatabase().ScriptEvaluateAsync(ReleaseScript, [_key], [_token]).ConfigureAwait(false);
+                await _owner._connection.Get().GetDatabase().ScriptEvaluateAsync(ReleaseScript, [_key], [_token]).ConfigureAwait(false);
             }
             catch (Exception ex) when (ex is RedisException or TimeoutException)
             {
@@ -134,7 +164,7 @@ internal sealed class RedisCoordinator : IHomeostatCoordinator
                 var sentAt = Stopwatch.GetTimestamp();
                 try
                 {
-                    var renewed = await _owner._connection().GetDatabase()
+                    var renewed = await _owner._connection.Get().GetDatabase()
                         .ScriptEvaluateAsync(RenewScript, [_key], [_token, (long)_duration.TotalMilliseconds]).ConfigureAwait(false);
                     if ((int)renewed == 0)
                     {

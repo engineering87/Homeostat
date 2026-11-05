@@ -122,6 +122,12 @@ signals.TryPublish(new Signal("thumbnail-queue", SignalSeverity.Degraded, timePr
 });
 ```
 
+Rules use the timestamp (sustain and clear durations, trend and anomaly windows, occurrence counts), so a clock that
+runs ahead could hold them for as long as its skew. A timestamp more than 1 minute ahead of this instance's clock is
+therefore replaced by the current time when the engine processes the signal, with a warning (at most once a minute);
+timestamps in the past are kept. This applies on the system clock only: with a simulated one (`HomeostatTestHost`,
+`HomeostatReplay`) timestamps are kept as given, so a test can publish hours of signals ahead of it.
+
 ## Tips for good signals
 
 - Publish healthy signals too, not only failures. They are what clears a condition and what verification looks at.

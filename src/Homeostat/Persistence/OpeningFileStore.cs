@@ -102,7 +102,7 @@ internal sealed class OpeningFileStore : IHomeostatStore, IDisposable
 
             try
             {
-                _store = new FileHomeostatStore(_path, _options);
+                _store = new FileHomeostatStore(_path, _options, _logger);
                 if (_failure is not null)
                 {
                     _logger.LogWarning("The Homeostat store file {Path} is open again.", _path);

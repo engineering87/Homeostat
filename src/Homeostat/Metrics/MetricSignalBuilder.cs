@@ -172,6 +172,14 @@ public sealed class MetricSignalBuilder
             throw new InvalidOperationException($"The metric signal for '{Instrument}' has no threshold: call DegradedAbove, UnhealthyAbove, DegradedBelow or UnhealthyBelow.");
         }
 
+        // As for event counters and probes: a NaN threshold never matches, and misordered ones hide a severity.
+        if (new[] { _degradedAbove, _unhealthyAbove, _degradedBelow, _unhealthyBelow }.Any(t => t is { } v && !double.IsFinite(v))
+            || _degradedAbove > _unhealthyAbove || _degradedBelow < _unhealthyBelow)
+        {
+            throw new InvalidOperationException(
+                $"The metric signal for '{Instrument}': thresholds must be finite, DegradedAbove at most UnhealthyAbove and DegradedBelow at least UnhealthyBelow.");
+        }
+
         return new MetricWatch(
             Instrument, _meter, _source ?? $"metric:{Instrument}", _statistic, _filters.ToArray(), _ratioMatch,
             _degradedAbove, _unhealthyAbove, _degradedBelow, _unhealthyBelow, _minimumCount, _scale);

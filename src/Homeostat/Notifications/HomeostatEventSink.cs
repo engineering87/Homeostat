@@ -70,8 +70,9 @@ internal sealed class EventSinkQueues
 internal sealed class EventSinkHost<TSink> : BackgroundService, IHealingObserver, IHostedLifecycleService
     where TSink : class, IHomeostatEventSink
 {
-    private readonly Channel<HomeostatEvent> _queue = Channel.CreateBounded<HomeostatEvent>(
-        new BoundedChannelOptions(1000) { FullMode = BoundedChannelFullMode.DropOldest, SingleReader = true });
+    internal const int QueueSize = 1000;
+
+    private readonly Channel<HomeostatEvent> _queue;
 
     private readonly CancellationTokenSource _abort = new();
     private readonly HomeostatEventFactory _events;
@@ -80,6 +81,12 @@ internal sealed class EventSinkHost<TSink> : BackgroundService, IHealingObserver
     private readonly ILogger _logger;
     private readonly string _name = typeof(TSink).Name;
     private int _droppedAfterStop;
+
+    // Events dropped from the full queue (the sink is slower than the events), reported at most once a minute.
+    private readonly TimeProvider _timeProvider;
+    private readonly object _dropGate = new();
+    private long _droppedFull;
+    private DateTimeOffset _lastDropWarning = DateTimeOffset.MinValue;
 
     private readonly EventSinkQueues _queues;
 
@@ -91,6 +98,9 @@ internal sealed class EventSinkHost<TSink> : BackgroundService, IHealingObserver
         ILogger<EventSinkHost<TSink>> logger)
     {
         _sink = sink;
+        _timeProvider = timeProvider;
+        _queue = Channel.CreateBounded<HomeostatEvent>(
+            new BoundedChannelOptions(QueueSize) { FullMode = BoundedChannelFullMode.DropOldest, SingleReader = true }, OnDropped);
         _queues = queues;
         queues.Add(_queue.Writer);
         _events = new HomeostatEventFactory(options.Value.ApplicationName, timeProvider);
@@ -142,6 +152,7 @@ internal sealed class EventSinkHost<TSink> : BackgroundService, IHealingObserver
             await Task.WhenAny(loop, Task.Delay(Timeout.Infinite, cancellationToken)).ConfigureAwait(false);
         }
 
+        ReportDropped(force: true);
         var dropped = Volatile.Read(ref _droppedAfterStop);
         if (dropped > 0)
         {
@@ -178,6 +189,37 @@ internal sealed class EventSinkHost<TSink> : BackgroundService, IHealingObserver
         {
             _logger.LogWarning("{Sink} stopped before delivering all queued events.", _name);
         }
+    }
+
+    private void OnDropped(HomeostatEvent dropped)
+    {
+        lock (_dropGate)
+        {
+            _droppedFull++;
+        }
+
+        ReportDropped(force: false);
+    }
+
+    private void ReportDropped(bool force)
+    {
+        long count;
+        var now = _timeProvider.GetUtcNow();
+        lock (_dropGate)
+        {
+            if (_droppedFull == 0 || (!force && now - _lastDropWarning < TimeSpan.FromMinutes(1)))
+            {
+                return;
+            }
+
+            count = _droppedFull;
+            _droppedFull = 0;
+            _lastDropWarning = now;
+        }
+
+        _logger.LogWarning(
+            "{Sink} dropped {Count} event(s), the oldest, because its queue of {Size} was full: it delivers more slowly than events are raised.",
+            _name, count, QueueSize);
     }
 
     private void Enqueue(HomeostatEventKind kind, Func<HomeostatEvent> create)

@@ -163,14 +163,28 @@ internal sealed class SharedControl
     /// It takes no cancellation token: a caller that gives up (a request aborted while the store is slow) must not lose a
     /// change that makes Homeostat do less. The wait is bounded by <see cref="WriteTimeout"/>.
     /// </remarks>
-    /// <returns><c>true</c> if the store took the change now; <c>false</c> if it is deferred.</returns>
+    /// <param name="key">What the change is about ("pause", "switch:{name}").</param>
+    /// <param name="decidedAt">When the change was decided: the store orders decisions by this time.</param>
+    /// <param name="change">Writes the change; <c>false</c> when the store holds a later decision.</param>
+    /// <param name="apply">The same change, applied to this instance's view.</param>
+    /// <param name="superseded">Whether a state read from the store shows a newer decision.</param>
+    /// <param name="later">
+    /// When the store refuses the change: describes the later decision the store shows, or returns <c>null</c> when the
+    /// store already shows the safe state (nothing to warn about).
+    /// </param>
+    /// <returns>
+    /// <c>true</c> if the store answered now (it took the change, or refused it for a later decision, which is logged
+    /// as a warning); <c>false</c> if it is deferred.
+    /// </returns>
     public async Task<bool> ChangeOrDeferAsync(
         string key,
+        DateTimeOffset decidedAt,
         Func<IHomeostatStore, CancellationToken, ValueTask<bool>> change,
         Func<ControlState, ControlState> apply,
-        Func<ControlState, bool> superseded)
+        Func<ControlState, bool> superseded,
+        Func<ControlState, string?>? later = null)
     {
-        var deferred = new Deferred(change, apply, superseded);
+        var deferred = new Deferred(change, apply, superseded) { DecidedAt = decidedAt, IsSafe = true, Later = later };
         lock (_viewGate)
         {
             // Registered before the view changes, so a refresh that read the store earlier applies it on top too.
@@ -184,13 +198,73 @@ internal sealed class SharedControl
         Dispatch();
         if (!await TryWriteAsync(key, deferred).ConfigureAwait(false))
         {
-            _logger.LogWarning("The Homeostat store did not take a change ({Change}): it applies to this instance now and is retried at every refresh.", key);
+            _logger.LogWarning("The Homeostat store did not take a change ({Change}): it applies to this instance now and is retried at every refresh.", Safe(key));
             return false;
+        }
+
+        if (deferred.Refused)
+        {
+            // The caller waits for the store anyway: the warning is logged before it returns.
+            await ReportRefusedAsync(key, deferred).ConfigureAwait(false);
         }
 
         await ReadBackAsync().ConfigureAwait(false);
         return true;
     }
+
+    /// <summary>
+    /// A change in the safe direction that the store refused because it holds a later decision (decision order, S2: a
+    /// resume or a turn-on decided after it, possibly on an instance whose clock is ahead). The store is right, but the
+    /// person who paused or turned off must learn that their change does not stand: logged as a warning naming what
+    /// the store holds. Bounded, never throws.
+    /// </summary>
+    private async Task ReportRefusedAsync(string key, Deferred deferred)
+    {
+        if (Volatile.Read(ref deferred.Reported) == 1)
+        {
+            return;
+        }
+
+        ControlState? state;
+        try
+        {
+            state = Validate(await Bounded(() => _store.GetControlStateAsync(CancellationToken.None), ReadTimeout, CancellationToken.None).ConfigureAwait(false));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Could not read what the Homeostat store holds instead of a refused change ({Change}).", Safe(key));
+            state = null;
+        }
+
+        ReportRefused(key, deferred, state);
+    }
+
+    // With the state the store holds now (null when it could not be read).
+    private void ReportRefused(string key, Deferred deferred, ControlState? state)
+    {
+        if (Interlocked.Exchange(ref deferred.Reported, 1) == 1)
+        {
+            return;
+        }
+
+        var later = state is null
+            ? "a later decision about the same thing (the store could not be read to name it)"
+            : deferred.Later is { } describe ? describe(state) : "a later decision about the same thing";
+        if (later is null)
+        {
+            // The store already shows the safe state (released or paused meanwhile): nothing is lost.
+            _logger.LogDebug("A Homeostat change ({Change}) was not written: the store already shows it.", Safe(key));
+            return;
+        }
+
+        _logger.LogWarning(
+            "The Homeostat store refused a change ({Change}) decided at {DecidedAt:O}: it holds a later decision ({Later}). "
+            + "Decisions are ordered by the clocks of the instances that took them; the change no longer applies once this instance reads the store again.",
+            Safe(key), deferred.DecidedAt, later.ReplaceLineEndings(" "));
+    }
+
+    // A switch name may come from an HTTP request: a line break must not start a fake log entry.
+    private static string Safe(string value) => value.ReplaceLineEndings(" ");
 
     // Writes one change; on success, records which reads may still miss it.
     private async Task<bool> TryWriteAsync(string key, Deferred deferred)
@@ -224,10 +298,10 @@ internal sealed class SharedControl
         if (!applied)
         {
             // Refused: the store holds a later decision about the same thing (taken elsewhere meanwhile), or already
-            // has this change (written twice, by the caller and by a refresh). Either way the store is right: kept as
-            // written until a read that starts from now on shows what the store has, so an older read cannot make the
-            // view flap.
-            _logger.LogDebug("A Homeostat change ({Change}) was not written again: the store already decided.", key);
+            // has this change (a release written twice, by the caller and by a refresh). Either way the store is right:
+            // kept as written until a read that starts from now on shows what the store has, so an older read cannot
+            // make the view flap. The caller (or the refresh) reports it: a later decision is logged as a warning.
+            deferred.Refused = true;
         }
 
         // A read that starts from now on sees it; earlier ones may not.
@@ -245,7 +319,13 @@ internal sealed class SharedControl
             if (deferred.Superseded(state) || deferred.WrittenBefore is { } before && read >= before)
             {
                 // Replaced by a newer decision, or written and visible in this read.
-                _deferred.TryRemove(new KeyValuePair<string, Deferred>(key, deferred));
+                if (_deferred.TryRemove(new KeyValuePair<string, Deferred>(key, deferred))
+                    && deferred.IsSafe && deferred.WrittenBefore is null && read > 0)
+                {
+                    // Never written: the store holds a later decision, as when it refuses the write.
+                    ReportRefused(key, deferred, state);
+                }
+
                 continue;
             }
 
@@ -259,9 +339,19 @@ internal sealed class SharedControl
 
         async Task WriteOneAsync(string key, Deferred deferred)
         {
-            if (await TryWriteAsync(key, deferred).ConfigureAwait(false))
+            if (!await TryWriteAsync(key, deferred).ConfigureAwait(false))
             {
-                _logger.LogInformation("A deferred Homeostat change ({Change}) was written to the store.", key);
+                return;
+            }
+
+            if (deferred.Refused)
+            {
+                // Off the refresh, which must not wait for one more read.
+                _ = Task.Run(() => ReportRefusedAsync(key, deferred), CancellationToken.None);
+            }
+            else
+            {
+                _logger.LogInformation("A deferred Homeostat change ({Change}) was written to the store.", Safe(key));
             }
         }
     }
@@ -306,6 +396,21 @@ internal sealed class SharedControl
 
         /// <summary>The latest write of this change, which may still run after its timeout.</summary>
         public Task<bool>? Writing { get; set; }
+
+        /// <summary>When the change was decided (the store orders decisions by it).</summary>
+        public DateTimeOffset DecidedAt { get; init; }
+
+        /// <summary>A change in the safe direction (a pause, a switch off, a release), as opposed to one that lets Homeostat act.</summary>
+        public bool IsSafe { get; init; }
+
+        /// <summary>Describes the later decision the store shows when it refuses this change (see ChangeOrDeferAsync).</summary>
+        public Func<ControlState, string?>? Later { get; init; }
+
+        /// <summary>The store refused the change: it holds a later decision.</summary>
+        public volatile bool Refused;
+
+        /// <summary>1 once a refusal was reported.</summary>
+        public int Reported;
     }
 
     /// <summary>
@@ -315,6 +420,7 @@ internal sealed class SharedControl
     /// </summary>
     /// <param name="key">What the change is about ("pause", "switch:{name}"): an older pending change of the same thing is
     /// held back while this one is written, and dropped once the store takes this one.</param>
+    /// <param name="decidedAt">When the change was decided: a change in the safe direction decided at or after it stands.</param>
     /// <param name="change">Writes the change; <c>false</c> when the store refused it (a later decision, or another
     /// owner): then nothing changes here, and an older pending change stands.</param>
     /// <param name="apply">The same change, applied to this instance's view.</param>
@@ -322,6 +428,7 @@ internal sealed class SharedControl
     /// <returns>Whether the store took the change.</returns>
     public async Task<bool> ChangeAsync(
         string key,
+        DateTimeOffset decidedAt,
         Func<IHomeostatStore, CancellationToken, ValueTask<bool>> change,
         Func<ControlState, ControlState> apply,
         CancellationToken cancellationToken)
@@ -361,14 +468,26 @@ internal sealed class SharedControl
         }
 
         // Written: shown here at once, and on top of any read that started before the write.
-        var written = new Deferred((_, _) => ValueTask.FromResult(true), apply, static _ => false) { WrittenBefore = Volatile.Read(ref _reads) + 1 };
+        var written = new Deferred((_, _) => ValueTask.FromResult(true), apply, static _ => false) { WrittenBefore = Volatile.Read(ref _reads) + 1, DecidedAt = decidedAt };
         lock (_viewGate)
         {
             // A change in the safe direction made while this write ran (a pause during a resume) is the later decision:
             // it stays pending and shown, and reaches the store after this one. Otherwise this change is shown.
             _deferred.TryGetValue(key, out var pending);
+
+            // A change in the safe direction decided at or after this one stays shown even once written (the store took
+            // it after this write, or refused this write for it): an older resume or turn-on must not hide a newer pause
+            // or turn-off until the next read. On a tie, doing less wins, as in the store (S2).
+            // (One the store refused holds nothing newer than what the store has: it does not count.)
+            if (pending is { IsSafe: true, Refused: false } && pending.DecidedAt >= decidedAt)
+            {
+                if (ReferenceEquals(pending, older))
+                {
+                    older.Withdrawn = false;   // decided after this change: still to be written, after it
+                }
+            }
             // (A change already written, by a concurrent call of this method, is not newer: this one is shown.)
-            if (pending is null || ReferenceEquals(pending, older) || pending.WrittenBefore is not null)
+            else if (pending is null || ReferenceEquals(pending, older) || pending.WrittenBefore is not null)
             {
                 if (older is not null)
                 {

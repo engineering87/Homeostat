@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
 namespace Homeostat;
@@ -93,36 +94,32 @@ public static class HomeostatEndpointRouteBuilderExtensions
                 until = time.GetUtcNow() + duration;
             }
 
-            return StoreCallAsync(() => control.PauseAsync(until, UserName(user), ct), ct);
+            return StoreCallAsync(() => control.PauseAsync(until, UserName(user), CancellationToken.None), ct);
         });
 
         group.MapPost("/resume", (IHomeostatControl control, ClaimsPrincipal user, CancellationToken ct)
-            => StoreCallAsync(() => control.ResumeAsync(UserName(user), ct), ct));
+            => StoreCallAsync(() => control.ResumeAsync(UserName(user), CancellationToken.None), ct, letsAct: true));
 
-        group.MapPost("/conditions/{name}/release", async (string name, IHomeostatControl control, CancellationToken ct) =>
+        group.MapPost("/conditions/{name}/release", (string name, IHomeostatControl control, CancellationToken ct) =>
         {
-            try
+            name = RouteName(name);
+            if (!IsValidConditionName(name))
             {
-                return await StoreCall.Run(() => control.ReleaseHoldAsync(name, ct), StoreTimeout, CancellationToken.None).ConfigureAwait(false) ? Results.NoContent() : Results.NotFound();
+                return Task.FromResult(Results.BadRequest());
             }
-            catch (ArgumentException)
-            {
-                return Results.BadRequest();
-            }
-            catch (Exception) when (!ct.IsCancellationRequested)
-            {
-                return StoreUnavailable();
-            }
+
+            return AnswerAsync(() => control.ReleaseHoldAsync(name, CancellationToken.None), ct);
         });
 
         group.MapPost("/approvals/{id}/approve", (string id, IHomeostatApprovals approvals, ClaimsPrincipal user, CancellationToken ct)
-            => AnswerAsync(() => approvals.ApproveAsync(id, UserName(user), ct), ct));
+            => AnswerAsync(() => approvals.ApproveAsync(RouteName(id), UserName(user), CancellationToken.None), ct));
 
         group.MapPost("/approvals/{id}/reject", (string id, IHomeostatApprovals approvals, ClaimsPrincipal user, CancellationToken ct)
-            => AnswerAsync(() => approvals.RejectAsync(id, UserName(user), ct), ct));
+            => AnswerAsync(() => approvals.RejectAsync(RouteName(id), UserName(user), CancellationToken.None), ct));
 
         group.MapPost("/switches/{name}/on", (string name, IHomeostatSwitches switches, ClaimsPrincipal user, string? scope, CancellationToken ct) =>
         {
+            name = RouteName(name);
             if (!IsValidSwitchName(name))
             {
                 return Task.FromResult(Results.BadRequest());
@@ -141,17 +138,18 @@ public static class HomeostatEndpointRouteBuilderExtensions
                     return Task.FromResult(HomeostatResults.BadRequest("'scope' must be 'application' (the default) or 'instance'."));
             }
 
-            return StoreCallAsync(() => switches.TurnOnAsync(name, target, UserName(user), ct), ct);
+            return StoreCallAsync(() => switches.TurnOnAsync(name, target, UserName(user), CancellationToken.None), ct, letsAct: true);
         });
 
         group.MapPost("/switches/{name}/off", (string name, IHomeostatSwitches switches, ClaimsPrincipal user, CancellationToken ct) =>
         {
+            name = RouteName(name);
             if (!IsValidSwitchName(name))
             {
                 return Task.FromResult(Results.BadRequest());
             }
 
-            return StoreCallAsync(() => switches.TurnOffAsync(name, UserName(user), ct), ct);
+            return StoreCallAsync(() => switches.TurnOffAsync(name, UserName(user), CancellationToken.None), ct);
         });
 
         return group;
@@ -239,49 +237,72 @@ public static class HomeostatEndpointRouteBuilderExtensions
     }
 
     /// <summary>A change kept in the store: <c>204</c>, or <c>503</c> when the store cannot be reached.</summary>
-    private static async Task<IResult> StoreCallAsync(Func<ValueTask> call, CancellationToken cancellationToken)
+    /// <remarks>
+    /// The change itself runs with no cancellation token (it is bounded by <see cref="StoreTimeout"/> and the store's
+    /// own timeouts): a client that disconnects must not cut a change short halfway. Only the wait ends with the
+    /// request, and the endpoint then returns quietly.
+    /// </remarks>
+    /// <param name="call">The change.</param>
+    /// <param name="cancellationToken">The request's token: only the wait ends with it.</param>
+    /// <param name="letsAct">
+    /// A change that lets Homeostat act (resume, turn a switch on): when its write times out, Homeostat decides again in
+    /// the safe direction (pauses again, turns the switch off), so the answer says it was not made.
+    /// </param>
+    private static Task<IResult> StoreCallAsync(Func<ValueTask> call, CancellationToken cancellationToken, bool letsAct = false)
+        => AnswerAsync(async () =>
+        {
+            await call().ConfigureAwait(false);
+            return true;
+        }, cancellationToken, letsAct);
+
+    /// <inheritdoc cref="StoreCallAsync"/>
+    private static async Task<IResult> AnswerAsync(Func<ValueTask<bool>> answer, CancellationToken cancellationToken, bool letsAct = false)
     {
         try
         {
-            await StoreCall.Run(() => call(), StoreTimeout, CancellationToken.None).ConfigureAwait(false);
-            return Results.NoContent();
+            return await StoreCall.Run(answer, StoreTimeout, cancellationToken).ConfigureAwait(false) ? Results.NoContent() : Results.NotFound();
         }
         catch (ArgumentException)
         {
             return Results.BadRequest();
         }
-        catch (Exception) when (!cancellationToken.IsCancellationRequested)
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
-            // Includes a store whose own client timed out (a TaskCanceledException): 503, not an unhandled 500.
-            return StoreUnavailable();
+            // The client is gone: nobody reads the answer, and the change goes on by itself.
+            return Results.Empty;
         }
-    }
-
-    private static async Task<IResult> AnswerAsync(Func<ValueTask<bool>> answer, CancellationToken cancellationToken)
-    {
-        try
+        catch (Exception ex) when (StoreCall.IsOutcomeUnknown(ex))
         {
-            return await StoreCall.Run(() => answer(), StoreTimeout, CancellationToken.None).ConfigureAwait(false) ? Results.NoContent() : Results.NotFound();
+            return letsAct ? StoreTimedOutSafely() : StoreOutcomeUnknown();
         }
-        catch (ArgumentException)
-        {
-            return Results.BadRequest();
-        }
-        catch (Exception) when (!cancellationToken.IsCancellationRequested)
+        catch (Exception)
         {
             return StoreUnavailable();
         }
     }
 
-    // No exception details: a store's messages can name servers. GET /status reports the store error to operators.
+    // No exception details: a store's messages can name servers. GET /status reports that the store failed.
     private static IResult StoreUnavailable()
         => HomeostatResults.Problem("The Homeostat store is unavailable; nothing was changed (GET /status shows the error).", StatusCodes.Status503ServiceUnavailable);
+
+    // A timeout says nothing about the outcome: the store may still apply the change after the answer.
+    // A resume or a turn-on that times out is decided again in the safe direction (decision S4): it does not stand.
+    private static IResult StoreTimedOutSafely()
+        => HomeostatResults.Problem(
+            "The Homeostat store did not answer in time; the change was not made: Homeostat stays paused, or the switch stays off. Try again later.",
+            StatusCodes.Status503ServiceUnavailable);
+
+    private static IResult StoreOutcomeUnknown()
+        => HomeostatResults.Problem(
+            "The Homeostat store did not answer in time; the change may still be applied. Check GET /status before trying again.",
+            StatusCodes.Status503ServiceUnavailable);
 
     private static async Task<IResult> GetStatus(
         IHomeostatControl control,
         IHomeostatSwitches switches,
         IHomeostatApprovals approvals,
         IOptions<HomeostatOptions> options,
+        ILoggerFactory loggers,
         CancellationToken cancellationToken)
     {
         // The status stays available when the store is not: that is when operators need it most.
@@ -297,9 +318,17 @@ public static class HomeostatEndpointRouteBuilderExtensions
         {
             await Task.WhenAll(pendingRead, budgetRead, runsRead).ConfigureAwait(false);
         }
-        catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
-            storeError = ex.Message;
+            return Results.Empty;   // the client is gone
+        }
+        catch (Exception ex)
+        {
+            // No exception message: it can carry connection details (server names, user names). The type tells a
+            // timeout from a refused connection; the details go to the log only.
+            var error = new Task[] { pendingRead, budgetRead, runsRead }.FirstOrDefault(t => t.IsFaulted)?.Exception?.InnerException ?? ex;
+            storeError = $"The Homeostat store could not be read ({error.GetType().Name}); the application log has the details.";
+            loggers.CreateLogger("Homeostat.AspNetCore").LogWarning(error, "GET /status: the Homeostat store could not be read.");
         }
 
         if (pendingRead.IsCompletedSuccessfully)
@@ -343,7 +372,11 @@ public static class HomeostatEndpointRouteBuilderExtensions
                 .Select(ConditionEventInfo.From)
                 .ToArray(), HomeostatAspNetCoreJsonContext.Default.ConditionEventInfoArray);
         }
-        catch (Exception) when (!cancellationToken.IsCancellationRequested)
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            return Results.Empty;   // the client is gone
+        }
+        catch (Exception)
         {
             return HomeostatResults.Problem("The condition history is unavailable.", StatusCodes.Status503ServiceUnavailable);
         }
@@ -381,7 +414,11 @@ public static class HomeostatEndpointRouteBuilderExtensions
             var report = await StoreCall.Run(() => control.GetCoverageAsync(from, cancellationToken), StoreTimeout, cancellationToken);
             return Results.Json(report, HomeostatAspNetCoreJsonContext.Default.CoverageReport);
         }
-        catch (Exception) when (!cancellationToken.IsCancellationRequested)
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            return Results.Empty;   // the client is gone
+        }
+        catch (Exception)
         {
             // No exception details: they can carry store connection details.
             return HomeostatResults.Problem("The run history is unavailable.", StatusCodes.Status503ServiceUnavailable);
@@ -391,7 +428,20 @@ public static class HomeostatEndpointRouteBuilderExtensions
     private static string? UserName(ClaimsPrincipal user)
         => user.Identity is { IsAuthenticated: true, Name: { Length: > 0 } name } ? name : null;
 
-    /// <summary>A switch name from a URL: not empty, not too long, and without control characters (no line breaks in logs).</summary>
+    /// <summary>
+    /// A name from a route value. ASP.NET Core decodes every escape in the path except <c>%2F</c>, so that it cannot
+    /// split segments: a name with a slash (<c>feed/eu</c>, sent as <c>feed%2Feu</c> by the dashboard and the CLI)
+    /// arrives as <c>feed%2Feu</c>. Only that escape is decoded here: the rest is already decoded, and decoding it again
+    /// would change names that contain <c>%</c>.
+    /// </summary>
+    internal static string RouteName(string value)
+        => value.Contains('%', StringComparison.Ordinal) ? value.Replace("%2F", "/", StringComparison.OrdinalIgnoreCase) : value;
+
+    /// <summary>A switch or condition name from a URL: not empty, not too long, and without control characters (no line breaks in logs).</summary>
     internal static bool IsValidSwitchName(string name)
         => name.Length is > 0 and <= MaxSwitchNameLength && !name.Any(char.IsControl);
+
+    /// <summary>A condition name from a URL: not empty and without control characters (conditions have no length limit).</summary>
+    internal static bool IsValidConditionName(string name)
+        => name.Length > 0 && !name.Any(char.IsControl);
 }

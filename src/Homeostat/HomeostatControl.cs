@@ -90,13 +90,19 @@ internal sealed class HomeostatControl : IHomeostatControl
         var pause = new PauseState { Until = until, By = by, At = _timeProvider.GetUtcNow() };
         if (!await _shared.ChangeOrDeferAsync(
             "pause",
+            pause.At,
             (store, ct) => store.TrySetPauseAsync(pause, pause.At, ct),
             s => Engine.SharedControl.WithPause(s, pause),
-            s => s.Pause is { } stored && stored.At > pause.At).ConfigureAwait(false))
+            s => s.Pause is { } stored && stored.At > pause.At,
+            LaterThanPause).ConfigureAwait(false))
         {
             _logger.LogWarning("Homeostat paused on this instance; the store will take the pause when it answers.");
         }
     }
+
+    // A pause refused by the store: a later pause leaves Homeostat paused (nothing lost); a later resume does not.
+    private static string? LaterThanPause(ControlState stored)
+        => stored.Pause is null ? "Homeostat resumed by a decision taken after this pause" : null;
 
     public async ValueTask ResumeAsync(string? by = null, CancellationToken cancellationToken = default)
     {
@@ -109,6 +115,7 @@ internal sealed class HomeostatControl : IHomeostatControl
         {
             applied = await _shared.ChangeAsync(
                 "pause",
+                decidedAt,
                 (store, ct) => store.TrySetPauseAsync(null, decidedAt, ct),
                 s => Engine.SharedControl.WithPause(s, null),
                 cancellationToken).ConfigureAwait(false);
@@ -120,9 +127,11 @@ internal sealed class HomeostatControl : IHomeostatControl
             var again = new PauseState { Until = before!.Until, By = before.By, At = _timeProvider.GetUtcNow() };
             await _shared.ChangeOrDeferAsync(
                 "pause",
+                again.At,
                 (store, ct) => store.TrySetPauseAsync(again, again.At, ct),
                 s => Engine.SharedControl.WithPause(s, again),
-                s => s.Pause is { } stored && stored.At > again.At).ConfigureAwait(false);
+                s => s.Pause is { } stored && stored.At > again.At,
+                LaterThanPause).ConfigureAwait(false);
             throw;
         }
 

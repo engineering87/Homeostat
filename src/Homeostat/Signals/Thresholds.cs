@@ -1,6 +1,11 @@
 namespace Homeostat.Signals;
 
-/// <summary>The one rule that turns a value and its thresholds into a severity, for every built-in signal.</summary>
+/// <summary>
+/// The rule that turns a value and its thresholds into a severity for metric signals (the presets built on them
+/// included) and event counter signals; call signals compare the same way (at or above) in their own code. It is not
+/// the rule of every built-in signal: probes, Kafka lag and the memory cache compare strictly (above, below), as each
+/// documents (decision I4 in docs/decisions.md).
+/// </summary>
 internal static class Thresholds
 {
     /// <summary>

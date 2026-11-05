@@ -65,6 +65,7 @@ as the generic argument).
 | Warning | `{Sink} could not deliver a {Kind} event for condition {Condition}.` | A sink (audit log, webhook, incident or chat notifier) failed |
 | Warning | `{Sink} stopped before delivering all queued events.` | Shutdown timeout reached |
 | Warning | `{Sink} dropped {Count} event(s) raised after the application stopped.` | Late events |
+| Warning | `{Sink} dropped {Count} event(s), the oldest, because its queue of {Size} was full: it delivers more slowly than events are raised.` | A sink falls behind (at most once a minute per sink) |
 
 Runs skipped because of a cooldown or a run already in progress are logged at `Debug` level.
 

@@ -211,7 +211,10 @@ c.ForSource("ingest-queue-depth")
 - The deviation is floored at 1% of the slot's mean, as for the anomaly rule.
 - The baseline is kept in the store ([documents](persistence-and-clusters.md#what-is-stored)) every 5 minutes and when
   the application stops, and loaded before the engine processes signals, so a deployment does not reset weeks of
-  learning. A configuration change that keeps the cycle keeps the baseline too.
+  learning. A configuration change that keeps the cycle keeps the baseline too. Loading happens in the background:
+  the application starts at once, and the engine waits for the baselines (signals queue meanwhile) at most 10 seconds,
+  then starts learning over. Each store call is bounded (10 seconds), one at a time per baseline, and the application's
+  shutdown waits for the store at most 10 seconds for the loop and 10 more for the final save.
 - With a shared store, a starting instance loads the baseline saved by the others, then learns from its own signals
   and saves its own version every 5 minutes (the last to save wins). This suits instances behind a load balancer,
   which see the same rhythm; for instances with different rhythms, give them separate stores or key prefixes.
@@ -242,7 +245,8 @@ c.ForSource("identity-provider")                           // any trigger rule w
 ```
 
 The condition activates on the match that reaches the count and, unless you set `ClearWhen`, clears when the
-matches within the window drop below the count: a few good signals in between do not end it.
+matches within the window drop below the count: a few good signals in between do not end it. Only the latest `count`
+matches are kept (they alone decide), so memory does not grow with the signal rate.
 
 ### Combinations: `WhenAllActive` and `WhenAnyActive`
 

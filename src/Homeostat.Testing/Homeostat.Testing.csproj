@@ -17,6 +17,20 @@
     <PackageReference Include="Microsoft.Extensions.TimeProvider.Testing" />
   </ItemGroup>
 
+  <!--
+    HomeostatReplay uses Homeostat internals (InternalsVisibleTo), which change between versions: the package depends on
+    exactly the Homeostat version it was built with ([x], not >= x), so a newer Homeostat cannot break it at run time.
+    NuGet writes project references as ">= version"; this rewrites the version of the Homeostat reference after NuGet
+    has read it, before the nuspec is generated.
+  -->
+  <Target Name="PinHomeostatDependencyVersion" AfterTargets="_GetProjectReferenceVersions">
+    <ItemGroup>
+      <_ProjectReferencesWithVersions Condition="'%(Filename)' == 'Homeostat' and !$([System.String]::Copy('%(ProjectVersion)').StartsWith('['))">
+        <ProjectVersion>[%(ProjectVersion)]</ProjectVersion>
+      </_ProjectReferencesWithVersions>
+    </ItemGroup>
+  </Target>
+
   <ItemGroup>
     <None Include="..\..\docs\nuget\Homeostat.Testing.md" Pack="true" PackagePath="\README.md" />
     <None Include="..\..\assets\icon.png" Pack="true" PackagePath="\" />

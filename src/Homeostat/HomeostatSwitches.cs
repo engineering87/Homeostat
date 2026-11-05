@@ -38,7 +38,7 @@ internal sealed class HomeostatSwitches : IHomeostatSwitches
         _instance = options.Value.InstanceId;
         _conditions = conditions;
         _renewEvery = options.Value.ControlRefreshInterval * 3;
-        _orphanAfter = _renewEvery * 4 > TimeSpan.FromMinutes(1) ? _renewEvery * 4 : TimeSpan.FromMinutes(1);
+        _orphanAfter = Threshold(_renewEvery);
         _logger = (ILogger?)logger ?? NullLogger.Instance;
         _shared.Refreshed += OnRefreshed;
     }
@@ -71,9 +71,11 @@ internal sealed class HomeostatSwitches : IHomeostatSwitches
         var intended = _timeProvider.GetUtcNow();
         var written = await _shared.ChangeOrDeferAsync(
             Key(name),
+            intended,
             (store, ct) => store.TrySetSwitchAsync(name, null, intended, ct),
             s => SharedControl.WithSwitch(s, name, null),
-            s => s.Switches.Any(x => string.Equals(x.Name, name, StringComparison.Ordinal) && x.At > intended)).ConfigureAwait(false);
+            s => s.Switches.Any(x => string.Equals(x.Name, name, StringComparison.Ordinal) && x.At > intended),
+            s => StillOn(s, name)).ConfigureAwait(false);
         _logger.LogInformation("Switch {Switch} turned off{By}{Deferred}.", name.ReplaceLineEndings(" "), Who(by),
             written ? string.Empty : " on this instance; the store will take it when it answers");
     }
@@ -89,18 +91,28 @@ internal sealed class HomeostatSwitches : IHomeostatSwitches
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(name);
         var now = _timeProvider.GetUtcNow();
-        var state = new SwitchState { Name = name, Condition = condition, Instance = _instance, At = now, RenewedAt = now };
+        var state = new SwitchState { Name = name, Condition = condition, Instance = _instance, At = now, RenewedAt = now, RenewInterval = _renewEvery };
         var claimed = 0;
         var gaveUp = 0;
+        var offInStore = 0;
         try
         {
             await _shared.ChangeAsync(
                 Key(name),
+                now,
                 async (store, ct) =>
                 {
                     if (!await store.TryClaimSwitchAsync(state, ct).ConfigureAwait(false))
                     {
-                        // Owned by a person or another condition: theirs, and nothing changes here.
+                        // Owned by a person or another condition: theirs, nothing changes here, and the switch is on, as
+                        // the step wants. Off with a later decision (turned off since this step started): the step did
+                        // not do what it reports, so it must fail. Told apart by what the store holds now.
+                        var stored = await store.GetControlStateAsync(ct).ConfigureAwait(false);
+                        if (stored?.Switches?.Any(s => string.Equals(s?.Name, name, StringComparison.Ordinal)) != true)
+                        {
+                            Interlocked.Exchange(ref offInStore, 1);
+                        }
+
                         return false;
                     }
 
@@ -140,6 +152,12 @@ internal sealed class HomeostatSwitches : IHomeostatSwitches
             }
 
             _claimed[name] = condition;
+        }
+        else if (Volatile.Read(ref offInStore) == 1)
+        {
+            throw new InvalidOperationException(
+                $"Switch '{name.ReplaceLineEndings(" ")}' was not turned on for condition '{condition.ReplaceLineEndings(" ")}': "
+                + "the store holds a later decision about it (it was turned off after this step started).");
         }
     }
 
@@ -202,21 +220,32 @@ internal sealed class HomeostatSwitches : IHomeostatSwitches
     /// </summary>
     private async Task ReleaseAsync(string name, string condition, string? instance, CancellationToken cancellationToken, DateTimeOffset? decidedAt = null)
     {
+        // No longer held: no renewal starts from now on. The release applies here at once (S1); it is stamped after any
+        // renewal of this instance still on its way to the store, so the store never takes this instance's own release
+        // as older than its own renewal (S3). Waiting for that renewal instead would hold the release while the store
+        // hangs.
+        _claimed.TryRemove(new KeyValuePair<string, string>(name, condition));
+
         // Decided now (or as of the renewal the caller saw): written in that order even if it reaches the store late, so
         // it never removes a newer claim, or a claim renewed since.
         var at = decidedAt ?? _timeProvider.GetUtcNow();
-        _claimed.TryRemove(new KeyValuePair<string, string>(name, condition));
+        if (_renewals.TryGetValue(name, out var renewal) && !renewal.Task.IsCompleted && renewal.RenewedAt >= at)
+        {
+            at = renewal.RenewedAt.AddTicks(10);   // 1 microsecond, the precision of the Redis store
+        }
         bool Owns(SwitchState s) => string.Equals(s.Name, name, StringComparison.Ordinal)
             && string.Equals(s.Condition, condition, StringComparison.Ordinal)
             && (instance is null || string.Equals(s.Instance, instance, StringComparison.Ordinal));
 
         await _shared.ChangeOrDeferAsync(
             Key(name),
+            at,
             (store, ct) => store.TryReleaseSwitchAsync(name, condition, instance, at, ct),
             s => s.Switches.Any(Owns) ? SharedControl.WithSwitch(s, name, null) : s,
             // Superseded only by a later decision about the switch (claimed again, or taken by a person), never because
             // a view does not show it: this instance's own view already has the release applied.
-            s => s.Switches.Any(x => string.Equals(x.Name, name, StringComparison.Ordinal) && x.At > at)).ConfigureAwait(false);
+            s => s.Switches.Any(x => string.Equals(x.Name, name, StringComparison.Ordinal) && x.At > at),
+            s => StillOn(s, name)).ConfigureAwait(false);
     }
 
     /// <summary>
@@ -249,9 +278,18 @@ internal sealed class HomeostatSwitches : IHomeostatSwitches
                             continue;
                         }
 
-                        var renewal = new SwitchState { Name = current.Name, Condition = condition, Instance = _instance, By = current.By, At = current.At, RenewedAt = now };
+                        var renewal = new SwitchState
+                        {
+                            Name = current.Name, Condition = condition, Instance = _instance, By = current.By, At = current.At, RenewedAt = now,
+                            RenewInterval = _renewEvery,
+                        };
                         var name = current.Name;
                         var renewing = _renewing.Start(name, () => _shared.Store.TryClaimSwitchAsync(renewal, CancellationToken.None).AsTask());
+                        var entry = (renewing, now);
+                        _renewals[name] = entry;
+                        _ = renewing.ContinueWith(
+                            _ => _renewals.TryRemove(new KeyValuePair<string, (Task<bool>, DateTimeOffset)>(name, entry)),
+                            CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
 
                         // Refused: the claim is gone (released meanwhile, or taken over): this instance no longer holds it.
                         if (!await renewing.WaitAsync(SharedControl.WriteTimeout, cancellationToken).ConfigureAwait(false))
@@ -260,7 +298,7 @@ internal sealed class HomeostatSwitches : IHomeostatSwitches
                         }
                     }
                 }
-                else if (now - renewed >= _orphanAfter && _conditions?.Get(condition)?.Status != Conditions.ConditionStatus.Active)
+                else if (now - renewed >= OrphanAfter(current) && _conditions?.Get(condition)?.Status != Conditions.ConditionStatus.Active)
                 {
                     _logger.LogWarning(
                         "Application switch {Switch} was turned on by condition {Condition} on instance {Instance}, which no longer holds it, "
@@ -293,7 +331,11 @@ internal sealed class HomeostatSwitches : IHomeostatSwitches
 
             try
             {
-                var abandoned = new SwitchState { Name = name, Condition = condition, Instance = _instance, By = current.By, At = current.At, RenewedAt = DateTimeOffset.MinValue };
+                var abandoned = new SwitchState
+                {
+                    Name = name, Condition = condition, Instance = _instance, By = current.By, At = current.At, RenewedAt = DateTimeOffset.MinValue,
+                    RenewInterval = _renewEvery,
+                };
                 await SharedControl.Bounded(() => _shared.Store.TryClaimSwitchAsync(abandoned, cancellationToken), TimeSpan.FromSeconds(2), cancellationToken).ConfigureAwait(false);
             }
             catch (Exception) when (!cancellationToken.IsCancellationRequested)
@@ -306,6 +348,34 @@ internal sealed class HomeostatSwitches : IHomeostatSwitches
     }
 
     private readonly InFlight<bool> _renewing = new();
+
+    // The renewal running for each switch and its time, so this instance's own release is stamped after it (see ReleaseAsync).
+    private readonly ConcurrentDictionary<string, (Task<bool> Task, DateTimeOffset RenewedAt)> _renewals = new(StringComparer.Ordinal);
+
+    /// <summary>
+    /// How long a claim may go without a renewal before this instance treats its owner as gone: this instance's own
+    /// threshold, or the owner's if it renews less often (recorded in the claim), plus a margin for the difference
+    /// between the two clocks. Without the owner's period (a record written by an older version), this instance's own.
+    /// </summary>
+    private TimeSpan OrphanAfter(SwitchState claim)
+    {
+        if (claim.RenewInterval is not { } theirs || theirs <= TimeSpan.Zero)
+        {
+            return _orphanAfter;
+        }
+
+        // A value from the store is not trusted to be sane: capped, so it cannot overflow or keep a switch on for ever.
+        theirs = theirs > MaxRenewInterval ? MaxRenewInterval : theirs;
+        var owners = Threshold(theirs);
+        return (owners > _orphanAfter ? owners : _orphanAfter) + ClockSkewMargin;
+    }
+
+    private static TimeSpan Threshold(TimeSpan renewEvery) => renewEvery * 4 > TimeSpan.FromMinutes(1) ? renewEvery * 4 : TimeSpan.FromMinutes(1);
+
+    // Decisions and renewals are stamped by each instance's clock: kept synchronized (NTP), they differ by far less.
+    internal static readonly TimeSpan ClockSkewMargin = TimeSpan.FromSeconds(30);
+
+    private static readonly TimeSpan MaxRenewInterval = TimeSpan.FromDays(1);
 
     private static string Key(string name) => "switch:" + name;
 
@@ -356,6 +426,7 @@ internal sealed class HomeostatSwitches : IHomeostatSwitches
         {
             applied = await _shared.ChangeAsync(
                 Key(name),
+                state.At,
                 (store, ct) => store.TrySetSwitchAsync(name, state, state.At, ct),
                 s => SharedControl.WithSwitch(s, name, state),
                 cancellationToken).ConfigureAwait(false);
@@ -367,9 +438,11 @@ internal sealed class HomeostatSwitches : IHomeostatSwitches
             var off = _timeProvider.GetUtcNow();
             await _shared.ChangeOrDeferAsync(
                 Key(name),
+                off,
                 (store, ct) => store.TrySetSwitchAsync(name, null, off, ct),
                 s => SharedControl.WithSwitch(s, name, null),
-                s => s.Switches.Any(x => string.Equals(x.Name, name, StringComparison.Ordinal) && x.At > off)).ConfigureAwait(false);
+                s => s.Switches.Any(x => string.Equals(x.Name, name, StringComparison.Ordinal) && x.At > off),
+                s => StillOn(s, name)).ConfigureAwait(false);
             throw;
         }
 
@@ -402,6 +475,18 @@ internal sealed class HomeostatSwitches : IHomeostatSwitches
             }
         }
     }
+
+    /// <summary>
+    /// A turn-off or release refused by the store: names the decision that keeps the switch on, or <c>null</c> when the
+    /// store shows it off (nothing lost).
+    /// </summary>
+    private static string? StillOn(ControlState stored, string name)
+        => stored.Switches.FirstOrDefault(s => string.Equals(s.Name, name, StringComparison.Ordinal)) is not { } on
+            ? null
+            : on.Condition is { } condition
+                ? $"switch {name} on, claimed at {on.At:O} by condition {condition} on instance {on.Instance}"
+                    + (on.RenewedAt is { } renewed && renewed > DateTimeOffset.UnixEpoch ? $", renewed at {renewed:O}" : string.Empty)
+                : $"switch {name} turned on at {on.At:O}{Who(on.By)}";
 
     private static string Who(string? by) => by is { Length: > 0 } who ? $" by {who.ReplaceLineEndings(" ")}" : string.Empty;
 

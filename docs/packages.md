@@ -32,7 +32,7 @@ candidate, install with `--prerelease` (see [Versioning](versioning.md)).
 | Analyzers | Build-time checks | Bundled in `Homeostat`; not a separate package | See [Analyzers](analyzers.md) | No | Stable |
 
 Stable packages follow [Semantic Versioning](versioning.md) strictly from 1.0.0. Preview packages are released with
-every version but carry a `-preview` suffix (`1.0.0-preview` next to `1.0.0`): they work and are tested, but have not
+every version but carry a `-preview` suffix (`1.0.0-preview.1` next to `1.0.0`): they work and are tested, but have not
 been proven in production yet, so their API can still change in a minor version. NuGet treats them as prerelease
 versions, so install them with `--prerelease`. See [Stable and preview packages](versioning.md#stable-and-preview-packages).
 

@@ -62,9 +62,11 @@ Notes:
   `.PauseConsumer("ingest").HoldAtMost(TimeSpan.FromMinutes(30))` turns the switch off after that time even if the
   condition has not cleared; if it is still active, the plan runs again after its cooldown.
 - **Order of start-up**: a consumer that your code starts after registering it must not start consuming if it is
-  paused. `PausableRabbitMqConsumer.StartAsync` and `KafkaPauseGate` handle this. For Service Bus, do not call
+  paused. `PausableRabbitMqConsumer.StartAsync` and `KafkaPauseGate` handle this. A Service Bus processor paused before
+  the application starts it (the switch was already on) is watched while the pause stands, about every second, and
+  stopped as soon as it starts processing; the resume then starts it again. Still, prefer not to call
   `StartProcessingAsync` again on a processor that Homeostat may have paused (for example from a worker that restarts
-  it): let the processor's owner start it once, and Homeostat stop and start it afterwards.
+  it): it would process messages for up to a second before being stopped.
 
 ## Azure Service Bus
 
@@ -113,6 +115,9 @@ Notes:
   finish their message must not pass that token to the work.
 - Resuming calls `StartProcessingAsync`, only for a processor that Homeostat's pause stopped: one the application
   stopped or closed itself stays as it is. Neither call is made when the processor is already in that state.
+- While a pause stands, a processor that starts processing (the application started it after the pause, at startup
+  for example) is stopped within about a second and counts as stopped by Homeostat, so the resume starts it. The
+  watch ends with the resume, or when the processor is closed.
 - Without a factory, `AddPausableServiceBusProcessor` wraps the `ServiceBusProcessor` registered in the services.
   With several processors, pass the factory for each: `AddPausableServiceBusProcessor("notifications", sp => ...)`.
   For session processors use `AddPausableServiceBusSessionProcessor(name, sp => ...)`, which always takes a factory.

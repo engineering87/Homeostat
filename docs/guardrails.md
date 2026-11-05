@@ -56,7 +56,9 @@ heal.
 
 Cooldowns, backoff and the budget live in the [store](persistence-and-clusters.md): with the default in-memory store
 they reset on restart; with a file or Redis store they do not. When the store is unavailable, Homeostat fails closed
-and does not start runs.
+and does not start runs. A read of the plan state (or a cluster lease request) that has not answered in 10 seconds is
+abandoned but not started again while it still runs: until it ends, the plan fails closed at once, so a store that
+blocks does not get one more blocked call per triggering signal.
 
 ## Concurrency
 
@@ -92,7 +94,8 @@ class checks them:
 |---|---|
 | The store never answers | Startup waits at most 5 seconds for the control state, then Homeostat counts as paused until it can read it. Control and status endpoints answer within 15 seconds (`503` when the store is needed and does not answer), the Homeostat health check within one, and shutdown is not delayed. |
 | The store fails | Fail closed: no run starts whose cooldown or budget cannot be checked; store errors are logged without flooding the log. A pause, turning a switch off or releasing a switch Homeostat turned on apply at once on the instance and are written when the store answers; resuming or turning a switch on fail. |
-| The store file is locked, or Redis is down at startup | The application starts; Homeostat fails closed and tries again. |
+| The store file is locked, or Redis is down at startup | The application starts; Homeostat fails closed and tries again (every 10 seconds). |
+| The store file, or the Redis pause record, cannot be read | Homeostat counts as paused (the record may have held a person's pause) and logs a critical error; a person resumes it on purpose. The unreadable file is set aside as `*.corrupt`. |
 | A condition in configuration is invalid | Logged as critical and skipped (`failOnInvalid: true` to stop instead). |
 | The instance that turned on a switch for a cluster plan stops or crashes | Another instance turns it off as soon as the condition is not active there. |
 | An action keeps its own condition active (for example, a paused consumer whose backlog grows) | `HoldAtMost` turns the switch off after a maximum time. |
@@ -138,7 +141,10 @@ pause. `PauseReason` says why Homeostat is paused, for example
 
 The pause is kept in the [store](persistence-and-clusters.md#shared-control-state): with a shared store it stops
 every instance within `ControlRefreshInterval` (5 seconds by default), and with the file or Redis store it survives
-restarts. Pauses and resumes are written in the order they were decided, so a late write never undoes a newer decision.
+restarts. Pauses and resumes are written in the order they were decided, by the clock of the instance where each was
+made (keep the clocks synchronized), so a late write never undoes a newer decision. A pause that the store refuses
+because a resume was decided after it is logged as a warning naming that resume: the pause then ends on that instance
+too, at its next read of the store.
 `IsPaused` reads the instance's view of the pause and never waits.
 
 While paused:

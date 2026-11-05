@@ -2,6 +2,8 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using Homeostat.Healing;
 using Homeostat.Persistence;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using StackExchange.Redis;
 
@@ -17,7 +19,8 @@ internal sealed class RedisHomeostatStore : IHomeostatStore
     private static readonly RedisValue[] PlanFields = ["ended", "failures", "held", "by"];
 
     // KEYS[1] = plan hash; ARGV = ended (ms, -1 keep), by ('' keep), failures (0 keep, 1 increment, 2 reset),
-    // held (-1 keep, 0, 1), precondition on 'by' ('' none), retention (ms). Returns ended, failures, held, by.
+    // held (-1 keep, 0, 1), precondition on 'by' ('' none), retention (ms, not applied while held). Returns ended,
+    // failures, held, by.
     private const string UpdatePlanScript = """
         local state = redis.call('HMGET', KEYS[1], 'ended', 'failures', 'held', 'by')
         local by = state[4] or ''
@@ -32,7 +35,9 @@ internal sealed class RedisHomeostatStore : IHomeostatStore
         if ARGV[3] == '1' then failures = failures + 1 elseif ARGV[3] == '2' then failures = 0 end
         if ARGV[4] ~= '-1' then held = ARGV[4] end
         redis.call('HSET', KEYS[1], 'ended', ended, 'failures', failures, 'held', held, 'by', by)
-        redis.call('PEXPIRE', KEYS[1], ARGV[6])
+        -- A held plan is kept until the hold ends (the condition clears or a person releases it), like the file store
+        -- does: expiring it would silently undo a person's rejection.
+        if held == '1' then redis.call('PERSIST', KEYS[1]) else redis.call('PEXPIRE', KEYS[1], ARGV[6]) end
         return { ended, tostring(failures), held, by }
         """;
 
@@ -47,13 +52,15 @@ internal sealed class RedisHomeostatStore : IHomeostatStore
         return 1
         """;
 
-    private readonly Func<IConnectionMultiplexer> _redis;
+    private readonly RedisConnection _redis;
     private readonly RedisStoreOptions _options;
     private readonly string _budgetKey;
     private readonly TimeProvider _timeProvider;
+    private readonly ILogger _logger;
+    private int _pauseUnreadable;
 
-    public RedisHomeostatStore(IConnectionMultiplexer redis, IOptions<RedisStoreOptions> options, IOptions<HomeostatOptions> homeostat, TimeProvider? timeProvider = null)
-        : this(() => redis, options, homeostat, timeProvider)
+    public RedisHomeostatStore(IConnectionMultiplexer redis, IOptions<RedisStoreOptions> options, IOptions<HomeostatOptions> homeostat, TimeProvider? timeProvider = null, ILogger<RedisHomeostatStore>? logger = null)
+        : this(() => redis, options, homeostat, timeProvider, logger)
     {
     }
 
@@ -61,11 +68,11 @@ internal sealed class RedisHomeostatStore : IHomeostatStore
     /// Resolves the connection on first use, not when the services are built: connecting can take seconds when Redis is
     /// unreachable, and the application's startup must not wait for it.
     /// </summary>
-    internal RedisHomeostatStore(Func<IConnectionMultiplexer> redis, IOptions<RedisStoreOptions> options, IOptions<HomeostatOptions> homeostat, TimeProvider? timeProvider = null)
+    internal RedisHomeostatStore(Func<IConnectionMultiplexer> redis, IOptions<RedisStoreOptions> options, IOptions<HomeostatOptions> homeostat, TimeProvider? timeProvider = null, ILogger<RedisHomeostatStore>? logger = null)
     {
-        // Called on every use, not cached: a connection that failed is resolved again (the container keeps the first
-        // one that succeeds).
-        _redis = redis;
+        // Kept once resolved; a resolution that failed is tried again after a few seconds, not on every call.
+        _redis = new RedisConnection(redis);
+        _logger = (ILogger?)logger ?? NullLogger.Instance;
         _timeProvider = timeProvider ?? TimeProvider.System;
         _options = options.Value;
         _budgetKey = _options.ShareBudget
@@ -73,7 +80,7 @@ internal sealed class RedisHomeostatStore : IHomeostatStore
             : $"{_options.KeyPrefix}budget:{homeostat.Value.InstanceId}";
     }
 
-    private IDatabase Db => _redis().GetDatabase();
+    private IDatabase Db => _redis.Get().GetDatabase();
 
     public async ValueTask<PlanState> GetPlanStateAsync(string key, CancellationToken cancellationToken = default)
     {
@@ -279,14 +286,12 @@ internal sealed class RedisHomeostatStore : IHomeostatStore
 
         if (abandoned.Count > 0)
         {
-            await Db.HashDeleteAsync(ControlKey("approvals"), [.. abandoned]).ConfigureAwait(false);
-            await Db.HashDeleteAsync(ControlKey("answers"), [.. abandoned]).ConfigureAwait(false);
+            await RemoveApprovalsAsync([.. abandoned]).ConfigureAwait(false);
         }
 
-        var pauseValue = await pause.ConfigureAwait(false);
         return new ControlState
         {
-            Pause = pauseValue.HasValue ? Read(pauseValue, RedisJsonContext.Default.PauseState) : null,
+            Pause = ReadPause(await pause.ConfigureAwait(false)),
             Switches = (await switches.ConfigureAwait(false))
                 .Select(e => Read(e.Value, RedisJsonContext.Default.SwitchState))
                 .OfType<SwitchState>()
@@ -295,6 +300,36 @@ internal sealed class RedisHomeostatStore : IHomeostatStore
                 .ToArray(),
             Approvals = records.OrderBy(r => r.Request.RequestedAt).ToArray(),
         };
+    }
+
+    /// <summary>
+    /// The pause, failing closed: a pause record that cannot be read (written by another version, or damaged) counts as
+    /// an indefinite pause, never as "not paused", so Homeostat does not act through a pause it cannot see. A person
+    /// resumes on purpose (which replaces the record).
+    /// </summary>
+    private PauseState? ReadPause(RedisValue value)
+    {
+        if (!value.HasValue)
+        {
+            Volatile.Write(ref _pauseUnreadable, 0);
+            return null;
+        }
+
+        if (Read(value, RedisJsonContext.Default.PauseState) is { } pause)
+        {
+            Volatile.Write(ref _pauseUnreadable, 0);
+            return pause;
+        }
+
+        // Once until it is readable again: the control state is read every few seconds.
+        if (Interlocked.Exchange(ref _pauseUnreadable, 1) == 0)
+        {
+            _logger.LogCritical(
+                "The Homeostat pause record {Key} in Redis cannot be read: Homeostat counts as paused until a person resumes it.",
+                (string?)ControlKey("pause"));
+        }
+
+        return new PauseState { At = DateTimeOffset.MinValue, By = "unreadable pause record in the store (resume to replace it)" };
     }
 
     // Decision times are Unix microseconds (exact in a Lua number). A change that makes Homeostat do less (a pause, a
@@ -474,11 +509,27 @@ internal sealed class RedisHomeostatStore : IHomeostatStore
         return (int)result == 1;
     }
 
+    // KEYS[1] = approvals, KEYS[2] = answers; ARGV = ids. Removes requests and their answers together, so a request is
+    // never left without its answer (it would be listed as pending again).
+    private const string RemoveApprovalsScript = """
+        redis.call('HDEL', KEYS[1], unpack(ARGV))
+        redis.call('HDEL', KEYS[2], unpack(ARGV))
+        return 1
+        """;
+
     public async ValueTask RemoveApprovalAsync(string id, CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(id);
-        await Db.HashDeleteAsync(ControlKey("approvals"), id).ConfigureAwait(false);
-        await Db.HashDeleteAsync(ControlKey("answers"), id).ConfigureAwait(false);
+        await RemoveApprovalsAsync([id]).ConfigureAwait(false);
+    }
+
+    private async Task RemoveApprovalsAsync(RedisValue[] ids)
+    {
+        // In chunks: Lua's unpack takes a few thousand values at most.
+        foreach (var chunk in ids.Chunk(1000))
+        {
+            await Db.ScriptEvaluateAsync(RemoveApprovalsScript, [ControlKey("approvals"), ControlKey("answers")], chunk).ConfigureAwait(false);
+        }
     }
 
     // One hash tag for all the control keys: on Redis Cluster they share a slot, so the approval script can use two of them.

@@ -78,13 +78,22 @@ public static class RestartGuard
         var application = services.GetRequiredService<IOptions<HomeostatOptions>>().Value.ApplicationName;
         var window = now.UtcTicks / limits.Window.Ticks;
         string Key(string what, long index) => $"restarts/{application}/{what}/{index.ToString(System.Globalization.CultureInfo.InvariantCulture)}";
-        var increment = new PlanStateUpdate { Failures = FailureCountChange.Increment };
+        // Each counter records, as its end, the moment it stops being read (attempts: the end of their window; restarts
+        // allowed: the end of the next window), so the store's plan state retention removes it afterwards instead of
+        // keeping one entry per window for good.
+        DateTimeOffset EndOfWindow(long index) => index + 1 > DateTimeOffset.MaxValue.UtcTicks / limits.Window.Ticks
+            ? DateTimeOffset.MaxValue
+            : new DateTimeOffset((index + 1) * limits.Window.Ticks, TimeSpan.Zero);
 
-        var attempts = await store.UpdatePlanStateAsync(Key("attempts", window), increment, cancellationToken).ConfigureAwait(false);
+        var attempts = await store.UpdatePlanStateAsync(
+            Key("attempts", window), new PlanStateUpdate { Failures = FailureCountChange.Increment, LastRunEndedAt = EndOfWindow(window) },
+            cancellationToken).ConfigureAwait(false);
         var allowedBefore = await store.GetPlanStateAsync(Key("allowed", window - 1), cancellationToken).ConfigureAwait(false);
         if (attempts.ConsecutiveFailures + allowedBefore.ConsecutiveFailures <= limits.MaxRestarts)
         {
-            await store.UpdatePlanStateAsync(Key("allowed", window), increment, cancellationToken).ConfigureAwait(false);
+            await store.UpdatePlanStateAsync(
+                Key("allowed", window), new PlanStateUpdate { Failures = FailureCountChange.Increment, LastRunEndedAt = EndOfWindow(window + 1) },
+                cancellationToken).ConfigureAwait(false);
         }
         else
         {

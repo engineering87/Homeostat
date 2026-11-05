@@ -29,7 +29,9 @@ internal sealed class HomeostatApprovals : IHomeostatApprovals
 
     public async ValueTask<IReadOnlyList<PendingApproval>> GetPendingAsync(CancellationToken cancellationToken = default)
     {
-        var state = await _shared.Store.GetControlStateAsync(cancellationToken).ConfigureAwait(false);
+        // Bounded and off the caller's thread, like every other store call (F1): a store that hangs must not hold the
+        // request that lists the approvals.
+        var state = await SharedControl.Bounded(() => _shared.Store.GetControlStateAsync(cancellationToken), SharedControl.ReadTimeout, cancellationToken).ConfigureAwait(false);
         var now = _timeProvider.GetUtcNow();
         return state.Approvals.Where(a => a.Status is null && a.Request.ExpiresAt > now).Select(a => a.Request).OrderBy(r => r.RequestedAt).ToArray();
     }
@@ -48,18 +50,46 @@ internal sealed class HomeostatApprovals : IHomeostatApprovals
     {
         var entry = new Entry(request);
         _waiting[request.Id] = entry;
+        var record = new ApprovalRecord { Request = request, Instance = _instance };
+        var adding = Task.Run(() => _shared.Store.AddApprovalAsync(record, cancellationToken).AsTask(), CancellationToken.None);
         try
         {
-            var record = new ApprovalRecord { Request = request, Instance = _instance };
-            await SharedControl.Bounded(() => _shared.Store.AddApprovalAsync(record, cancellationToken), SharedControl.WriteTimeout, cancellationToken).ConfigureAwait(false);
+            await adding.WaitAsync(SharedControl.WriteTimeout, cancellationToken).ConfigureAwait(false);
         }
         catch
         {
             _waiting.TryRemove(request.Id, out _);
+            if (!adding.IsCompleted || adding.IsCompletedSuccessfully)
+            {
+                // The store may still write the request after the step gave up on it (or wrote it as the wait was
+                // canceled): nobody would wait for it, and it would be listed as pending. Removed once the write ends.
+                _ = RemoveLateAsync(request.Id, adding);
+            }
+
             throw;
         }
 
         return entry.Decision.Task;
+    }
+
+    // How long a registration abandoned at its timeout is watched for a late write.
+    internal static readonly TimeSpan LateWriteWait = TimeSpan.FromMinutes(5);
+
+    // In the background: bounded, never throws.
+    private async Task RemoveLateAsync(string id, Task adding)
+    {
+        try
+        {
+            await adding.WaitAsync(LateWriteWait).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            // Failed (nothing was written) or still not done (given up on: the stores drop old requests).
+            _logger.LogDebug(ex, "Approval request {ApprovalId} was not written late.", id);
+            return;
+        }
+
+        await ForgetAsync(id).ConfigureAwait(false);
     }
 
     /// <summary>Marks the request as expired unless someone answered it first; the registered task tells which happened.</summary>
@@ -109,7 +139,19 @@ internal sealed class HomeostatApprovals : IHomeostatApprovals
         }
 
         // Whoever answers first in the store wins: an answer racing with expiry is either applied or reported as not found.
-        if (!await SharedControl.Bounded(() => _shared.Store.TryResolveApprovalAsync(id, status, by, cancellationToken), SharedControl.WriteTimeout, cancellationToken).ConfigureAwait(false))
+        bool answered;
+        try
+        {
+            answered = await SharedControl.Bounded(() => _shared.Store.TryResolveApprovalAsync(id, status, by, cancellationToken), SharedControl.WriteTimeout, cancellationToken).ConfigureAwait(false);
+        }
+        catch (TimeoutException)
+        {
+            // The store may still apply the answer: an approval the caller is told failed could then run the step. Read
+            // the request once more to tell.
+            answered = await WasAnsweredAsync(id, status, by, cancellationToken).ConfigureAwait(false);
+        }
+
+        if (!answered)
         {
             return false;
         }
@@ -120,6 +162,36 @@ internal sealed class HomeostatApprovals : IHomeostatApprovals
         }
 
         return true;
+    }
+
+    /// <summary>
+    /// After an answer timed out: <c>true</c> if the store recorded this answer, <c>false</c> if it recorded another one
+    /// (this one can no longer apply); a <see cref="TimeoutException"/> when the outcome is unknown (still pending, or the
+    /// store does not answer), since the store may still apply it.
+    /// </summary>
+    private async Task<bool> WasAnsweredAsync(string id, ApprovalStatus status, string? by, CancellationToken cancellationToken)
+    {
+        ApprovalRecord? record;
+        try
+        {
+            var state = await SharedControl.Bounded(() => _shared.Store.GetControlStateAsync(cancellationToken), SharedControl.ReadTimeout, cancellationToken).ConfigureAwait(false);
+            record = state.Approvals.FirstOrDefault(a => string.Equals(a.Request.Id, id, StringComparison.Ordinal));
+        }
+        catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
+        {
+            throw Unknown(ex);
+        }
+
+        if (record?.Status is not { } recorded)
+        {
+            throw Unknown(null);
+        }
+
+        return recorded == status && string.Equals(record.ResolvedBy, by, StringComparison.Ordinal);
+
+        TimeoutException Unknown(Exception? inner) => new(
+            $"The store did not confirm the answer to approval '{id.ReplaceLineEndings(" ")}' in time: the outcome is unknown, "
+            + "and the store may still apply it. Read the pending approvals before answering again.", inner);
     }
 
     /// <summary>This instance ends its own wait: the store decides whether its answer or someone else's counts.</summary>

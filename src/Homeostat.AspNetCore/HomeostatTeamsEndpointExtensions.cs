@@ -120,14 +120,28 @@ public static partial class HomeostatTeamsEndpointExtensions
 
         try
         {
-            // Teams gives up after a few seconds: a store that does not answer gets a reply, not a hung request.
-            return await Task.Run(() => RunCommandAsync(message, approvals, options, logger, http.RequestAborted), CancellationToken.None).WaitAsync(StoreTimeout, http.RequestAborted);
+            // Teams gives up after a few seconds: a store that does not answer gets a reply, not a hung request. The
+            // command runs without the request's token, so a disconnect does not cut an answer short; only the wait ends.
+            return await Task.Run(() => RunCommandAsync(message, approvals, options, logger, CancellationToken.None), CancellationToken.None).WaitAsync(StoreTimeout, http.RequestAborted);
         }
-        catch (Exception ex) when (!http.RequestAborted.IsCancellationRequested)
+        catch (OperationCanceledException) when (http.RequestAborted.IsCancellationRequested)
         {
+            // Teams is gone. The message stays marked as handled: the command may still complete.
+            return Results.Empty;
+        }
+        catch (Exception ex) when (StoreCall.IsOutcomeUnknown(ex))
+        {
+            // The command may still complete after this reply, so the message stays marked as handled: a replay of it
+            // must not apply it a second time. The person checks with 'pending' and sends a new command if needed.
+            logger.LogError(ex, "Teams command from {User}: the Homeostat store did not answer in time; it may still be carried out.", message.UserName);
+            return Reply("Homeostat's store did not answer in time: the command may still be carried out. Send 'pending' to check before sending it again.");
+        }
+        catch (Exception ex)
+        {
+            // Nothing changed: the same message may be sent again.
             seen.Remove(id);
             logger.LogError(ex, "Teams command from {User} not carried out: the Homeostat store is unavailable.", message.UserName);
-            return Reply("Homeostat cannot do this now (its store is unavailable). Send the command again in a moment.");
+            return Reply("Homeostat cannot do this now (its store is unavailable); nothing was changed. Send the command again in a moment.");
         }
     }
 

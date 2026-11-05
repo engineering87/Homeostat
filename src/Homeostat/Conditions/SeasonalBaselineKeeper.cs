@@ -1,3 +1,4 @@
+using Homeostat.Engine;
 using Homeostat.Persistence;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -13,7 +14,7 @@ internal sealed class SeasonalBaselineKeeper : IHostedService, IAsyncDisposable
 {
     internal static readonly TimeSpan SaveInterval = TimeSpan.FromMinutes(5);
 
-    /// <summary>Longest wait for the store at startup (or at shutdown): an unreachable store must not hold the application.</summary>
+    /// <summary>Longest wait for the saved baselines before the engine starts without them, and for the store at shutdown.</summary>
     internal static readonly TimeSpan StoreWait = TimeSpan.FromSeconds(10);
 
     private readonly ConditionSet _conditions;
@@ -26,6 +27,7 @@ internal sealed class SeasonalBaselineKeeper : IHostedService, IAsyncDisposable
     private readonly TaskCompletionSource _ready = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private CancellationTokenSource? _stopping;
     private Task _loop = Task.CompletedTask;
+    private readonly InFlight<string?> _calls = new();
 
     public SeasonalBaselineKeeper(ConditionSet conditions, IHomeostatStore store, TimeProvider timeProvider, ILogger<SeasonalBaselineKeeper> logger)
     {
@@ -43,33 +45,48 @@ internal sealed class SeasonalBaselineKeeper : IHostedService, IAsyncDisposable
     /// <summary>For a replay, which learns from the replayed signals only: nothing to load.</summary>
     public void SkipLoading() => _ready.TrySetResult();
 
-    public async Task StartAsync(CancellationToken cancellationToken)
+    public Task StartAsync(CancellationToken cancellationToken)
+    {
+        // Loaded in the background: an unreachable store must not hold the application's startup. The engine waits for
+        // Ready instead, so it never compares signals with a baseline that is still loading (signals queue meanwhile).
+        // Always started: a seasonal rule added later by a configuration reload is loaded and saved by the loop.
+        _stopping = new CancellationTokenSource();
+        var token = _stopping.Token;
+        _loop = Task.Run(() => RunAsync(token), CancellationToken.None);
+        return Task.CompletedTask;
+    }
+
+    private async Task RunAsync(CancellationToken token)
     {
         try
         {
             if (Baselines.Count > 0)
             {
-                using var limit = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                using var limit = CancellationTokenSource.CreateLinkedTokenSource(token);
                 limit.CancelAfter(StoreWait);
 
-                // Bounded even when the store ignores the token: the application's startup must not wait for it.
+                // Bounded even when the store ignores the token.
                 await Task.Run(() => SyncAsync(limit.Token), CancellationToken.None).WaitAsync(limit.Token).ConfigureAwait(false);
             }
         }
-        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        catch (OperationCanceledException) when (!token.IsCancellationRequested)
         {
             _logger.LogWarning("The saved seasonal baselines could not be loaded within {Wait}: learning starts over.", StoreWait);
         }
+        catch (OperationCanceledException)
+        {
+            // Stopping before the baselines were loaded.
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "The saved seasonal baselines could not be loaded: learning starts over.");
+        }
         finally
         {
-            // The engine waits for this, so it never compares signals with a baseline that is still loading.
             _ready.TrySetResult();
         }
 
-        // Always: a seasonal rule added later by a configuration reload is loaded and saved by the loop.
-        _stopping = new CancellationTokenSource();
-        var token = _stopping.Token;
-        _loop = Task.Run(() => LoopAsync(token), CancellationToken.None);
+        await LoopAsync(token).ConfigureAwait(false);
     }
 
     public async Task StopAsync(CancellationToken cancellationToken)
@@ -79,11 +96,13 @@ internal sealed class SeasonalBaselineKeeper : IHostedService, IAsyncDisposable
             await stopping.CancelAsync().ConfigureAwait(false);
             try
             {
-                await _loop.WaitAsync(cancellationToken).ConfigureAwait(false);
+                // Every store call of the loop is bounded and follows the token, so it ends at once; the wait is bounded
+                // anyway, so the application's shutdown never waits for the store.
+                await _loop.WaitAsync(StoreWait, cancellationToken).ConfigureAwait(false);
             }
-            catch (OperationCanceledException)
+            catch (Exception ex) when (ex is OperationCanceledException or TimeoutException)
             {
-                // Expected: the loop was just canceled, or the host stopped waiting.
+                // Expected: the loop was just canceled, or Homeostat (or the host) stopped waiting.
             }
         }
 
@@ -150,7 +169,8 @@ internal sealed class SeasonalBaselineKeeper : IHostedService, IAsyncDisposable
         {
             if (load && !baseline.Loaded)
             {
-                if (await _store.GetDocumentAsync(DocumentKey(baseline), cancellationToken).ConfigureAwait(false) is { } document
+                var key = DocumentKey(baseline);
+                if (await BoundedAsync(key, () => _store.GetDocumentAsync(key, cancellationToken).AsTask(), SharedControl.ReadTimeout, cancellationToken).ConfigureAwait(false) is string document
                     && !baseline.Import(document))
                 {
                     _logger.LogInformation("The saved baseline {Key} was learned with another cycle or version; learning starts over.", baseline.Key);
@@ -168,7 +188,13 @@ internal sealed class SeasonalBaselineKeeper : IHostedService, IAsyncDisposable
             var changes = baseline.Changes;
             if (baseline.Loaded && changes > 0 && changes != saved)
             {
-                await _store.SetDocumentAsync(DocumentKey(baseline), baseline.Export(), cancellationToken).ConfigureAwait(false);
+                var key = DocumentKey(baseline);
+                var document = baseline.Export();
+                await BoundedAsync(key, async () =>
+                {
+                    await _store.SetDocumentAsync(key, document, cancellationToken).ConfigureAwait(false);
+                    return null;
+                }, SharedControl.WriteTimeout, cancellationToken).ConfigureAwait(false);
                 lock (_saved)
                 {
                     _saved[baseline] = changes;
@@ -203,6 +229,21 @@ internal sealed class SeasonalBaselineKeeper : IHostedService, IAsyncDisposable
     }
 
     private static string DocumentKey(SeasonalBaseline baseline) => $"baseline:{baseline.Key}";
+
+    /// <summary>
+    /// One store call for a document, bounded even when the store ignores its token or blocks its caller. A call
+    /// abandoned at its timeout is not started again until it ends: the periodic save would otherwise pile up a blocked
+    /// thread every few minutes.
+    /// </summary>
+    private async Task<string?> BoundedAsync(string key, Func<Task<string?>> call, TimeSpan timeout, CancellationToken cancellationToken)
+    {
+        if (_calls.IsRunning(key))
+        {
+            throw new TimeoutException($"The previous store call for {key}, abandoned at its timeout, is still running.");
+        }
+
+        return await _calls.Start(key, call).WaitAsync(timeout, cancellationToken).ConfigureAwait(false);
+    }
 
     /// <summary>Syncs now, without waiting for the timer: after a configuration reload.</summary>
     internal void SyncSoon()
