@@ -95,6 +95,8 @@ count in fixed windows: the counts kept by rc.1 are not carried over.
 - Cluster leases: acquiring is bounded, and a lease that arrives after Homeostat stopped waiting is released at once;
   releasing is bounded. `IHomeostatControl.ReleaseHoldAsync`, `GetRecentRunsAsync` and `GetBudgetAsync` are bounded too.
 - The HTTP handler of `AddHomeostatSignals` allocates nothing when the response is already there.
+- Kubernetes `ScaleDeployment` reads the scale again and retries (up to 4 attempts) when the conditional update
+  answers `409`, as it often does while the deployment is rolling out; found by the new kind job.
 - Shared control state, after a second review: a claim refused by the store no longer drops a pending switch-off; a
   change that lets Homeostat act shows at once on the instance and never flaps back while older reads complete, and its
   caller no longer waits behind a slow refresh; a person's turn-on is always written; a hold limit (`HoldAtMost`) only

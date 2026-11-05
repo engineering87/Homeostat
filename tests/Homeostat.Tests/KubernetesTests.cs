@@ -20,6 +20,7 @@ public sealed class KubernetesTests : IAsyncDisposable
     private readonly string _directory = Directory.CreateTempSubdirectory("homeostat-k8s-").FullName;
     private readonly List<(string Method, string Path, string? ContentType, string? Authorization, string Body)> _requests = [];
     private WebApplication? _server;
+    private int _scaleConflicts;
 
     public async ValueTask DisposeAsync()
     {
@@ -52,6 +53,15 @@ public sealed class KubernetesTests : IAsyncDisposable
             {
                 _requests.Add((context.Request.Method, context.Request.Path.ToUriComponent(), context.Request.ContentType,
                     context.Request.Headers.Authorization.ToString(), body));
+            }
+
+            var conflict = context.Request.Method == "PATCH" && context.Request.Path.Value!.EndsWith("/scale", StringComparison.Ordinal)
+                && Interlocked.Decrement(ref _scaleConflicts) >= 0;
+            if (conflict)
+            {
+                context.Response.StatusCode = (int)HttpStatusCode.Conflict;
+                await context.Response.WriteAsync("""{"kind":"Status","message":"the object has been modified","reason":"Conflict","code":409}""");
+                return;
             }
 
             context.Response.StatusCode = (int)status;
@@ -184,6 +194,20 @@ public sealed class KubernetesTests : IAsyncDisposable
             Assert.Throws<ArgumentException>(() => p.ScaleDeployment(name, by: 1, maximum: 3));
             p.With("ok", _ => { });
         })));
+    }
+
+    [Fact]
+    public async Task Scaling_reads_again_when_the_deployment_changed_meanwhile()
+    {
+        _scaleConflicts = 2;   // a rollout in progress: two conditional updates in a row lose the race
+        var (server, caPath) = await StartApiServerAsync();
+        await using var host = await StartHostAsync(server, caPath, p => p.ScaleDeployment("weather-api", by: 1, maximum: 3, requireApproval: false));
+
+        host.Publish("weather-api", SignalSeverity.Unhealthy);
+        var run = await host.WaitForRunAsync("weather-api-sick");
+
+        Assert.True(run.Steps.Single().Succeeded, run.Steps.Single().Error?.ToString());
+        Assert.Equal(["GET", "PATCH", "GET", "PATCH", "GET", "PATCH"], _requests.Select(r => r.Method));
     }
 
     [Fact]
