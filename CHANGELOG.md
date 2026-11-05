@@ -95,6 +95,10 @@ count in fixed windows: the counts kept by rc.1 are not carried over.
 - Cluster leases: acquiring is bounded, and a lease that arrives after Homeostat stopped waiting is released at once;
   releasing is bounded. `IHomeostatControl.ReleaseHoldAsync`, `GetRecentRunsAsync` and `GetBudgetAsync` are bounded too.
 - The HTTP handler of `AddHomeostatSignals` allocates nothing when the response is already there.
+- CI: the `Integration` workflow tests Kafka (statistics signals, pause gate), MongoDB (ping and primary signals),
+  RabbitMQ and Artemis (queue signals) and the Service Bus emulator (pausable processor) against real servers in
+  containers (`tests/Homeostat.IntegrationTests`), and the `kubernetes` job of the CI workflow the Kubernetes actions on
+  a kind cluster with the documented Role.
 - Kubernetes `ScaleDeployment` reads the scale again and retries (up to 4 attempts) when the conditional update
   answers `409`, as it often does while the deployment is rolling out; found by the new kind job.
 - Shared control state, after a second review: a claim refused by the store no longer drops a pending switch-off; a

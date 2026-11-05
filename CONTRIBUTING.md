@@ -24,6 +24,15 @@ Tests that need a real server are skipped without one:
   `localhost:6379`). The CI workflow runs them against a Redis container.
 - **Kubernetes** (`KubernetesClusterTests`): set the `HOMEOSTAT_TEST_KUBERNETES_*` variables. The `kubernetes` job of
   the CI workflow shows how, on a kind cluster, with the Role documented in `docs/cloud.md`.
+- **Kafka, MongoDB, RabbitMQ, Artemis and the Service Bus emulator**: `tests/Homeostat.IntegrationTests`, a separate
+  project (not in `Homeostat.slnx`), with one variable per server: `HOMEOSTAT_TEST_KAFKA`, `HOMEOSTAT_TEST_MONGODB`,
+  `HOMEOSTAT_TEST_RABBITMQ`, `HOMEOSTAT_TEST_ARTEMIS`, `HOMEOSTAT_TEST_SERVICEBUS`. The `Integration` workflow starts
+  each server in a container; its jobs do not fail the build yet (`continue-on-error`). To run one locally:
+
+  ```bash
+  docker run -d -p 9092:9092 apache/kafka:3.8.0
+  HOMEOSTAT_TEST_KAFKA=localhost:9092 dotnet test tests/Homeostat.IntegrationTests --filter "FullyQualifiedName~KafkaTests"
+  ```
 
 `DocumentationTests` checks that the limits and timeouts stated in `docs/` are the ones the code uses: when you change
 one of those constants, update the page it names.
