@@ -11,7 +11,7 @@
   <!-- Package metadata -->
   <PropertyGroup>
     <VersionPrefix>1.0.0</VersionPrefix>
-    <VersionSuffix>rc.1</VersionSuffix>
+    <VersionSuffix>rc.2</VersionSuffix>
     <Authors>Francesco Del Re</Authors>
     <Copyright>Copyright (c) 2026 Francesco Del Re</Copyright>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>

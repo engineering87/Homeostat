@@ -28,7 +28,7 @@ candidate, install with `--prerelease` (see [Versioning](versioning.md)).
 | `Homeostat.Aspire.Hosting` | Homeostat link and Pause/Resume commands in the Aspire dashboard (app host) | `dotnet add package Homeostat.Aspire.Hosting --prerelease` | `WithHomeostat` | No |
 | `Homeostat.Testing` | Test host with simulated time, fault injection, replay | `dotnet add package Homeostat.Testing --prerelease` | `HomeostatTestHost`, `HomeostatReplay`, `HealingContextFactory`, `FaultInjectingHandler` | Yes |
 | `Homeostat.Cli` | The `homeostat` command-line tool | `dotnet tool install --global Homeostat.Cli --prerelease` | `homeostat status`, `pause`, `approve`, `switch`, `coverage`, `history`, `replay` | No |
-| `Homeostat.Templates` | `dotnet new` templates: `homeostat-webapi`, `homeostat-worker` | `dotnet new install Homeostat.Templates::1.0.0-rc.1` | `dotnet new homeostat-webapi`, `dotnet new homeostat-worker` | No |
+| `Homeostat.Templates` | `dotnet new` templates: `homeostat-webapi`, `homeostat-worker` | `dotnet new install Homeostat.Templates::1.0.0-rc.2` | `dotnet new homeostat-webapi`, `dotnet new homeostat-worker` | No |
 | Analyzers | Build-time checks | Bundled in `Homeostat`; not a separate package | See [Analyzers](analyzers.md) | No |
 
 "Native AOT: Yes" means the library is marked `IsAotCompatible` and builds without trimming or AOT warnings. For

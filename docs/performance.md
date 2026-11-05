@@ -48,7 +48,8 @@ a million signals per source.
 |---|---|
 | Signal buffer | `SignalBufferCapacity` signals (1,024); the oldest is dropped |
 | Window of a trend, projection or anomaly rule | About 8,192 points (about 128 KB); a faster source keeps the latest value of each interval of window / 8,192 |
-| Latency samples of a call recorder, an HTTP client or a metric | 4,096 per interval (reservoir sampling) |
+| Latency samples of a call recorder or an HTTP client | 2,048 per interval (reservoir sampling) |
+| Samples of a metric | 4,096 per interval (reservoir sampling) |
 | Series (tag combinations) of an observable metric | 10,000 per instrument; series that stop reporting are forgotten |
 | External alerts | 1,000 sources, 1,000 firing series per source and 10,000 in all |
 | Run and condition history | `RunHistorySize` (50) and `ConditionHistorySize` (200) |

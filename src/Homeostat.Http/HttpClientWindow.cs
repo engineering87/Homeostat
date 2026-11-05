@@ -5,7 +5,7 @@ internal readonly record struct HttpWindowSample(int Total, int Failures, TimeSp
 /// <summary>Collects request outcomes for one client between two detector samples.</summary>
 internal sealed class HttpClientWindow
 {
-    private const int MaxLatencySamples = 2048;
+    internal const int MaxLatencySamples = 2048;
 
     private readonly object _gate = new();
     private readonly List<double> _latenciesMs = [];

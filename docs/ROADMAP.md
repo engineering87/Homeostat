@@ -1,7 +1,7 @@
 # Roadmap
 
 Homeostat aims to be the reference self-healing library for .NET. The roadmap is organized in waves. Everything
-checked below ships in 1.0.0, now available as a release candidate (`1.0.0-rc.1`); later waves arrive in minor
+checked below ships in 1.0.0, now available as a release candidate (`1.0.0-rc.2`); later waves arrive in minor
 versions under the compatibility rules of [Versioning](versioning.md). The roadmap is indicative and changes with
 feedback: open an issue to discuss priorities.
 

@@ -71,7 +71,7 @@ internal sealed class HomeostatSwitches : IHomeostatSwitches
         var intended = _timeProvider.GetUtcNow();
         var written = await _shared.ChangeOrDeferAsync(
             Key(name),
-            (store, ct) => store.SetSwitchAsync(name, null, ct),
+            (store, ct) => store.TrySetSwitchAsync(name, null, intended, ct),
             s => SharedControl.WithSwitch(s, name, null),
             s => s.Switches.Any(x => string.Equals(x.Name, name, StringComparison.Ordinal) && x.At > intended),
             cancellationToken).ConfigureAwait(false);
@@ -96,11 +96,13 @@ internal sealed class HomeostatSwitches : IHomeostatSwitches
         try
         {
             await _shared.ChangeAsync(
+                Key(name),
                 async (store, ct) =>
                 {
                     if (!await store.TryClaimSwitchAsync(state, ct).ConfigureAwait(false))
                     {
-                        return;
+                        // Owned by a person or another condition: theirs, and nothing changes here.
+                        return false;
                     }
 
                     Interlocked.Exchange(ref claimed, 1);
@@ -109,12 +111,14 @@ internal sealed class HomeostatSwitches : IHomeostatSwitches
                     // would own or limit this switch, so it is released at once.
                     if (Volatile.Read(ref gaveUp) == 1)
                     {
-                        await store.TryReleaseSwitchAsync(name, condition, _instance, CancellationToken.None).ConfigureAwait(false);
+                        await store.TryReleaseSwitchAsync(name, condition, _instance, _timeProvider.GetUtcNow(), CancellationToken.None).ConfigureAwait(false);
+                        return false;
                     }
+
+                    return true;
                 },
-                s => Volatile.Read(ref claimed) == 1 ? SharedControl.WithSwitch(s, name, state) : s,
-                cancellationToken,
-                Key(name)).ConfigureAwait(false);
+                s => SharedControl.WithSwitch(s, name, state),
+                cancellationToken).ConfigureAwait(false);
         }
         catch
         {
@@ -179,10 +183,11 @@ internal sealed class HomeostatSwitches : IHomeostatSwitches
     }
 
     /// <summary>Releases one application switch if this instance's plan for the condition still holds it.</summary>
-    internal async Task<bool> ReleaseOwnedAsync(string name, string condition, CancellationToken cancellationToken)
+    internal async Task<bool> ReleaseOwnedAsync(string name, string condition, CancellationToken cancellationToken, DateTimeOffset? claimedAt = null)
     {
         if (GetShared(name) is not { } current || !string.Equals(current.Condition, condition, StringComparison.Ordinal)
-            || !string.Equals(current.Instance, _instance, StringComparison.Ordinal))
+            || !string.Equals(current.Instance, _instance, StringComparison.Ordinal)
+            || (claimedAt is { } at && current.At != at))
         {
             return false;
         }
@@ -198,6 +203,8 @@ internal sealed class HomeostatSwitches : IHomeostatSwitches
     /// </summary>
     private async Task ReleaseAsync(string name, string condition, string? instance, CancellationToken cancellationToken)
     {
+        // Decided now: written in that order even if it reaches the store late, so it never removes a newer claim.
+        var decidedAt = _timeProvider.GetUtcNow();
         _claimed.TryRemove(new KeyValuePair<string, string>(name, condition));
         bool Owns(SwitchState s) => string.Equals(s.Name, name, StringComparison.Ordinal)
             && string.Equals(s.Condition, condition, StringComparison.Ordinal)
@@ -205,7 +212,7 @@ internal sealed class HomeostatSwitches : IHomeostatSwitches
 
         await _shared.ChangeOrDeferAsync(
             Key(name),
-            async (store, ct) => await store.TryReleaseSwitchAsync(name, condition, instance, ct).ConfigureAwait(false),
+            (store, ct) => store.TryReleaseSwitchAsync(name, condition, instance, decidedAt, ct),
             s => s.Switches.Any(Owns) ? SharedControl.WithSwitch(s, name, null) : s,
             s => !s.Switches.Any(Owns),
             cancellationToken).ConfigureAwait(false);
@@ -321,15 +328,19 @@ internal sealed class HomeostatSwitches : IHomeostatSwitches
         ArgumentException.ThrowIfNullOrWhiteSpace(name);
 
         // A person or code turning on a switch makes it theirs, even one a plan owns: the condition clearing no longer
-        // turns it off. Already theirs: nothing to change.
-        if (GetShared(name) is { Condition: null })
+        // turns it off. Always written: this instance's view may be behind (the switch turned off elsewhere a moment ago).
+        var state = new SwitchState { Name = name, By = by, At = _timeProvider.GetUtcNow() };
+        var applied = await _shared.ChangeAsync(
+            Key(name),
+            (store, ct) => store.TrySetSwitchAsync(name, state, state.At, ct),
+            s => SharedControl.WithSwitch(s, name, state),
+            cancellationToken).ConfigureAwait(false);
+        if (!applied)
         {
+            _logger.LogWarning("Switch {Switch} was not turned on: a later decision about it is in the store.", name.ReplaceLineEndings(" "));
             return;
         }
 
-        var state = new SwitchState { Name = name, By = by, At = _timeProvider.GetUtcNow() };
-        await _shared.ChangeAsync(
-            (store, ct) => store.SetSwitchAsync(name, state, ct), s => SharedControl.WithSwitch(s, name, state), cancellationToken, Key(name)).ConfigureAwait(false);
         _claimed.TryRemove(name, out _);
     }
 

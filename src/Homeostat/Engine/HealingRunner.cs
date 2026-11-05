@@ -1011,6 +1011,9 @@ internal sealed class HealingRunner
 
     private CancellationToken _hostStopping;
 
+    // Claims of switches with HoldAtMost, numbered per condition and switch.
+    private readonly ConcurrentDictionary<string, long> _holds = new(StringComparer.Ordinal);
+
     private void Abandon(Task task, string condition, string what)
     {
         // Observed, so its eventual failure is not an unobserved task exception.
@@ -1039,13 +1042,23 @@ internal sealed class HealingRunner
     /// <summary>Turns the switch off after its longest hold, if the condition still holds it then (see HoldAtMost).</summary>
     private void LimitHold(string condition, string switchName, bool cluster, TimeSpan hold, CancellationToken stoppingToken)
     {
+        // This claim only: a later run of the same condition that claims the switch again starts its own hold, and this
+        // timer must not cut it short.
+        var claimKey = $"{condition}/{switchName}";
+        var claim = _holds.AddOrUpdate(claimKey, 1, static (_, n) => n + 1);
+        var claimedAt = cluster ? _switches.GetShared(switchName)?.At : null;
         _ = Task.Run(async () =>
         {
             try
             {
                 await Task.Delay(hold, _timeProvider, stoppingToken).ConfigureAwait(false);
+                if (!_holds.TryGetValue(claimKey, out var current) || current != claim)
+                {
+                    return;
+                }
+
                 var released = cluster
-                    ? await _switches.ReleaseOwnedAsync(switchName, condition, CancellationToken.None).ConfigureAwait(false)
+                    ? await _switches.ReleaseOwnedAsync(switchName, condition, CancellationToken.None, claimedAt).ConfigureAwait(false)
                     : _ownership.Release(condition, switchName) && _switches.IsOn(switchName);
                 if (released)
                 {

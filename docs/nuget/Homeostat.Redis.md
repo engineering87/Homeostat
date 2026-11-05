@@ -8,7 +8,7 @@ Redis for Homeostat. `UseRedis` stores cooldowns, the action budget, the run and
 dotnet add package Homeostat.Redis --prerelease
 ```
 
-The current version is a release candidate (`1.0.0-rc.1`): `--prerelease` is needed until 1.0.0 is published.
+The current version is a release candidate (`1.0.0-rc.2`): `--prerelease` is needed until 1.0.0 is published.
 
 ## Example
 

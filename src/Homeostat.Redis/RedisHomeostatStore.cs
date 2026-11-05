@@ -248,8 +248,9 @@ internal sealed class RedisHomeostatStore : IHomeostatStore
         var now = _timeProvider.GetUtcNow();
         foreach (var entry in await approvals.ConfigureAwait(false))
         {
-            // Unreadable (for example written by a newer version during a rolling upgrade): left for its writer.
-            if (Read(entry.Value, RedisJsonContext.Default.ApprovalRecord) is not { } record)
+            // Unreadable (for example written by a newer version during a rolling upgrade, or without a request): left
+            // for its writer. One bad record must not make the whole control state unreadable.
+            if (Read(entry.Value, RedisJsonContext.Default.ApprovalRecord) is not { Request: not null } record)
             {
                 continue;
             }
@@ -320,22 +321,89 @@ internal sealed class RedisHomeostatStore : IHomeostatStore
         }
     }
 
-    // KEYS[1] = switches; ARGV[1] = name, ARGV[2] = state (JSON), ARGV[3] = condition. Sets the switch only if it is off
-    // or owned by the same condition.
+    // Decision times are Unix microseconds (exact in a Lua number). A change that makes Homeostat do less (a pause, a
+    // switch off, a release) is accepted on a tie, as a deferred change may be written again with the same time; a change
+    // that lets it act (a resume, a switch on, a claim) only when strictly later.
+
+    // KEYS[1] = pause, KEYS[2] = decided; ARGV[1] = pause (JSON, '' to resume), ARGV[2] = decided at.
+    private const string SetPauseInOrderScript = """
+        local latest = tonumber(redis.call('HGET', KEYS[2], 'pause') or '-1')
+        local at = tonumber(ARGV[2])
+        if (ARGV[1] == '' and at <= latest) or at < latest then
+          return 0
+        end
+        redis.call('HSET', KEYS[2], 'pause', ARGV[2])
+        if ARGV[1] == '' then
+          redis.call('DEL', KEYS[1])
+        else
+          redis.call('SET', KEYS[1], ARGV[1])
+        end
+        return 1
+        """;
+
+    // KEYS[1] = switches, KEYS[2] = decided; ARGV[1] = name, ARGV[2] = state (JSON, '' to turn off), ARGV[3] = decided at.
+    private const string SetSwitchInOrderScript = """
+        local field = 'switch:' .. ARGV[1]
+        local latest = tonumber(redis.call('HGET', KEYS[2], field) or '-1')
+        local at = tonumber(ARGV[3])
+        if (ARGV[2] ~= '' and at <= latest) or at < latest then
+          return 0
+        end
+        redis.call('HSET', KEYS[2], field, ARGV[3])
+        if ARGV[2] == '' then
+          redis.call('HDEL', KEYS[1], ARGV[1])
+        else
+          redis.call('HSET', KEYS[1], ARGV[1], ARGV[2])
+        end
+        return 1
+        """;
+
+    // KEYS[1] = switches, KEYS[2] = decided; ARGV[1] = name, ARGV[2] = state (JSON), ARGV[3] = condition, ARGV[4] = the
+    // claim's time. Sets the switch only if it is owned by the same condition and not claimed later since (by another
+    // instance), or off and not decided about at or after the claim (a late claim, or a renewal of a switch released
+    // meanwhile).
     private const string ClaimSwitchScript = """
+        local field = 'switch:' .. ARGV[1]
+        local latest = tonumber(redis.call('HGET', KEYS[2], field) or '-1')
+        local at = tonumber(ARGV[4])
         local current = redis.call('HGET', KEYS[1], ARGV[1])
         if current then
           local ok, state = pcall(cjson.decode, current)
-          if not ok or type(state) ~= 'table' or state['condition'] ~= ARGV[3] then
+          if not ok or type(state) ~= 'table' or state['condition'] ~= ARGV[3] or at < latest then
             return 0
           end
+        elseif at <= latest then
+          return 0
+        end
+        if at > latest then
+          redis.call('HSET', KEYS[2], field, ARGV[4])
         end
         redis.call('HSET', KEYS[1], ARGV[1], ARGV[2])
         return 1
         """;
 
-    // KEYS[1] = switches; ARGV[1] = name, ARGV[2] = condition, ARGV[3] = instance ('' any). Removes the switch only if
-    // that condition (and instance) still owns it.
+    private static long Micros(DateTimeOffset at) => (at.UtcTicks - DateTimeOffset.UnixEpoch.UtcTicks) / 10;
+
+    public async ValueTask<bool> TrySetPauseAsync(PauseState? pause, DateTimeOffset decidedAt, CancellationToken cancellationToken = default)
+    {
+        var json = pause is null ? string.Empty : JsonSerializer.Serialize(pause, RedisJsonContext.Default.PauseState);
+        var result = await Db.ScriptEvaluateAsync(
+            SetPauseInOrderScript, [ControlKey("pause"), ControlKey("decided")], [json, Micros(decidedAt)]).ConfigureAwait(false);
+        return (int)result == 1;
+    }
+
+    public async ValueTask<bool> TrySetSwitchAsync(string name, SwitchState? state, DateTimeOffset decidedAt, CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(name);
+        var json = state is null ? string.Empty : JsonSerializer.Serialize(state, RedisJsonContext.Default.SwitchState);
+        var result = await Db.ScriptEvaluateAsync(
+            SetSwitchInOrderScript, [ControlKey("switches"), ControlKey("decided")], [name, json, Micros(decidedAt)]).ConfigureAwait(false);
+        return (int)result == 1;
+    }
+
+    // KEYS[1] = switches, KEYS[2] = decided; ARGV[1] = name, ARGV[2] = condition, ARGV[3] = instance ('' any),
+    // ARGV[4] = decided at ('' unordered). Removes the switch only if that condition (and instance) still owns it, and
+    // nothing was decided about it after the release (the condition claimed it again).
     private const string ReleaseSwitchScript = """
         local current = redis.call('HGET', KEYS[1], ARGV[1])
         if not current then
@@ -345,9 +413,19 @@ internal sealed class RedisHomeostatStore : IHomeostatStore
         if not ok or type(state) ~= 'table' or state['condition'] ~= ARGV[2] or (ARGV[3] ~= '' and state['instance'] ~= ARGV[3]) then
           return 0
         end
+        if ARGV[4] ~= '' then
+          local field = 'switch:' .. ARGV[1]
+          local latest = tonumber(redis.call('HGET', KEYS[2], field) or '-1')
+          local at = tonumber(ARGV[4])
+          if at < latest then
+            return 0
+          end
+          redis.call('HSET', KEYS[2], field, ARGV[4])
+        end
         redis.call('HDEL', KEYS[1], ARGV[1])
         return 1
         """;
+
 
     public async ValueTask<bool> TryClaimSwitchAsync(SwitchState state, CancellationToken cancellationToken = default)
     {
@@ -355,8 +433,8 @@ internal sealed class RedisHomeostatStore : IHomeostatStore
         ArgumentException.ThrowIfNullOrWhiteSpace(state.Condition);
         var result = await Db.ScriptEvaluateAsync(
             ClaimSwitchScript,
-            [ControlKey("switches")],
-            [state.Name, JsonSerializer.Serialize(state, RedisJsonContext.Default.SwitchState), state.Condition]).ConfigureAwait(false);
+            [ControlKey("switches"), ControlKey("decided")],
+            [state.Name, JsonSerializer.Serialize(state, RedisJsonContext.Default.SwitchState), state.Condition, Micros(state.At)]).ConfigureAwait(false);
         return (int)result == 1;
     }
 
@@ -364,7 +442,17 @@ internal sealed class RedisHomeostatStore : IHomeostatStore
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(name);
         ArgumentException.ThrowIfNullOrWhiteSpace(condition);
-        var result = await Db.ScriptEvaluateAsync(ReleaseSwitchScript, [ControlKey("switches")], [name, condition, instance ?? string.Empty]).ConfigureAwait(false);
+        var result = await Db.ScriptEvaluateAsync(
+            ReleaseSwitchScript, [ControlKey("switches"), ControlKey("decided")], [name, condition, instance ?? string.Empty, string.Empty]).ConfigureAwait(false);
+        return (int)result == 1;
+    }
+
+    public async ValueTask<bool> TryReleaseSwitchAsync(string name, string condition, string? instance, DateTimeOffset decidedAt, CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(name);
+        ArgumentException.ThrowIfNullOrWhiteSpace(condition);
+        var result = await Db.ScriptEvaluateAsync(
+            ReleaseSwitchScript, [ControlKey("switches"), ControlKey("decided")], [name, condition, instance ?? string.Empty, Micros(decidedAt)]).ConfigureAwait(false);
         return (int)result == 1;
     }
 

@@ -86,7 +86,7 @@ homeostat status --fail-on-active    # fail the pipeline if something is still w
 ## Project templates
 
 ```bash
-dotnet new install Homeostat.Templates::1.0.0-rc.1   # a prerelease needs the explicit version until 1.0.0 ships
+dotnet new install Homeostat.Templates::1.0.0-rc.2   # a prerelease needs the explicit version until 1.0.0 ships
 
 dotnet new homeostat-webapi -o Forecast.Api      # ASP.NET Core minimal API
 dotnet new homeostat-worker -o Ingest.Worker     # worker service

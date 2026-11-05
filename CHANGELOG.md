@@ -6,7 +6,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
-Failure isolation: Homeostat, or its store, failing must never block the application or leave it degraded.
+Nothing yet.
+
+## [1.0.0-rc.2] - 2026-11-04
+
+Second release candidate. Failure isolation: Homeostat, or its store, failing must never block the application or leave
+it degraded, and what Homeostat keeps in memory does not grow with the load. The public API changes are additive
+(new members with default implementations, optional parameters).
 
 ### Added
 
@@ -15,6 +21,13 @@ Failure isolation: Homeostat, or its store, failing must never block the applica
   clears, for actions whose effect can keep their own condition active.
 - `SwitchState.RenewedAt`: the instance that turned on a switch for a cluster plan renews it; when that instance
   stops or crashes, another instance turns the switch off as soon as the condition is not active there.
+- `IHomeostatStore.TrySetPauseAsync`, `TrySetSwitchAsync` and a `TryReleaseSwitchAsync` overload with `decidedAt` (all
+  with default implementations): the pause and the switches are written in decision order, so a write that timed out on the instance but reached the store later cannot undo a
+  newer decision (a switch turned back on after it was turned off, a pause ended by an older resume). The built-in
+  stores implement them, and their `TryClaimSwitchAsync` refuses a claim older than the switch's latest decision. The
+  Redis store adds the `{control}:decided` hash (microseconds). On a tie, a decision that makes Homeostat do less wins.
+- `ChaosEnabledBySwitch(switchName, maximumDuration)`: chaos stops by itself one hour (by default) after its switch
+  was first seen on, so a game day nobody ended does not keep degrading the application.
 - `AddConditionsFromConfiguration(section, failOnInvalid)`: by default an invalid condition in configuration is
   logged as critical and skipped instead of stopping the application.
 
@@ -63,6 +76,12 @@ Failure isolation: Homeostat, or its store, failing must never block the applica
 - A verifier abandoned at its timeout and still running is not started again.
 - `RestartHostedService` waits a bounded time for a stop that ignores its token, and does not start the service
   again while the application is stopping.
+- Shared control state, after a second review: a claim refused by the store no longer drops a pending switch-off; a
+  change that lets Homeostat act shows at once on the instance and never flaps back while older reads complete, and its
+  caller no longer waits behind a slow refresh; a person's turn-on is always written; a hold limit (`HoldAtMost`) only
+  ends the claim it was set for; pending changes are written even while the state cannot be read, one write at a time
+  per change; a file store that cannot save no longer keeps the decision time of the change it undid; the Redis store
+  skips approval records without a request instead of failing the whole read.
 - A pausable consumer that blocks before returning its task no longer holds its gate beyond the timeout.
 - Seasonal baselines and the signal recorder no longer delay or fail shutdown when the store does not answer.
 
@@ -498,5 +517,6 @@ repository (version `0.1.0` in the project files):
   condition.
 - `HomeostatOptions`, `RedisStoreOptions` and the built-in detector options are validated at startup.
 
-[Unreleased]: https://github.com/engineering87/Homeostat/compare/v1.0.0-rc.1...HEAD
+[Unreleased]: https://github.com/engineering87/Homeostat/compare/v1.0.0-rc.2...HEAD
+[1.0.0-rc.2]: https://github.com/engineering87/Homeostat/compare/v1.0.0-rc.1...v1.0.0-rc.2
 [1.0.0-rc.1]: https://github.com/engineering87/Homeostat/releases/tag/v1.0.0-rc.1

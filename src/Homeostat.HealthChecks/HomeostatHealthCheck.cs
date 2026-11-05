@@ -12,7 +12,7 @@ internal sealed class HomeostatHealthCheck : IHealthCheck
     private readonly IHomeostatControl _control;
     private readonly IHomeostatApprovals _approvals;
     // For both store reads together: well under the one second Kubernetes gives a probe by default.
-    private static readonly TimeSpan StoreTimeout = TimeSpan.FromMilliseconds(800);
+    internal static readonly TimeSpan StoreTimeout = TimeSpan.FromMilliseconds(800);
 
     private readonly HealthStatus _attentionStatus;
 

@@ -227,6 +227,15 @@ public sealed class FileHomeostatStore : IHomeostatStore, IDisposable
     public ValueTask SetSwitchAsync(string name, SwitchState? state, CancellationToken cancellationToken = default) => _store.SetSwitchAsync(name, state, cancellationToken);
 
     /// <inheritdoc />
+    public ValueTask<bool> TrySetPauseAsync(PauseState? pause, DateTimeOffset decidedAt, CancellationToken cancellationToken = default) => _store.TrySetPauseAsync(pause, decidedAt, cancellationToken);
+
+    /// <inheritdoc />
+    public ValueTask<bool> TrySetSwitchAsync(string name, SwitchState? state, DateTimeOffset decidedAt, CancellationToken cancellationToken = default) => _store.TrySetSwitchAsync(name, state, decidedAt, cancellationToken);
+
+    /// <inheritdoc />
+    public ValueTask<bool> TryReleaseSwitchAsync(string name, string condition, string? instance, DateTimeOffset decidedAt, CancellationToken cancellationToken = default) => _store.TryReleaseSwitchAsync(name, condition, instance, decidedAt, cancellationToken);
+
+    /// <inheritdoc />
     public ValueTask<bool> TryClaimSwitchAsync(SwitchState state, CancellationToken cancellationToken = default) => _store.TryClaimSwitchAsync(state, cancellationToken);
 
     /// <inheritdoc />

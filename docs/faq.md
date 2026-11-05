@@ -65,9 +65,20 @@ its own, which is right for problems local to the instance (its clients, caches,
 use a shared store and mark the plan `OncePerCluster()`: one instance acts, the cooldown is shared, and budget and
 history cover the whole cluster. See [Persistence and clusters](persistence-and-clusters.md).
 
-Approval requests, switches and the kill switch are still per instance: the approval endpoints act on the
-instance that receives the request. Behind a load balancer, call each instance directly (for example through its
-pod address), or use the webhook notifier, whose events carry the application name.
+The pause, the application switches and the approval requests are kept in the store too: with a shared store, a pause,
+a switch or an answer given on any instance applies to every instance within `ControlRefreshInterval` (5 seconds by
+default), so behind a load balancer any instance can take the request. Switches turned on with
+`scope=instance` stay on the instance that took the request. See
+[Shared control state](persistence-and-clusters.md#shared-control-state).
+
+### What if Homeostat itself, or its store, fails?
+
+The application keeps running and serving: Homeostat stops acting, not the application. A store that does not answer
+delays startup by 5 seconds at most and never blocks a request, a health check or the shutdown; Homeostat fails
+closed (no new interventions) while it cannot check cooldowns and budget; a pause or a switch turned off still applies
+at once; switches it turned on are turned off when their condition clears, when they reach `HoldAtMost`, or by another
+instance when the one that turned them on is gone. The full list is in
+[What Homeostat does when it is the problem](guardrails.md#what-homeostat-does-when-it-is-the-problem).
 
 ### How do I see what Homeostat is doing right now?
 

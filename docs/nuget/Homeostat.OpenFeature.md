@@ -8,7 +8,7 @@ OpenFeature integration for Homeostat: a provider that exposes Homeostat switche
 dotnet add package Homeostat.OpenFeature --prerelease
 ```
 
-The current version is a release candidate (`1.0.0-rc.1`): `--prerelease` is needed until 1.0.0 is published.
+The current version is a release candidate (`1.0.0-rc.2`): `--prerelease` is needed until 1.0.0 is published.
 
 ## Example
 

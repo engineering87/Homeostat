@@ -98,6 +98,8 @@ internal sealed class SharedControl
                     _logger.LogDebug(ex, "The Homeostat control state still cannot be read.");
                 }
 
+                // The writes may work even when the read does not (an unreadable record): try the pending ones anyway.
+                await WriteDeferredAsync(Current, read: 0).ConfigureAwait(false);
                 return false;
             }
 
@@ -134,7 +136,7 @@ internal sealed class SharedControl
     /// <returns><c>true</c> if the store took the change now; <c>false</c> if it is deferred.</returns>
     public async Task<bool> ChangeOrDeferAsync(
         string key,
-        Func<IHomeostatStore, CancellationToken, ValueTask> change,
+        Func<IHomeostatStore, CancellationToken, ValueTask<bool>> change,
         Func<ControlState, ControlState> apply,
         Func<ControlState, bool> superseded,
         CancellationToken cancellationToken)
@@ -158,18 +160,7 @@ internal sealed class SharedControl
             return false;
         }
 
-        // Read back in the background: the view already shows the change, and the caller does not wait for a refresh.
-        _ = Task.Run(async () =>
-        {
-            try
-            {
-                await TryRefreshAsync(CancellationToken.None).ConfigureAwait(false);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogDebug(ex, "Reading back the Homeostat control state failed.");
-            }
-        }, CancellationToken.None);
+        await ReadBackAsync().ConfigureAwait(false);
         return true;
     }
 
@@ -182,14 +173,33 @@ internal sealed class SharedControl
     // Writes one change; on success, records which reads may still miss it.
     private async Task<bool> TryWriteAsync(string key, Deferred deferred)
     {
+        bool applied;
         try
         {
-            await Bounded(() => deferred.Change(_store, CancellationToken.None), WriteTimeout, CancellationToken.None).ConfigureAwait(false);
+            // One write at a time per change: while a write abandoned at its timeout still runs (a store blocked on
+            // I/O), retries wait for it instead of starting another.
+            var write = deferred.Writing;
+            if (write is null || write.IsCompleted)
+            {
+                write = Task.Run(() => deferred.Change(_store, CancellationToken.None).AsTask(), CancellationToken.None);
+                deferred.Writing = write;
+            }
+
+            applied = await write.WaitAsync(WriteTimeout).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
             _logger.LogDebug(ex, "Writing a Homeostat change ({Change}) failed.", key);
             return false;
+        }
+
+        if (!applied)
+        {
+            // Refused: the store holds a later decision about the same thing (taken elsewhere meanwhile), or already
+            // has this change (written twice, by the caller and by a refresh). Either way the store is right: kept as
+            // written until a read that starts from now on shows what the store has, so an older read cannot make the
+            // view flap.
+            _logger.LogDebug("A Homeostat change ({Change}) was not written again: the store already decided.", key);
         }
 
         // A read that starts from now on sees it; earlier ones may not.
@@ -243,11 +253,12 @@ internal sealed class SharedControl
     }
 
     private sealed class Deferred(
-        Func<IHomeostatStore, CancellationToken, ValueTask> change,
+        Func<IHomeostatStore, CancellationToken, ValueTask<bool>> change,
         Func<ControlState, ControlState> apply,
         Func<ControlState, bool> superseded)
     {
-        public Func<IHomeostatStore, CancellationToken, ValueTask> Change { get; } = change;
+        /// <summary>Writes the change; <c>false</c> when the store already holds a later decision.</summary>
+        public Func<IHomeostatStore, CancellationToken, ValueTask<bool>> Change { get; } = change;
 
         public Func<ControlState, ControlState> Apply { get; } = apply;
 
@@ -258,31 +269,42 @@ internal sealed class SharedControl
 
         /// <summary>A newer decision about the same thing is being written: not written meanwhile.</summary>
         public volatile bool Withdrawn;
+
+        /// <summary>The latest write of this change, which may still run after its timeout.</summary>
+        public Task<bool>? Writing { get; set; }
     }
 
     /// <summary>
-    /// Applies a change to the store, then refreshes the view. Store failures reach the caller. When the change was
-    /// written but the state cannot be read back, <paramref name="apply"/> updates the view here, so a change made on
-    /// this instance applies to it at once all the same.
+    /// Applies a change that lets Homeostat act (a resume, a switch turned on, a claim) to the store; store failures reach
+    /// the caller. Once the store took it, <paramref name="apply"/> updates this instance's view at once, and keeps
+    /// applying on top of reads that may have started before the write, so the view never flaps back.
     /// </summary>
-    public async Task ChangeAsync(
-        Func<IHomeostatStore, CancellationToken, ValueTask> change,
-        Func<ControlState, ControlState>? apply,
-        CancellationToken cancellationToken,
-        string? key = null)
+    /// <param name="key">What the change is about ("pause", "switch:{name}"): an older pending change of the same thing is
+    /// held back while this one is written, and dropped once the store takes this one.</param>
+    /// <param name="change">Writes the change; <c>false</c> when the store refused it (a later decision, or another
+    /// owner): then nothing changes here, and an older pending change stands.</param>
+    /// <param name="apply">The same change, applied to this instance's view.</param>
+    /// <param name="cancellationToken">Cancels the wait for the write.</param>
+    /// <returns>Whether the store took the change.</returns>
+    public async Task<bool> ChangeAsync(
+        string key,
+        Func<IHomeostatStore, CancellationToken, ValueTask<bool>> change,
+        Func<ControlState, ControlState> apply,
+        CancellationToken cancellationToken)
     {
-        // A newer decision about the same thing: an older deferred change must not be written after it, so it is held
-        // back while this write runs, and dropped once it succeeds. If this write fails, the older change still stands
-        // (a resume that did not reach the store must not end a pause that is waiting to be written).
-        Deferred? older = null;
-        if (key is not null && _deferred.TryGetValue(key, out older))
+        // A newer decision about the same thing: an older pending change must not be written after it, so it is held
+        // back while this write runs. If this write fails or is refused, the older change still stands (a resume that
+        // did not reach the store must not end a pause that is waiting to be written).
+        _deferred.TryGetValue(key, out var older);
+        if (older is not null)
         {
             older.Withdrawn = true;
         }
 
+        bool applied;
         try
         {
-            await Bounded(() => change(_store, cancellationToken), WriteTimeout, cancellationToken).ConfigureAwait(false);
+            applied = await Bounded(() => change(_store, cancellationToken), WriteTimeout, cancellationToken).ConfigureAwait(false);
         }
         catch
         {
@@ -294,28 +316,27 @@ internal sealed class SharedControl
             throw;
         }
 
-        if (older is not null)
+        if (!applied)
         {
-            _deferred.TryRemove(new KeyValuePair<string, Deferred>(key!, older));
+            if (older is not null)
+            {
+                older.Withdrawn = false;
+            }
+
+            return false;
         }
 
-        bool refreshed;
-        try
-        {
-            refreshed = await TryRefreshAsync(cancellationToken).ConfigureAwait(false);
-        }
-        catch (OperationCanceledException)
-        {
-            refreshed = false;
-        }
-
-        if (refreshed || apply is null)
-        {
-            return;
-        }
-
+        // Written: shown here at once, and on top of any read that started before the write.
+        var written = new Deferred((_, _) => ValueTask.FromResult(true), apply, static _ => false) { WrittenBefore = Volatile.Read(ref _reads) + 1 };
         lock (_viewGate)
         {
+            if (older is not null)
+            {
+                _deferred.TryRemove(new KeyValuePair<string, Deferred>(key, older));
+            }
+
+            _deferred[key] = written;
+
             // Never read yet: the rest of the state (a pause above all) is still unknown, so it stays unknown.
             if (_view is not null)
             {
@@ -324,6 +345,38 @@ internal sealed class SharedControl
         }
 
         Dispatch();
+        await ReadBackAsync().ConfigureAwait(false);
+        return true;
+    }
+
+    // The view already shows the change: the caller does not wait behind a refresh (which may be slow) to read it back.
+    // Unless the state was never read (before the refresher's first read, or without a host): then the change cannot be
+    // shown until it is, so the caller waits for that read, bounded.
+    private async Task ReadBackAsync()
+    {
+        var reading = Task.Run(async () =>
+        {
+            try
+            {
+                await TryRefreshAsync(CancellationToken.None).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "Reading back the Homeostat control state failed.");
+            }
+        }, CancellationToken.None);
+
+        if (_view is null)
+        {
+            try
+            {
+                await reading.WaitAsync(ReadTimeout).ConfigureAwait(false);
+            }
+            catch (TimeoutException)
+            {
+                // Still unknown: it applies once the state is read.
+            }
+        }
     }
 
     /// <summary>
@@ -412,7 +465,7 @@ internal sealed class SharedControl
 internal sealed class SharedControlRefresher(
     SharedControl control, IOptions<HomeostatOptions> options, TimeProvider timeProvider, HomeostatSwitches? switches = null) : BackgroundService
 {
-    private static readonly TimeSpan StartupWait = TimeSpan.FromSeconds(5);
+    internal static readonly TimeSpan StartupWait = TimeSpan.FromSeconds(5);
 
     public override async Task StartAsync(CancellationToken cancellationToken)
     {

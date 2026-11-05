@@ -476,6 +476,65 @@ public class DistributedTests
         Assert.Equal("r2", Assert.Single((await store.GetControlStateAsync()).Approvals).Request.Id);
     }
 
+    [Theory]
+    [InlineData("memory")]
+    [InlineData("file")]
+    [InlineData("redis")]
+    public async Task Pause_and_switch_writes_apply_in_decision_order(string kind)
+    {
+        using var redis = kind == "redis" ? RedisFixture.Connect() : null;
+        var path = Path.Combine(Path.GetTempPath(), $"homeostat-order-{Guid.NewGuid():N}.json");
+        IHomeostatStore store = kind switch
+        {
+            "memory" => new InMemoryHomeostatStore(),
+            "file" => new FileHomeostatStore(path),
+            _ => CreateRedisStore(redis!, RedisFixture.Prefix()),
+        };
+
+        try
+        {
+            var t0 = DateTimeOffset.Parse("2026-11-04T10:00:00Z");
+
+            // A resume decided after a pause, then the pause written late (it timed out on its instance): the resume stands.
+            Assert.True(await store.TrySetPauseAsync(null, t0.AddSeconds(2)));
+            Assert.False(await store.TrySetPauseAsync(new PauseState { At = t0.AddSeconds(1), By = "deploy" }, t0.AddSeconds(1)));
+            Assert.Null((await store.GetControlStateAsync()).Pause);
+            Assert.True(await store.TrySetPauseAsync(new PauseState { At = t0.AddSeconds(3) }, t0.AddSeconds(3)));
+            Assert.NotNull((await store.GetControlStateAsync()).Pause);
+
+            // A switch turned off, then the earlier turn-on written late: it stays off.
+            Assert.True(await store.TrySetSwitchAsync("serve-cached", null, t0.AddSeconds(5)));
+            Assert.False(await store.TrySetSwitchAsync("serve-cached", new SwitchState { Name = "serve-cached", By = "on-call", At = t0.AddSeconds(4) }, t0.AddSeconds(4)));
+            Assert.Empty((await store.GetControlStateAsync()).Switches);
+
+            // A condition's claim older than that decision is refused too; a newer one is not.
+            Assert.False(await store.TryClaimSwitchAsync(new SwitchState { Name = "serve-cached", Condition = "feed-down", Instance = "a", At = t0.AddSeconds(4) }));
+            var claim = new SwitchState { Name = "serve-cached", Condition = "feed-down", Instance = "a", At = t0.AddSeconds(6) };
+            Assert.True(await store.TryClaimSwitchAsync(claim));
+
+            // A release decided before that claim, written late, does not turn the newer claim off.
+            Assert.False(await store.TryReleaseSwitchAsync("serve-cached", "feed-down", "a", t0.AddSeconds(5.5)));
+            Assert.Single((await store.GetControlStateAsync()).Switches);
+
+            // Released, then renewed by a renewal that raced with the release: the renewal does not turn it back on.
+            Assert.True(await store.TryReleaseSwitchAsync("serve-cached", "feed-down", "a", t0.AddSeconds(7)));
+            Assert.False(await store.TryClaimSwitchAsync(new SwitchState { Name = "serve-cached", Condition = "feed-down", Instance = "a", At = claim.At, RenewedAt = t0.AddSeconds(30) }));
+            Assert.Empty((await store.GetControlStateAsync()).Switches);
+
+            // On a tie, doing less wins: a turn-on or a resume stamped like the latest decision is refused; a turn-off
+            // or a pause written again with its own time is accepted.
+            Assert.False(await store.TrySetSwitchAsync("serve-cached", new SwitchState { Name = "serve-cached", At = t0.AddSeconds(7) }, t0.AddSeconds(7)));
+            Assert.True(await store.TrySetSwitchAsync("serve-cached", null, t0.AddSeconds(7)));
+            Assert.False(await store.TrySetPauseAsync(null, t0.AddSeconds(3)));
+            Assert.True(await store.TrySetPauseAsync(new PauseState { At = t0.AddSeconds(3) }, t0.AddSeconds(3)));
+        }
+        finally
+        {
+            (store as IDisposable)?.Dispose();
+            File.Delete(path);
+        }
+    }
+
     private static RedisHomeostatStore CreateRedisStore(IConnectionMultiplexer redis, string prefix)
         => new(redis, Options.Create(new RedisStoreOptions { KeyPrefix = prefix }), Options.Create(new HomeostatOptions()));
 

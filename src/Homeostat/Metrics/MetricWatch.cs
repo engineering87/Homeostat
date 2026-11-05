@@ -6,10 +6,10 @@ namespace Homeostat.Metrics;
 /// <summary>One watched instrument and the measurements of the current interval.</summary>
 internal sealed class MetricWatch
 {
-    private const int MaxSamples = 4096;
+    internal const int MaxSamples = 4096;
 
     // Collections an observable series may miss before it is forgotten (its pool was disposed, a tag value changed).
-    private const int MaxMissedCollections = 10;
+    internal const int MaxMissedCollections = 10;
 
     // Series (tag combinations) tracked per instrument at most: an instrument with a high-cardinality tag (a user,
     // a URL) must not grow memory without limit. Further series are ignored until others are forgotten.

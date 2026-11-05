@@ -18,6 +18,16 @@ dotnet build Homeostat.slnx
 dotnet test Homeostat.slnx
 ```
 
+Tests that need a real server are skipped without one:
+
+- **Redis**: a local `redis-server` is started if installed; or set `HOMEOSTAT_TEST_REDIS` (for example
+  `localhost:6379`). The CI workflow runs them against a Redis container.
+- **Kubernetes** (`KubernetesClusterTests`): set the `HOMEOSTAT_TEST_KUBERNETES_*` variables. The `kubernetes` job of
+  the CI workflow shows how, on a kind cluster, with the Role documented in `docs/cloud.md`.
+
+`DocumentationTests` checks that the limits and timeouts stated in `docs/` are the ones the code uses: when you change
+one of those constants, update the page it names.
+
 ## Commit messages
 
 Commits and pull request titles follow [Conventional Commits](https://www.conventionalcommits.org):

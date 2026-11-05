@@ -65,6 +65,29 @@ public class FailureIsolationTests
     }
 
     [Fact]
+    public async Task A_refused_claim_does_not_drop_a_pending_switch_off()
+    {
+        var store = new OutageStore();
+        await using var host = await StartInstanceAsync("a", store);
+        await host.Switches.TurnOnAsync("serve-cached", SwitchScope.Application, "on-call");
+        host.Time.Advance(TimeSpan.FromSeconds(1));
+
+        // The person turns it off while the store is down: applied here, waiting to be written.
+        store.Down = true;
+        await host.Switches.TurnOffAsync("serve-cached", "on-call");
+        Assert.False(host.Switches.IsOn("serve-cached"));
+
+        // The store answers again, but before the next refresh a condition tries to claim the switch, which the store
+        // still shows as the person's: refused. The pending off must stand.
+        store.Down = false;
+        await ((HomeostatSwitches)host.Switches).TurnOnForConditionAsync("serve-cached", "feed-down", CancellationToken.None);
+        await RefreshAsync(host);
+
+        Assert.False(host.Switches.IsOn("serve-cached"));
+        Assert.DoesNotContain((await store.GetControlStateAsync()).Switches, s => s.Name == "serve-cached");
+    }
+
+    [Fact]
     public async Task A_switch_turned_on_by_an_instance_that_is_gone_is_turned_off_by_another()
     {
         var store = new InMemoryHomeostatStore();

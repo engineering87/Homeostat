@@ -691,6 +691,11 @@ pipeline.AddChaosLatency(new ChaosLatencyStrategyOptions
 Turn `chaos:forecast` on through the control endpoints, watch conditions activate and plans heal in the status
 endpoint and the audit log, then turn it off. Combine with dry-run to rehearse without acting.
 
+Chaos stops by itself one hour after the switch was first seen on (`ChaosEnabledBySwitch("chaos:forecast",
+maximumDuration: TimeSpan.FromMinutes(20))` to change it), and logs a warning: a game day nobody ended does not keep
+degrading the application. Turn the switch off and on again for another round. The clock is kept by each instance,
+from the first call it sees with the switch on.
+
 ## .NET Aspire
 
 Homeostat works in Aspire applications as in any ASP.NET Core application: its traces and metrics appear in the

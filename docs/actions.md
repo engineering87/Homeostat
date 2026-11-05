@@ -124,8 +124,11 @@ on until someone turns it off, pass `false`:
 In a `OncePerCluster()` plan the step turns on an **application** switch, on every instance, owned by the condition:
 it is turned off when the condition clears on the instance that ran the plan (the one whose recovery the plan
 waited for). If that instance stops or crashes first, the switch is no longer renewed, and any instance where the
-condition is not active turns it off within a minute or so. A switch a person turned on is never taken over. In other
-plans it turns on a switch for the instance that runs the plan. See
+condition is not active turns it off within a minute or so. A switch a person turned on is never taken over. An
+application switch has one owner: when two conditions with cluster plans turn on the same switch, the first one owns it,
+and it goes off when that condition clears even if the other is still active (the other's step reports success, as
+the switch is on). Give each condition its own switch when they must hold it independently. In other plans it turns on
+a switch for the instance that runs the plan, which stays on until the last condition that turned it on clears. See
 [Shared control state](persistence-and-clusters.md#shared-control-state).
 
 When the condition clears, Homeostat turns the switch off and logs it, but only a switch that this plan actually

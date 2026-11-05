@@ -1,4 +1,5 @@
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Polly.CircuitBreaker;
 using Polly.Simmy;
 
@@ -72,10 +73,13 @@ public static class HomeostatPollyServices
     /// Returns an <c>EnabledGenerator</c> for Polly chaos strategies (<c>AddChaosFault</c>, <c>AddChaosLatency</c>,
     /// <c>AddChaosOutcome</c>, <c>AddChaosBehavior</c>) that injects chaos only while the Homeostat switch
     /// <paramref name="switchName"/> is on. Use it for game days: turn the switch on through the control endpoints,
-    /// watch the conditions activate and the healing plans run, then turn it off. Chaos stays off by default.
+    /// watch the conditions activate and the healing plans run, then turn it off. Chaos stays off by default, and stops by
+    /// itself <paramref name="maximumDuration"/> after the switch was seen on, so a game day nobody ended does not keep
+    /// degrading the application (turn the switch off and on again for another round).
     /// </summary>
     /// <param name="services">The application services.</param>
     /// <param name="switchName">Switch that enables chaos, for example <c>"chaos:forecast"</c>.</param>
+    /// <param name="maximumDuration">How long chaos lasts at most once the switch is on; 1 hour by default.</param>
     /// <example>
     /// <code>
     /// pipeline.AddChaosLatency(new ChaosLatencyStrategyOptions
@@ -86,14 +90,89 @@ public static class HomeostatPollyServices
     /// });
     /// </code>
     /// </example>
-    public static Func<EnabledGeneratorArguments, ValueTask<bool>> ChaosEnabledBySwitch(this IServiceProvider services, string switchName)
+    public static Func<EnabledGeneratorArguments, ValueTask<bool>> ChaosEnabledBySwitch(
+        this IServiceProvider services, string switchName, TimeSpan? maximumDuration = null)
     {
         ArgumentNullException.ThrowIfNull(services);
         ArgumentException.ThrowIfNullOrWhiteSpace(switchName);
+        var limit = maximumDuration ?? TimeSpan.FromHours(1);
+        ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(limit, TimeSpan.Zero, nameof(maximumDuration));
 
         var switches = services.GetService<IHomeostatSwitches>()
             ?? throw new InvalidOperationException("Homeostat is not registered. Call AddHomeostat(...) first.");
+        var time = services.GetService<TimeProvider>() ?? TimeProvider.System;
+        var logger = services.GetService<ILoggerFactory>()?.CreateLogger("Homeostat.Polly.Chaos");
 
-        return _ => ValueTask.FromResult(switches.IsOn(switchName));
+        // Shared by every pipeline that uses the switch, so a pipeline built again does not restart the clock.
+        var state = ChaosClocks.GetValue(switches, static _ => new()).GetOrAdd(switchName, static _ => new ChaosClock());
+        return _ =>
+        {
+            if (!switches.IsOn(switchName))
+            {
+                // Off (the usual case, on every call): no lock unless the clock was running.
+                if (state.Running)
+                {
+                    state.Reset();
+                }
+
+                return ValueTask.FromResult(false);
+            }
+
+            var now = time.GetUtcNow();
+            if (now - state.OnSince(now) < limit)
+            {
+                return ValueTask.FromResult(true);
+            }
+
+            if (state.TryWarn())
+            {
+                logger?.LogWarning(
+                    "Chaos switch {Switch} has been on for {Limit}: chaos stops now. Turn the switch off, and on again for another round.",
+                    switchName, limit);
+            }
+
+            return ValueTask.FromResult(false);
+        };
+    }
+
+    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<IHomeostatSwitches, System.Collections.Concurrent.ConcurrentDictionary<string, ChaosClock>> ChaosClocks = new();
+
+    private sealed class ChaosClock
+    {
+        private readonly object _gate = new();
+        private DateTimeOffset? _onSince;
+        private bool _warned;
+        private volatile bool _running;
+
+        public bool Running => _running;
+
+        public DateTimeOffset OnSince(DateTimeOffset now)
+        {
+            lock (_gate)
+            {
+                _running = true;
+                return _onSince ??= now;
+            }
+        }
+
+        public void Reset()
+        {
+            lock (_gate)
+            {
+                _running = false;
+                _onSince = null;
+                _warned = false;
+            }
+        }
+
+        public bool TryWarn()
+        {
+            lock (_gate)
+            {
+                var first = !_warned;
+                _warned = true;
+                return first;
+            }
+        }
     }
 }

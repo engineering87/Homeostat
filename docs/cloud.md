@@ -99,6 +99,10 @@ Steps that take `requireApproval` (`true` by default) use `DefaultApprovalTimeou
 `UndoWithUncordon()` after `CordonNode()` makes the node schedulable again when cordoning did not help. With a
 HorizontalPodAutoscaler, scale the autoscaler's bounds instead of the deployment: the autoscaler would undo the change.
 
+`ScaleDeployment` is not reverted when the condition clears: the extra replicas cost money but do not degrade the
+application, and scaling in at the wrong moment could. Scale in with a condition of its own (for example a low load
+sustained for a while, with `ScaleDeployment(name, by: -1, minimum: ...)`), or let an autoscaler own the replica count.
+
 ### Connection
 
 Inside a pod nothing needs configuring: the API server comes from `KUBERNETES_SERVICE_HOST`, the token, CA and namespace

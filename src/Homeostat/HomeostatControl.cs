@@ -90,7 +90,7 @@ internal sealed class HomeostatControl : IHomeostatControl
         var pause = new PauseState { Until = until, By = by, At = _timeProvider.GetUtcNow() };
         if (!await _shared.ChangeOrDeferAsync(
             "pause",
-            (store, ct) => store.SetPauseAsync(pause, ct),
+            (store, ct) => store.TrySetPauseAsync(pause, pause.At, ct),
             s => Engine.SharedControl.WithPause(s, pause),
             s => s.Pause is { } stored && stored.At > pause.At,
             cancellationToken).ConfigureAwait(false))
@@ -102,7 +102,19 @@ internal sealed class HomeostatControl : IHomeostatControl
     public async ValueTask ResumeAsync(string? by = null, CancellationToken cancellationToken = default)
     {
         // Resuming lets plans act again: it must reach the store, or it does not happen.
-        await _shared.ChangeAsync((store, ct) => store.SetPauseAsync(null, ct), s => Engine.SharedControl.WithPause(s, null), cancellationToken, "pause").ConfigureAwait(false);
+        // In decision order: a pause decided after this resume (on another instance, or written late) stands.
+        var decidedAt = _timeProvider.GetUtcNow();
+        var applied = await _shared.ChangeAsync(
+            "pause",
+            (store, ct) => store.TrySetPauseAsync(null, decidedAt, ct),
+            s => Engine.SharedControl.WithPause(s, null),
+            cancellationToken).ConfigureAwait(false);
+        if (!applied)
+        {
+            _logger.LogWarning("Homeostat was not resumed: a later pause is in the store.");
+            return;
+        }
+
         _logger.LogInformation("Homeostat resumed{By}.", by is { Length: > 0 } who ? $" by {who.ReplaceLineEndings(" ")}" : string.Empty);
     }
 

@@ -10,7 +10,7 @@ let Homeostat act.
 > Prefer to run something first? The complete code is in
 > [`samples/Homeostat.Samples.WeatherFeed`](../samples/Homeostat.Samples.WeatherFeed); for a worker service without
 > ASP.NET Core, see [`samples/Homeostat.Samples.Worker`](../samples/Homeostat.Samples.Worker). Or start a new project
-> with everything set up: `dotnet new install Homeostat.Templates::1.0.0-rc.1`, then `dotnet new homeostat-webapi` or
+> with everything set up: `dotnet new install Homeostat.Templates::1.0.0-rc.2`, then `dotnet new homeostat-webapi` or
 > `dotnet new homeostat-worker` (see [Tools](tools.md)).
 
 ## 1. Install
@@ -20,7 +20,7 @@ dotnet add package Homeostat --prerelease
 dotnet add package Homeostat.HealthChecks --prerelease
 ```
 
-`--prerelease` is needed while the current version is a release candidate (`1.0.0-rc.1`); drop it once 1.0.0 is
+`--prerelease` is needed while the current version is a release candidate (`1.0.0-rc.2`); drop it once 1.0.0 is
 published. See [Versioning](versioning.md). The examples below need `using Homeostat;` (and
 `using Homeostat.Healing;` for `IHealingAction`).
 

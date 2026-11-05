@@ -91,6 +91,42 @@ public class PollyControlTests
     }
 
     [Fact]
+    public async Task Chaos_stops_by_itself_after_its_maximum_duration()
+    {
+        var time = new Microsoft.Extensions.Time.Testing.FakeTimeProvider(DateTimeOffset.Parse("2026-11-04T10:00:00Z"));
+        var collection = new ServiceCollection().AddLogging().AddSingleton<TimeProvider>(time);
+        collection.AddHomeostat(h => h.AddCircuitBreakerSignals());
+        await using var services = collection.BuildServiceProvider();
+        var switches = services.GetRequiredService<IHomeostatSwitches>();
+        ResiliencePipeline Pipeline() => new ResiliencePipelineBuilder()
+            .AddChaosFault(new ChaosFaultStrategyOptions
+            {
+                InjectionRate = 1,
+                FaultGenerator = static _ => ValueTask.FromResult<Exception?>(new TimeoutException("chaos")),
+                EnabledGenerator = services.ChaosEnabledBySwitch("chaos:geocoder", TimeSpan.FromMinutes(20)),
+            })
+            .Build();
+
+        var pipeline = Pipeline();
+        switches.TurnOn("chaos:geocoder");
+        Assert.Throws<TimeoutException>(() => pipeline.Execute(() => 1));
+        time.Advance(TimeSpan.FromMinutes(19));
+        Assert.Throws<TimeoutException>(() => Pipeline().Execute(() => 1));   // a pipeline built again keeps the clock
+
+        // Nobody ended the game day: chaos stops, though the switch is still on.
+        time.Advance(TimeSpan.FromMinutes(2));
+        Assert.Equal(1, pipeline.Execute(() => 1));
+        Assert.True(switches.IsOn("chaos:geocoder"));
+
+        // Off and on again: another round.
+        switches.TurnOff("chaos:geocoder");
+        Assert.Equal(1, pipeline.Execute(() => 1));
+        time.Advance(TimeSpan.FromSeconds(1));   // decisions are ordered by time: a turn-on does not win a tie
+        switches.TurnOn("chaos:geocoder");
+        Assert.Throws<TimeoutException>(() => pipeline.Execute(() => 1));
+    }
+
+    [Fact]
     public void Switch_changes_raise_events_only_on_change_and_survive_failing_handlers()
     {
         var services = new ServiceCollection().AddLogging();

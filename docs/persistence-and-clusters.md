@@ -243,18 +243,23 @@ Kubernetes, a StatefulSet gives each pod a stable name; a Deployment gives a new
 | `{prefix}{control}:switches` | hash | Application switches by name, as JSON (`condition`, `instance`, `by`, `at`); a plan claims or releases one with an atomic script |
 | `{prefix}{control}:approvals` | hash | Approval requests by id, as JSON, with the waiting instance |
 | `{prefix}{control}:answers` | hash | Answers by request id, written by an atomic script so that only the first answer wins |
+| `{prefix}{control}:decided` | hash | When the latest decision about the pause and each switch was taken (Unix milliseconds): a write that arrives late is refused |
 
 The control keys share the hash tag `{control}`, so on Redis Cluster they are in one slot, as the approval script needs.
 
-Set `ShareBudget = false` to count the budget per instance (`{prefix}budget:{instance}`). The budget uses the
-clock of each instance: keep the clocks synchronized (NTP), as any distributed system expects.
+Set `ShareBudget = false` to count the budget per instance (`{prefix}budget:{instance}`). The budget, and the order of
+decisions about the pause and the switches, use the clock of each instance: keep the clocks synchronized (NTP), as any
+distributed system expects. With clocks a few seconds apart, of two decisions taken within those seconds on two
+instances, the one stamped later wins. On a tie, a decision that makes Homeostat do less (a pause, a switch turned
+off) wins over one that lets it act; with a simulated clock (`FakeTimeProvider`), advance it between turning a switch
+off and on again.
 
 ## Writing your own store
 
 `IHomeostatStore` has fourteen required methods: read and update plan state, consume and count the budget, append and
 read the run history, and the control state (`GetControlStateAsync`, `SetPauseAsync`, `SetSwitchAsync`,
 `TryClaimSwitchAsync`, `TryReleaseSwitchAsync`, `AddApprovalAsync`, `TryResolveApprovalAsync`, `RemoveApprovalAsync`, with the types `ControlState`, `PauseState`,
-`SwitchState` and `ApprovalRecord` of `Homeostat.Persistence`). Six more have default implementations, and members added after 1.0 will have them too:
+`SwitchState` and `ApprovalRecord` of `Homeostat.Persistence`). Eight more have default implementations, and members added after 1.0 will have them too:
 
 - `SupportsConditionHistory`, `AppendConditionEventAsync`, `GetConditionEventsAsync`: the condition history. By default
   the store does not keep it (`false`), and Homeostat keeps it in process memory instead.
@@ -262,6 +267,13 @@ read the run history, and the control state (`GetControlStateAsync`, `SetPauseAs
   about 150 KB of JSON). By default nothing is kept (`false`), seasonal baselines start over at every restart, and
   Homeostat logs a warning once. The file store keeps documents until
   they are replaced: after renaming a seasonal condition, the old baseline stays in the file, unused.
+- `TrySetPauseAsync`, `TrySetSwitchAsync`: the pause and the switches **in decision order**. Homeostat writes through
+  them, with the time the decision was taken; the store applies a write only if no later decision about the same pause
+  or switch is recorded, and returns `false` otherwise. A write that timed out on the instance but that the store runs
+  later then cannot turn back on a switch turned off since, or end a newer pause. By default they call `SetPauseAsync`
+  and `SetSwitchAsync` and return `true`, without that guarantee: implement them in a store shared by several
+  instances, and make `TryClaimSwitchAsync` refuse to turn on a switch that is off when a decision about it was taken
+  at or after the claim's `At` (see `InMemoryHomeostatStore`, or the scripts of the Redis store).
 
 Requirements:
 
@@ -274,9 +286,8 @@ Requirements:
 - `GetControlStateAsync` skips records it cannot read rather than failing: one bad record must not hide the pause.
 - Return `PlanState.Empty` for unknown plans.
 - Throw on failure: Homeostat handles it (fail closed).
-- Time out your own calls (the Redis store relies on the client's timeouts): a call that never returns holds the healing
-  run that made it. Homeostat bounds its own waits for the control state, the endpoints and the health check, but not
-  every call of a run.
+- Time out your own calls (the Redis store relies on the client's timeouts). Homeostat bounds every wait and starts
+  every call off the caller's thread, but a call that never returns keeps a thread until it does.
 
 `InMemoryHomeostatStore` is a good reference; `FileHomeostatStore` shows how to persist it. Both are sealed: wrap
 them rather than derive from them.

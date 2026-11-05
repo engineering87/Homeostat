@@ -8,7 +8,7 @@ RabbitMQ for Homeostat, through RabbitMQ.Client 7: queue depth, consumer count a
 dotnet add package Homeostat.RabbitMQ --prerelease
 ```
 
-The current version is a release candidate (`1.0.0-rc.1`): `--prerelease` is needed until 1.0.0 is published.
+The current version is a release candidate (`1.0.0-rc.2`): `--prerelease` is needed until 1.0.0 is published.
 
 ## Example
 

@@ -13,7 +13,7 @@ namespace Homeostat.Calls;
 /// <remarks>Thread-safe and cheap: recording takes a lock for a few instructions and allocates nothing in most calls.</remarks>
 public sealed class CallRecorder
 {
-    private const int MaxLatencySamples = 2048;
+    internal const int MaxLatencySamples = 2048;
 
     private readonly object _gate = new();
     private readonly List<double> _latenciesMs = [];

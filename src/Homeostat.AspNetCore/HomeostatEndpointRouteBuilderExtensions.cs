@@ -164,7 +164,7 @@ public static class HomeostatEndpointRouteBuilderExtensions
     // A store that does not answer: the request gets a 503 instead of waiting, so requests do not pile up.
     // Longer than SharedControl.WriteTimeout, so a pause or a switch turned off that the store does not take in time
     // (applied here, written later) answers 204 rather than 503.
-    private static readonly TimeSpan StoreTimeout = TimeSpan.FromSeconds(15);
+    internal static readonly TimeSpan StoreTimeout = TimeSpan.FromSeconds(15);
 
     internal static bool IsForgeable(HttpRequest request)
     {

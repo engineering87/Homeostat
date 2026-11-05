@@ -5,6 +5,6 @@ namespace Homeostat
     public static Homeostat.HomeostatBuilder AddCircuitBreakerSignals(this Homeostat.HomeostatBuilder builder)
 namespace Homeostat.Polly
   public static class HomeostatPollyServices
-    public static System.Func<Polly.Simmy.EnabledGeneratorArguments, System.Threading.Tasks.ValueTask<bool>> ChaosEnabledBySwitch(this System.IServiceProvider services, string switchName)
+    public static System.Func<Polly.Simmy.EnabledGeneratorArguments, System.Threading.Tasks.ValueTask<bool>> ChaosEnabledBySwitch(this System.IServiceProvider services, string switchName, System.TimeSpan? maximumDuration = null)
     public static Polly.CircuitBreaker.CircuitBreakerManualControl CircuitControl(this System.IServiceProvider services, string name)
     public static Polly.CircuitBreaker.CircuitBreakerStateProvider TrackCircuitBreaker(this System.IServiceProvider services, string source)

@@ -18,6 +18,11 @@ internal class MemoryStore : IHomeostatStore
     private readonly Dictionary<string, ApprovalRecord> _approvals = new(StringComparer.Ordinal);
     private PauseState? _pause;
 
+    // When the latest decision about the pause and about each switch was taken: an older write is refused. Kept in
+    // memory only (a late write does not outlive a restart).
+    private DateTimeOffset _pauseDecidedAt = DateTimeOffset.MinValue;
+    private readonly Dictionary<string, DateTimeOffset> _switchDecidedAt = new(StringComparer.Ordinal);
+
     /// <inheritdoc />
     public ValueTask<PlanState> GetPlanStateAsync(string key, CancellationToken cancellationToken = default)
     {
@@ -201,19 +206,74 @@ internal class MemoryStore : IHomeostatStore
         ArgumentException.ThrowIfNullOrWhiteSpace(name);
         lock (_gate)
         {
-            var changed = state is null ? _switches.Remove(name) : !_switches.TryGetValue(name, out var current) || current != state;
-            if (state is not null)
-            {
-                _switches[name] = state;
-            }
-
-            if (changed)
-            {
-                OnChanged();
-            }
+            SetSwitchLocked(name, state);
         }
 
         return ValueTask.CompletedTask;
+    }
+
+    private void SetSwitchLocked(string name, SwitchState? state)
+    {
+        var changed = state is null ? _switches.Remove(name) : !_switches.TryGetValue(name, out var current) || current != state;
+        if (state is not null)
+        {
+            _switches[name] = state;
+        }
+
+        if (changed)
+        {
+            OnChanged();
+        }
+    }
+
+    // Decision order. A change that makes Homeostat do less (a pause, a switch off, a release) may be written again with
+    // the same decision time (a deferred change retried), so a tie is accepted; a change that lets it act (a resume, a
+    // switch on, a claim) wins only when strictly later, so a late one never ties with a newer stop.
+    private static bool InOrder(DateTimeOffset decidedAt, DateTimeOffset latest, bool lessAction)
+        => lessAction ? decidedAt >= latest : decidedAt > latest;
+
+    /// <inheritdoc />
+    public ValueTask<bool> TrySetPauseAsync(PauseState? pause, DateTimeOffset decidedAt, CancellationToken cancellationToken = default)
+    {
+        lock (_gate)
+        {
+            if (!InOrder(decidedAt, _pauseDecidedAt, lessAction: pause is not null))
+            {
+                return ValueTask.FromResult(false);
+            }
+
+            var previous = _pauseDecidedAt;
+            _pauseDecidedAt = decidedAt;
+            try
+            {
+                _pause = pause;
+                OnChanged();
+            }
+            catch
+            {
+                // Not saved (the file store undoes the change): neither is the decision.
+                _pauseDecidedAt = previous;
+                throw;
+            }
+
+            return ValueTask.FromResult(true);
+        }
+    }
+
+    /// <inheritdoc />
+    public ValueTask<bool> TrySetSwitchAsync(string name, SwitchState? state, DateTimeOffset decidedAt, CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(name);
+        lock (_gate)
+        {
+            if (!InOrder(decidedAt, Decided(name), lessAction: state is null))
+            {
+                return ValueTask.FromResult(false);
+            }
+
+            Decide(name, decidedAt, () => SetSwitchLocked(name, state));
+            return ValueTask.FromResult(true);
+        }
     }
 
     /// <inheritdoc />
@@ -223,19 +283,38 @@ internal class MemoryStore : IHomeostatStore
         ArgumentException.ThrowIfNullOrWhiteSpace(state.Condition);
         lock (_gate)
         {
-            if (_switches.TryGetValue(state.Name, out var current) && !string.Equals(current.Condition, state.Condition, StringComparison.Ordinal))
+            if (_switches.TryGetValue(state.Name, out var current))
             {
+                // Another owner, or a newer claim of the same condition (by another instance): left as it is.
+                if (!string.Equals(current.Condition, state.Condition, StringComparison.Ordinal) || state.At < current.At)
+                {
+                    return ValueTask.FromResult(false);
+                }
+            }
+            else if (!InOrder(state.At, Decided(state.Name), lessAction: false))
+            {
+                // Off, and decided at or after this claim: a late claim, or a renewal of a switch released meanwhile.
                 return ValueTask.FromResult(false);
             }
 
-            _switches[state.Name] = state;
-            OnChanged();
+            Decide(state.Name, state.At > Decided(state.Name) ? state.At : Decided(state.Name), () =>
+            {
+                _switches[state.Name] = state;
+                OnChanged();
+            });
             return ValueTask.FromResult(true);
         }
     }
 
     /// <inheritdoc />
     public ValueTask<bool> TryReleaseSwitchAsync(string name, string condition, string? instance, CancellationToken cancellationToken = default)
+        => Release(name, condition, instance, decidedAt: null);
+
+    /// <inheritdoc />
+    public ValueTask<bool> TryReleaseSwitchAsync(string name, string condition, string? instance, DateTimeOffset decidedAt, CancellationToken cancellationToken = default)
+        => Release(name, condition, instance, decidedAt);
+
+    private ValueTask<bool> Release(string name, string condition, string? instance, DateTimeOffset? decidedAt)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(name);
         ArgumentException.ThrowIfNullOrWhiteSpace(condition);
@@ -243,14 +322,45 @@ internal class MemoryStore : IHomeostatStore
         {
             if (!_switches.TryGetValue(name, out var current)
                 || !string.Equals(current.Condition, condition, StringComparison.Ordinal)
-                || (instance is not null && !string.Equals(current.Instance, instance, StringComparison.Ordinal)))
+                || (instance is not null && !string.Equals(current.Instance, instance, StringComparison.Ordinal))
+                || (decidedAt is { } at && !InOrder(at, Decided(name), lessAction: true)))
             {
                 return ValueTask.FromResult(false);
             }
 
-            _switches.Remove(name);
-            OnChanged();
+            Decide(name, decidedAt is { } when && when > Decided(name) ? when : Decided(name), () =>
+            {
+                _switches.Remove(name);
+                OnChanged();
+            });
             return ValueTask.FromResult(true);
+        }
+    }
+
+    // Caller holds the lock.
+    private DateTimeOffset Decided(string name) => _switchDecidedAt.TryGetValue(name, out var latest) ? latest : DateTimeOffset.MinValue;
+
+    // Caller holds the lock: records the decision with the change, or neither if the change is not saved.
+    private void Decide(string name, DateTimeOffset decidedAt, Action change)
+    {
+        var had = _switchDecidedAt.TryGetValue(name, out var previous);
+        _switchDecidedAt[name] = decidedAt;
+        try
+        {
+            change();
+        }
+        catch
+        {
+            if (had)
+            {
+                _switchDecidedAt[name] = previous;
+            }
+            else
+            {
+                _switchDecidedAt.Remove(name);
+            }
+
+            throw;
         }
     }
 
