@@ -30,8 +30,14 @@ public class FailureIsolationTests
             },
             options: options);
 
-    private static Task RefreshAsync(HomeostatTestHost host)
-        => host.Services.GetRequiredService<Engine.SharedControl>().TryRefreshAsync(CancellationToken.None);
+    // A refresh joins a read already in flight, which the periodic refresh may have started before the change the test
+    // made: a second refresh starts after it, so the view is at least as new as the call.
+    private static async Task RefreshAsync(HomeostatTestHost host)
+    {
+        var control = host.Services.GetRequiredService<Engine.SharedControl>();
+        await control.TryRefreshAsync(CancellationToken.None);
+        await control.TryRefreshAsync(CancellationToken.None);
+    }
 
     [Fact]
     public async Task With_the_store_down_turning_off_and_pausing_take_effect_at_once_and_are_written_when_it_recovers()
@@ -166,7 +172,10 @@ public class FailureIsolationTests
     public async Task A_refused_claim_does_not_drop_a_pending_switch_off()
     {
         var store = new OutageStore();
-        await using var host = await StartInstanceAsync("a", store);
+
+        // A still clock: the periodic refresh does not run behind the test's back (it would write the pending off before
+        // the claim, which the claim, decided later, would then rightly override).
+        await using var host = await StartInstanceAsync("a", store, options: new HomeostatTestHostOptions { AutoAdvanceStep = null });
         await host.Switches.TurnOnAsync("serve-cached", SwitchScope.Application, "on-call");
         host.Time.Advance(TimeSpan.FromSeconds(1));
 
@@ -210,8 +219,17 @@ public class FailureIsolationTests
             // Instance a stopped (or crashed) with its condition still active: nobody would turn the switch off. Instance
             // b does, once the switch is no longer renewed (at once if a marked it abandoned when it stopped).
             b.Time.Advance(TimeSpan.FromMinutes(2));
-            await RefreshAsync(b);
-            await ((HomeostatSwitches)b.Switches).MaintainOwnershipAsync(CancellationToken.None);
+
+            // Moving b's clock also wakes its periodic refresh, which sweeps on its own: whichever of the two releases the
+            // switch, the other may find its write still running and leave it to the next refresh. Drive refreshes and
+            // sweeps as the periodic loop would, until the store no longer has the switch.
+            var sweeps = (HomeostatSwitches)b.Switches;
+            for (var i = 0; i < 200 && (await store.GetControlStateAsync()).Switches.Any(s => s.Name == "serve-cached"); i++)
+            {
+                await RefreshAsync(b);
+                await sweeps.MaintainOwnershipAsync(CancellationToken.None);
+                await Task.Delay(10);
+            }
 
             Assert.False(b.Switches.IsOn("serve-cached"));
             Assert.DoesNotContain((await store.GetControlStateAsync()).Switches, s => s.Name == "serve-cached");

@@ -40,7 +40,12 @@ public class SharedControlTests
     private static async Task RefreshAsync(HomeostatTestHost host)
     {
         host.Time.Advance(TimeSpan.FromSeconds(5));
-        await host.Services.GetRequiredService<Engine.SharedControl>().TryRefreshAsync(CancellationToken.None);
+        var control = host.Services.GetRequiredService<Engine.SharedControl>();
+
+        // A refresh joins a read already in flight, which the periodic refresh may have started before the change the
+        // test made: a second refresh starts after it, so the view is at least as new as the call.
+        await control.TryRefreshAsync(CancellationToken.None);
+        await control.TryRefreshAsync(CancellationToken.None);
     }
 
     [Fact]
@@ -117,6 +122,9 @@ public class SharedControlTests
         Assert.True(b.Switches.IsOn("serve-cached-forecast"));
         Assert.False(b.Switches.IsOn("verbose-tracing"));
         Assert.True(a.Switches.IsOn("verbose-tracing"));
+
+        // The event is raised by whichever refresh applied the change, possibly the periodic one, on its own thread.
+        await PollyControlTests.WaitUntilAsync(() => changes.Count > 0);
         Assert.Equal([("serve-cached-forecast", true)], changes);
         Assert.Equal("on-call", Assert.Single((await store.GetControlStateAsync()).Switches).By);
 
