@@ -104,7 +104,7 @@ public static class HomeostatPollyServices
         var logger = services.GetService<ILoggerFactory>()?.CreateLogger("Homeostat.Polly.Chaos");
 
         // Shared by every pipeline that uses the switch, so a pipeline built again does not restart the clock.
-        var state = ChaosClocks.GetValue(switches, static _ => new()).GetOrAdd(switchName, static _ => new ChaosClock());
+        var state = ChaosClocks.GetValue(switches, WatchSwitches).GetOrAdd(switchName, static _ => new ChaosClock());
         return _ =>
         {
             if (!switches.IsOn(switchName))
@@ -136,6 +136,21 @@ public static class HomeostatPollyServices
     }
 
     private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<IHomeostatSwitches, System.Collections.Concurrent.ConcurrentDictionary<string, ChaosClock>> ChaosClocks = new();
+
+    private static System.Collections.Concurrent.ConcurrentDictionary<string, ChaosClock> WatchSwitches(IHomeostatSwitches switches)
+    {
+        // A switch turned off and on again between two calls still starts a new round: the clock resets when the
+        // switch turns off, not only when a call sees it off.
+        var clocks = new System.Collections.Concurrent.ConcurrentDictionary<string, ChaosClock>(StringComparer.Ordinal);
+        switches.Changed += (_, e) =>
+        {
+            if (!e.IsOn && clocks.TryGetValue(e.Name, out var clock))
+            {
+                clock.Reset();
+            }
+        };
+        return clocks;
+    }
 
     private sealed class ChaosClock
     {

@@ -290,6 +290,7 @@ internal sealed class RedisHomeostatStore : IHomeostatStore
             Switches = (await switches.ConfigureAwait(false))
                 .Select(e => Read(e.Value, RedisJsonContext.Default.SwitchState))
                 .OfType<SwitchState>()
+                .Where(s => s.Name is not null)   // one unreadable record must not make the whole state unreadable
                 .OrderBy(x => x.Name, StringComparer.Ordinal)
                 .ToArray(),
             Approvals = records.OrderBy(r => r.Request.RequestedAt).ToArray(),
@@ -325,6 +326,7 @@ internal sealed class RedisHomeostatStore : IHomeostatStore
           return 0
         end
         redis.call('HSET', KEYS[2], field, ARGV[3])
+        redis.call('HDEL', KEYS[2], 'claim:' .. ARGV[1], 'renewed:' .. ARGV[1])   -- no longer a condition's claim
         if ARGV[2] == '' then
           redis.call('HDEL', KEYS[1], ARGV[1])
         else
@@ -361,16 +363,16 @@ internal sealed class RedisHomeostatStore : IHomeostatStore
         elseif renewal or at <= latest then
           return 0
         end
-        -- Written as the caller's string: tostring() would round a Lua number of 16 digits.
-        local text = ARGV[4]
+        -- Times are written as the caller's strings: tostring() would round a Lua number of 16 digits. A renewal is not a
+        -- decision (a person's later "off" must win over it): it only records when the claim was last renewed, which an
+        -- orphan release checks.
         if renewal then
-          text = ARGV[7]
-        end
-        if text ~= '' and tonumber(text) > latest then
-          redis.call('HSET', KEYS[2], field, text)
-        end
-        if not renewal then
-          redis.call('HSET', KEYS[2], 'claim:' .. ARGV[1], ARGV[4])
+          redis.call('HSET', KEYS[2], 'renewed:' .. ARGV[1], ARGV[7] ~= '' and ARGV[7] or '-1')
+        else
+          if at > latest then
+            redis.call('HSET', KEYS[2], field, ARGV[4])
+          end
+          redis.call('HSET', KEYS[2], 'claim:' .. ARGV[1], ARGV[4], 'renewed:' .. ARGV[1], ARGV[4])
         end
         redis.call('HSET', KEYS[1], ARGV[1], ARGV[2])
         return 1
@@ -407,19 +409,21 @@ internal sealed class RedisHomeostatStore : IHomeostatStore
         if not ok or type(state) ~= 'table' or state['condition'] ~= ARGV[2] or (ARGV[3] ~= '' and state['instance'] ~= ARGV[3]) then
           return 0
         end
-        if ARGV[4] ~= '' then
-          local field = 'switch:' .. ARGV[1]
-          local latest = tonumber(redis.call('HGET', KEYS[2], field) or '-1')
-          local at = tonumber(ARGV[4])
-          if at < latest then
-            return 0
-          end
+        -- Refused when the condition claimed it again, or its owner renewed the claim, after the release was decided.
+        local field = 'switch:' .. ARGV[1]
+        local latest = tonumber(redis.call('HGET', KEYS[2], field) or '-1')
+        local renewed = tonumber(redis.call('HGET', KEYS[2], 'renewed:' .. ARGV[1]) or '-1')
+        local at = tonumber(ARGV[4])
+        if at < latest or renewed > at then
+          return 0
+        end
+        if at > latest then
           redis.call('HSET', KEYS[2], field, ARGV[4])
         end
+        redis.call('HDEL', KEYS[2], 'claim:' .. ARGV[1], 'renewed:' .. ARGV[1])
         redis.call('HDEL', KEYS[1], ARGV[1])
         return 1
         """;
-
 
     public async ValueTask<bool> TryClaimSwitchAsync(SwitchState state, CancellationToken cancellationToken = default)
     {

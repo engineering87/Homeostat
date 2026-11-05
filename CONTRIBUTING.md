@@ -27,7 +27,7 @@ Tests that need a real server are skipped without one:
 - **Kafka, MongoDB, RabbitMQ, Artemis and the Service Bus emulator**: `tests/Homeostat.IntegrationTests`, a separate
   project (not in `Homeostat.slnx`), with one variable per server: `HOMEOSTAT_TEST_KAFKA`, `HOMEOSTAT_TEST_MONGODB`,
   `HOMEOSTAT_TEST_RABBITMQ`, `HOMEOSTAT_TEST_ARTEMIS`, `HOMEOSTAT_TEST_SERVICEBUS`. The `Integration` workflow starts
-  each server in a container; its jobs do not fail the build yet (`continue-on-error`). To run one locally:
+  each server in a container, and every job must pass. To run one locally:
 
   ```bash
   docker run -d -p 9092:9092 apache/kafka:3.8.0

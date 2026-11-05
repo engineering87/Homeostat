@@ -126,7 +126,7 @@ builder.Services.AddHomeostat(h => h.AddWebApiDefaults());   // AddWorkerDefault
 
 The [getting started guide](docs/getting-started.md) walks through this step by step, and
 [`samples/`](samples) has a web API and a worker service ready to run. Project templates are available with
-`dotnet new install Homeostat.Templates::1.0.0-rc.2`.
+`dotnet new install Homeostat.Templates::1.0.0-rc.1`.
 
 ## What it covers
 
@@ -230,7 +230,7 @@ and [recipes](docs/recipes.md) for common scenarios.
 
 ## Status
 
-Homeostat `1.0.0-rc.2` is a release candidate: the API is expected to be final, and changes before 1.0.0 will be
+Homeostat `1.0.0-rc.1` is a release candidate: the API is expected to be final, and changes before 1.0.0 will be
 limited to fixes found while it is tried. The [roadmap](docs/ROADMAP.md) lists what comes after 1.0.
 Questions, feedback and ideas are welcome in the [issues](https://github.com/engineering87/Homeostat/issues).
 

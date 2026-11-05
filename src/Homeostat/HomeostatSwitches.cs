@@ -73,8 +73,7 @@ internal sealed class HomeostatSwitches : IHomeostatSwitches
             Key(name),
             (store, ct) => store.TrySetSwitchAsync(name, null, intended, ct),
             s => SharedControl.WithSwitch(s, name, null),
-            s => s.Switches.Any(x => string.Equals(x.Name, name, StringComparison.Ordinal) && x.At > intended),
-            cancellationToken).ConfigureAwait(false);
+            s => s.Switches.Any(x => string.Equals(x.Name, name, StringComparison.Ordinal) && x.At > intended)).ConfigureAwait(false);
         _logger.LogInformation("Switch {Switch} turned off{By}{Deferred}.", name.ReplaceLineEndings(" "), Who(by),
             written ? string.Empty : " on this instance; the store will take it when it answers");
     }
@@ -217,8 +216,7 @@ internal sealed class HomeostatSwitches : IHomeostatSwitches
             s => s.Switches.Any(Owns) ? SharedControl.WithSwitch(s, name, null) : s,
             // Superseded only by a later decision about the switch (claimed again, or taken by a person), never because
             // a view does not show it: this instance's own view already has the release applied.
-            s => s.Switches.Any(x => string.Equals(x.Name, name, StringComparison.Ordinal) && x.At > at),
-            cancellationToken).ConfigureAwait(false);
+            s => s.Switches.Any(x => string.Equals(x.Name, name, StringComparison.Ordinal) && x.At > at)).ConfigureAwait(false);
     }
 
     /// <summary>
@@ -246,21 +244,19 @@ internal sealed class HomeostatSwitches : IHomeostatSwitches
                     {
                         // One renewal at a time per switch: while one abandoned at its timeout still runs (a store blocked
                         // on I/O), the next refresh does not start another.
-                        if (_renewing.TryGetValue(current.Name, out var previous) && !previous.IsCompleted)
+                        if (_renewing.IsRunning(current.Name))
                         {
                             continue;
                         }
 
                         var renewal = new SwitchState { Name = current.Name, Condition = condition, Instance = _instance, By = current.By, At = current.At, RenewedAt = now };
-                        var renewing = Task.Run(() => _shared.Store.TryClaimSwitchAsync(renewal, CancellationToken.None).AsTask(), CancellationToken.None);
-                        _renewing[current.Name] = renewing;
-                        await renewing.WaitAsync(SharedControl.WriteTimeout, cancellationToken).ConfigureAwait(false);
+                        var name = current.Name;
+                        var renewing = _renewing.Start(name, () => _shared.Store.TryClaimSwitchAsync(renewal, CancellationToken.None).AsTask());
 
-                        // A claim also creates a switch that is absent: if the condition released it meanwhile, the
-                        // renewal turned it back on. Release it again.
-                        if (!_claimed.TryGetValue(current.Name, out var still) || !string.Equals(still, condition, StringComparison.Ordinal))
+                        // Refused: the claim is gone (released meanwhile, or taken over): this instance no longer holds it.
+                        if (!await renewing.WaitAsync(SharedControl.WriteTimeout, cancellationToken).ConfigureAwait(false))
                         {
-                            await ReleaseAsync(current.Name, condition, _instance, cancellationToken).ConfigureAwait(false);
+                            _claimed.TryRemove(new KeyValuePair<string, string>(name, condition));
                         }
                     }
                 }
@@ -309,7 +305,7 @@ internal sealed class HomeostatSwitches : IHomeostatSwitches
         _claimed.Clear();
     }
 
-    private readonly ConcurrentDictionary<string, Task<bool>> _renewing = new(StringComparer.Ordinal);
+    private readonly InFlight<bool> _renewing = new();
 
     private static string Key(string name) => "switch:" + name;
 
@@ -331,12 +327,20 @@ internal sealed class HomeostatSwitches : IHomeostatSwitches
         return ValueTask.CompletedTask;
     }
 
-    internal void TurnOffLocal(string name)
+    /// <summary>Turns off the instance switch; returns whether it was on for this instance.</summary>
+    internal bool TurnOffLocal(string name)
     {
-        if (_local.TryRemove(name, out _) && !_shared.IsSwitchOn(name))
+        if (!_local.TryRemove(name, out _))
+        {
+            return false;
+        }
+
+        if (!_shared.IsSwitchOn(name))
         {
             Raise(name, isOn: false);
         }
+
+        return true;
     }
 
     private async ValueTask SetSharedAsync(string name, string? by, CancellationToken cancellationToken)
@@ -365,8 +369,7 @@ internal sealed class HomeostatSwitches : IHomeostatSwitches
                 Key(name),
                 (store, ct) => store.TrySetSwitchAsync(name, null, off, ct),
                 s => SharedControl.WithSwitch(s, name, null),
-                s => s.Switches.Any(x => string.Equals(x.Name, name, StringComparison.Ordinal) && x.At > off),
-                CancellationToken.None).ConfigureAwait(false);
+                s => s.Switches.Any(x => string.Equals(x.Name, name, StringComparison.Ordinal) && x.At > off)).ConfigureAwait(false);
             throw;
         }
 

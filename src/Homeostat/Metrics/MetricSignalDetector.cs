@@ -88,16 +88,19 @@ internal sealed class MetricSignalDetector : ISignalDetector, IDisposable
         }
 
         // Runs inside the code that records the metric (for example ASP.NET Core's request pipeline): never throw.
+        Dictionary<string, object?>? dictionary = null;
         try
         {
-            Dictionary<string, object?>? dictionary = null;
             string? series = null;
             foreach (var watch in subscription.Watches)
             {
                 var needsTags = watch.NeedsTags || subscription.Kind is InstrumentKind.ObservableCounter or InstrumentKind.ObservableUpDownCounter;
                 if (needsTags && dictionary is null)
                 {
-                    dictionary = new Dictionary<string, object?>(tags.Length, StringComparer.Ordinal);
+                    // One dictionary per thread, reused for every measurement (filters run synchronously and must not
+                    // keep it). Taken while in use, so a measurement recorded from inside a filter gets its own.
+                    dictionary = t_tags ?? new Dictionary<string, object?>(StringComparer.Ordinal);
+                    t_tags = null;
                     foreach (var tag in tags)
                     {
                         dictionary[tag.Key] = tag.Value;
@@ -123,7 +126,18 @@ internal sealed class MetricSignalDetector : ISignalDetector, IDisposable
         {
             // Never fail the instrumented code.
         }
+        finally
+        {
+            if (dictionary is not null)
+            {
+                dictionary.Clear();   // keeps no tag value alive
+                t_tags = dictionary;
+            }
+        }
     }
+
+    [ThreadStatic]
+    private static Dictionary<string, object?>? t_tags;
 
     private sealed record Subscription(MetricWatch[] Watches, InstrumentKind Kind);
 }

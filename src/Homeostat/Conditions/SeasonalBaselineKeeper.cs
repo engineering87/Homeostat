@@ -102,8 +102,8 @@ internal sealed class SeasonalBaselineKeeper : IHostedService, IAsyncDisposable
 
     public ValueTask DisposeAsync()
     {
+        // The semaphore is not disposed: a sync abandoned at shutdown may still release it later.
         _stopping?.Dispose();
-        _sync.Dispose();
         return ValueTask.CompletedTask;
     }
 

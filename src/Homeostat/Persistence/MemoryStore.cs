@@ -282,8 +282,9 @@ internal class MemoryStore : IHomeostatStore
                 return ValueTask.FromResult(false);
             }
 
-            var decision = renewal ? state.RenewedAt!.Value : state.At;
-            Decide(state.Name, decision > Decided(state.Name) ? decision : Decided(state.Name), () =>
+            // A renewal is not a decision: it keeps the claim alive, and must never make a person's later "off" look old.
+            var decision = renewal || state.At <= Decided(state.Name) ? Decided(state.Name) : state.At;
+            Decide(state.Name, decision, () =>
             {
                 _switches[state.Name] = state;
                 OnChanged();
@@ -294,23 +295,23 @@ internal class MemoryStore : IHomeostatStore
 
     /// <inheritdoc />
     public ValueTask<bool> TryReleaseSwitchAsync(string name, string condition, string? instance, DateTimeOffset decidedAt, CancellationToken cancellationToken = default)
-        => Release(name, condition, instance, decidedAt);
-
-    private ValueTask<bool> Release(string name, string condition, string? instance, DateTimeOffset? decidedAt)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(name);
         ArgumentException.ThrowIfNullOrWhiteSpace(condition);
         lock (_gate)
         {
+            // Refused when the condition claimed the switch again, or its owner renewed the claim, after the release was
+            // decided (an instance releasing an orphan as of the renewal it saw).
             if (!_switches.TryGetValue(name, out var current)
                 || !string.Equals(current.Condition, condition, StringComparison.Ordinal)
                 || (instance is not null && !string.Equals(current.Instance, instance, StringComparison.Ordinal))
-                || (decidedAt is { } at && !InOrder(at, Decided(name), lessAction: true)))
+                || !InOrder(decidedAt, Decided(name), lessAction: true)
+                || current.RenewedAt > decidedAt)
             {
                 return ValueTask.FromResult(false);
             }
 
-            Decide(name, decidedAt is { } when && when > Decided(name) ? when : Decided(name), () =>
+            Decide(name, decidedAt > Decided(name) ? decidedAt : Decided(name), () =>
             {
                 _switches.Remove(name);
                 OnChanged();

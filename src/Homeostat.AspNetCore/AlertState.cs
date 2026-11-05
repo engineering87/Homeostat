@@ -132,11 +132,15 @@ internal sealed class AlertState : IDisposable
             }
 
             // A firing series not confirmed within the time to live is dropped: some senders never resolve.
-            foreach (var key in source.Firing.Where(f => now - f.Value.ReceivedAt > _options.FiringTimeToLive).Select(f => f.Key).ToList())
+            // Removing while enumerating is allowed for Dictionary<TKey, TValue> since .NET Core 3.0: no copy needed.
+            foreach (var (key, firing) in source.Firing)
             {
-                source.Firing.Remove(key);
-                _firing--;
-                source.LastChange = now;
+                if (now - firing.ReceivedAt > _options.FiringTimeToLive)
+                {
+                    source.Firing.Remove(key);
+                    _firing--;
+                    source.LastChange = now;
+                }
             }
 
             if (source.Firing.Count == 0 && now - source.LastChange > _options.FiringTimeToLive)
@@ -146,13 +150,12 @@ internal sealed class AlertState : IDisposable
             }
 
             // Published under the lock, so a periodic publication never overtakes a newer one (TryPublish does not block).
-            _signals.TryPublish(Aggregate(name, source));
+            _signals.TryPublish(Aggregate(name, source, now));
         }
     }
 
-    private Signal Aggregate(string name, SourceState source)
+    private static Signal Aggregate(string name, SourceState source, DateTimeOffset now)
     {
-        var now = _timeProvider.GetUtcNow();
         if (source.Firing.Count == 0)
         {
             var tags = source.LastResolved is { } resolved
@@ -167,11 +170,20 @@ internal sealed class AlertState : IDisposable
             };
         }
 
-        // The worst series decides; among equals, the most recent one describes the signal.
-        var worst = source.Firing.Values
-            .OrderByDescending(f => f.Observation.Severity)
-            .ThenByDescending(f => f.ReceivedAt)
-            .First().Observation;
+        // The worst series decides; among equals, the most recent one describes the signal. One pass, no sort: a source
+        // can have up to MaxSeriesPerSource series and is aggregated at every change.
+        (AlertObservation Observation, DateTimeOffset ReceivedAt)? best = null;
+        foreach (var candidate in source.Firing.Values)
+        {
+            if (best is not { } current
+                || candidate.Observation.Severity > current.Observation.Severity
+                || candidate.Observation.Severity == current.Observation.Severity && candidate.ReceivedAt > current.ReceivedAt)
+            {
+                best = candidate;
+            }
+        }
+
+        var worst = best!.Value.Observation;
         var firingTags = new Dictionary<string, string>(worst.Tags, StringComparer.Ordinal)
         {
             ["status"] = "firing",

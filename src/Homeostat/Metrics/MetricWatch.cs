@@ -82,6 +82,8 @@ internal sealed class MetricWatch
 
     public int MinimumCount { get; }
 
+    private bool KeepsSamples => Statistic is MetricStatistic.P50 or MetricStatistic.P90 or MetricStatistic.P95 or MetricStatistic.P99;
+
     /// <summary>Whether recording needs the tags as a dictionary.</summary>
     public bool NeedsTags => Filters.Length > 0 || RatioMatch is not null;
 
@@ -102,26 +104,31 @@ internal sealed class MetricWatch
             }
         }
 
-        lock (_gate)
+        // Kept per kind (an up-down level, observable series) only for those kinds: the common case, a plain counter or a
+        // histogram, takes one lock per measurement.
+        if (kind != InstrumentKind.Other)
         {
-            _kind = kind;
-            switch (kind)
+            lock (_gate)
             {
-                case InstrumentKind.UpDownCounter:
-                    _level += value;
-                    break;
-
-                case InstrumentKind.ObservableCounter:
+                _kind = kind;
+                switch (kind)
                 {
-                    // Running total per series: count only the increment since the previous observation.
-                    var previous = Observe(series, value);
-                    value = value >= previous ? value - previous : value;   // a smaller total means a reset
-                    break;
-                }
+                    case InstrumentKind.UpDownCounter:
+                        _level += value;
+                        break;
 
-                case InstrumentKind.ObservableUpDownCounter:
-                    Observe(series, value);
-                    break;
+                    case InstrumentKind.ObservableCounter:
+                    {
+                        // Running total per series: count only the increment since the previous observation.
+                        var previous = Observe(series, value);
+                        value = value >= previous ? value - previous : value;   // a smaller total means a reset
+                        break;
+                    }
+
+                    case InstrumentKind.ObservableUpDownCounter:
+                        Observe(series, value);
+                        break;
+                }
             }
         }
 
@@ -145,6 +152,12 @@ internal sealed class MetricWatch
             if (matched)
             {
                 _matches++;
+            }
+
+            // Only percentiles need the values themselves.
+            if (!KeepsSamples)
+            {
+                return;
             }
 
             if (_samples.Count < MaxSamples)
@@ -173,16 +186,23 @@ internal sealed class MetricWatch
         double max;
         double last;
         double[] samples;
+        double level;
+        InstrumentKind kind;
+        bool seriesDropped;
 
         lock (_gate)
         {
+            level = _level;
+            kind = _kind;
+            seriesDropped = SeriesDropped;
+            SeriesDropped = false;   // reported for the interval in which it happened
             count = _count;
             matches = _matches;
             sum = _sum;
             min = _min;
             max = _max;
             last = _last;
-            samples = _samples.ToArray();
+            samples = _samples.Count == 0 ? [] : _samples.ToArray();
 
             _count = 0;
             _matches = 0;
@@ -194,7 +214,11 @@ internal sealed class MetricWatch
 
         // Every interval, so series that stopped reporting are forgotten whatever the statistic.
         var seriesTotal = SeriesTotal();
-        if (count < MinimumCount)
+
+        // The level of an up-down counter, or the latest observation, is known even in an interval without changes: a
+        // steady level (active connections that do not change) is still reported.
+        var levelKnown = Statistic == MetricStatistic.Last && kind != InstrumentKind.Other;
+        if (count < MinimumCount && !levelKnown)
         {
             return null;
         }
@@ -213,9 +237,9 @@ internal sealed class MetricWatch
             MetricStatistic.P90 => Percentile(samples, 0.90),
             MetricStatistic.P95 => Percentile(samples, 0.95),
             MetricStatistic.P99 => Percentile(samples, 0.99),
-            MetricStatistic.Last => _kind switch
+            MetricStatistic.Last => kind switch
             {
-                InstrumentKind.UpDownCounter => Volatile.Read(ref _level),
+                InstrumentKind.UpDownCounter => level,
                 InstrumentKind.ObservableCounter or InstrumentKind.ObservableUpDownCounter => seriesTotal,
                 _ => last,
             },
@@ -223,18 +247,10 @@ internal sealed class MetricWatch
             _ => sum / count,
         } * Scale;
 
-        var severity = SignalSeverity.Healthy;
-        if (UnhealthyAbove is { } ua && value >= ua || UnhealthyBelow is { } ub && value <= ub)
-        {
-            severity = SignalSeverity.Unhealthy;
-        }
-        else if (DegradedAbove is { } da && value >= da || DegradedBelow is { } db && value <= db)
-        {
-            severity = SignalSeverity.Degraded;
-        }
+        var severity = Thresholds.Severity(value, DegradedAbove, UnhealthyAbove, DegradedBelow, UnhealthyBelow);
 
         var text = value.ToString("G4", CultureInfo.InvariantCulture);
-        var capped = SeriesDropped ? $" More than {MaxSeries} tag combinations: further ones are not counted." : string.Empty;
+        var capped = seriesDropped ? $" More than {MaxSeries} tag combinations: further ones are not counted." : string.Empty;
         return new Signal(Source, severity, now)
         {
             Value = value,

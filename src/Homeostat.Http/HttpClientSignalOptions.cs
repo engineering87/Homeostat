@@ -41,6 +41,32 @@ public sealed class HttpClientSignalOptions
     /// </summary>
     public bool CountCancellationsAsFailures { get; set; } = true;
 
+    /// <summary>Throws when the settings could never produce a meaningful signal.</summary>
+    internal void Validate(string client)
+    {
+        if (IsFailure is null)
+        {
+            throw new ArgumentException($"HTTP signals of client '{client}': IsFailure must not be null.", nameof(IsFailure));
+        }
+
+        // Written as "not in range" so NaN is refused too.
+        if (DegradedFailureRatio is not (> 0 and <= 1) || UnhealthyFailureRatio is not (> 0 and <= 1) || DegradedFailureRatio > UnhealthyFailureRatio)
+        {
+            throw new ArgumentOutOfRangeException(nameof(DegradedFailureRatio),
+                $"HTTP signals of client '{client}': the failure ratios must be in (0, 1], the degraded one at most the unhealthy one.");
+        }
+
+        if (DegradedLatency is { } d && d <= TimeSpan.Zero || UnhealthyLatency is { } u && u <= TimeSpan.Zero)
+        {
+            throw new ArgumentOutOfRangeException(nameof(DegradedLatency), $"HTTP signals of client '{client}': latency thresholds must be positive.");
+        }
+
+        if (MinimumCalls < 1)
+        {
+            throw new ArgumentOutOfRangeException(nameof(MinimumCalls), $"HTTP signals of client '{client}': MinimumCalls must be at least 1.");
+        }
+    }
+
     /// <summary>
     /// Whether a gRPC response (content type <c>application/grpc</c>, through <c>Grpc.Net.Client</c> on an
     /// <see cref="HttpClient"/> from the factory) reports a failure of the service: gRPC answers HTTP 200 and puts the

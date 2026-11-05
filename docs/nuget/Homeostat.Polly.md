@@ -8,7 +8,7 @@ Polly v8 integration for Homeostat: the state of the circuit breakers you choose
 dotnet add package Homeostat.Polly --prerelease
 ```
 
-The current version is a release candidate (`1.0.0-rc.2`): `--prerelease` is needed until 1.0.0 is published.
+The current version is a release candidate (`1.0.0-rc.1`): `--prerelease` is needed until 1.0.0 is published.
 
 ## Example
 

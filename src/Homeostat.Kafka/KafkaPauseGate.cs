@@ -70,6 +70,11 @@ public sealed class KafkaPauseGate : IPausableConsumer
     public void Apply<TKey, TValue>(IConsumer<TKey, TValue> consumer, IReadOnlyCollection<TopicPartition>? pausedByApplication = null)
     {
         ArgumentNullException.ThrowIfNull(consumer);
+        if (!_pauseRequested && _paused.Count == 0)
+        {
+            return;   // the usual case, before every Consume: nothing to do, and no Assignment read (it copies the list)
+        }
+
         var assignment = consumer.Assignment;
 
         // Revoked partitions are no longer ours to resume.

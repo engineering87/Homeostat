@@ -527,6 +527,21 @@ public class DistributedTests
             Assert.True(await store.TrySetSwitchAsync("serve-cached", null, t0.AddSeconds(7)));
             Assert.False(await store.TrySetPauseAsync(null, t0.AddSeconds(3)));
             Assert.True(await store.TrySetPauseAsync(new PauseState { At = t0.AddSeconds(3) }, t0.AddSeconds(3)));
+
+            // A renewal is not a decision: a person's turn-off decided after the claim but before the renewal, written
+            // late, still applies.
+            static SwitchState Degrade(DateTimeOffset at, DateTimeOffset? renewedAt = null)
+                => new() { Name = "degrade", Condition = "feed-down", Instance = "a", At = at, RenewedAt = renewedAt };
+            Assert.True(await store.TryClaimSwitchAsync(Degrade(t0.AddSeconds(10))));
+            Assert.True(await store.TryClaimSwitchAsync(Degrade(t0.AddSeconds(10), t0.AddSeconds(40))));
+            Assert.True(await store.TrySetSwitchAsync("degrade", null, t0.AddSeconds(20)));
+            Assert.DoesNotContain((await store.GetControlStateAsync()).Switches, x => x.Name == "degrade");
+
+            // A release decided before the renewal it raced with is refused: the instance still holds the switch.
+            Assert.True(await store.TryClaimSwitchAsync(Degrade(t0.AddSeconds(50))));
+            Assert.True(await store.TryClaimSwitchAsync(Degrade(t0.AddSeconds(50), t0.AddSeconds(80))));
+            Assert.False(await store.TryReleaseSwitchAsync("degrade", "feed-down", "a", t0.AddSeconds(70)));
+            Assert.Contains((await store.GetControlStateAsync()).Switches, x => x.Name == "degrade");
         }
         finally
         {

@@ -27,6 +27,7 @@ public static class HomeostatHttpClientBuilderExtensions
 
         var clientName = builder.Name ?? throw new InvalidOperationException(
             "AddHomeostatSignals must be called on a named or typed client, not inside ConfigureHttpClientDefaults.");
+        options.Validate(clientName);
 
         // Calling this twice on the same client replaces the options but must not add a second handler,
         // otherwise every request would be counted twice.

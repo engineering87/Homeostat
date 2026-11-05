@@ -93,11 +93,11 @@ public static class HomeostatEndpointRouteBuilderExtensions
                 until = time.GetUtcNow() + duration;
             }
 
-            return StoreCallAsync(() => control.PauseAsync(until, UserName(user), ct));
+            return StoreCallAsync(() => control.PauseAsync(until, UserName(user), ct), ct);
         });
 
         group.MapPost("/resume", (IHomeostatControl control, ClaimsPrincipal user, CancellationToken ct)
-            => StoreCallAsync(() => control.ResumeAsync(UserName(user), ct)));
+            => StoreCallAsync(() => control.ResumeAsync(UserName(user), ct), ct));
 
         group.MapPost("/conditions/{name}/release", async (string name, IHomeostatControl control, CancellationToken ct) =>
         {
@@ -141,7 +141,7 @@ public static class HomeostatEndpointRouteBuilderExtensions
                     return Task.FromResult(HomeostatResults.BadRequest("'scope' must be 'application' (the default) or 'instance'."));
             }
 
-            return StoreCallAsync(() => switches.TurnOnAsync(name, target, UserName(user), ct));
+            return StoreCallAsync(() => switches.TurnOnAsync(name, target, UserName(user), ct), ct);
         });
 
         group.MapPost("/switches/{name}/off", (string name, IHomeostatSwitches switches, ClaimsPrincipal user, CancellationToken ct) =>
@@ -151,7 +151,7 @@ public static class HomeostatEndpointRouteBuilderExtensions
                 return Task.FromResult(Results.BadRequest());
             }
 
-            return StoreCallAsync(() => switches.TurnOffAsync(name, UserName(user), ct));
+            return StoreCallAsync(() => switches.TurnOffAsync(name, UserName(user), ct), ct);
         });
 
         return group;
@@ -239,7 +239,7 @@ public static class HomeostatEndpointRouteBuilderExtensions
     }
 
     /// <summary>A change kept in the store: <c>204</c>, or <c>503</c> when the store cannot be reached.</summary>
-    private static async Task<IResult> StoreCallAsync(Func<ValueTask> call)
+    private static async Task<IResult> StoreCallAsync(Func<ValueTask> call, CancellationToken cancellationToken)
     {
         try
         {
@@ -250,8 +250,9 @@ public static class HomeostatEndpointRouteBuilderExtensions
         {
             return Results.BadRequest();
         }
-        catch (Exception ex) when (ex is not OperationCanceledException)
+        catch (Exception) when (!cancellationToken.IsCancellationRequested)
         {
+            // Includes a store whose own client timed out (a TaskCanceledException): 503, not an unhandled 500.
             return StoreUnavailable();
         }
     }
@@ -288,16 +289,33 @@ public static class HomeostatEndpointRouteBuilderExtensions
         IReadOnlyList<RunInfo> runInfos = [];
         IReadOnlyList<PendingApproval> pending = [];
         string? storeError = null;
+        // The three reads together (the dashboard polls this), each kept if it succeeds.
+        var pendingRead = StoreCall.Run(() => approvals.GetPendingAsync(cancellationToken), StoreTimeout, cancellationToken);
+        var budgetRead = StoreCall.Run(() => control.GetBudgetAsync(cancellationToken), StoreTimeout, cancellationToken);
+        var runsRead = StoreCall.Run(() => control.GetRecentRunsAsync(cancellationToken), StoreTimeout, cancellationToken);
         try
         {
-            pending = await StoreCall.Run(() => approvals.GetPendingAsync(cancellationToken), StoreTimeout, cancellationToken);
-            var budget = await StoreCall.Run(() => control.GetBudgetAsync(cancellationToken), StoreTimeout, cancellationToken);
-            budgetStatus = new BudgetStatus(budget.Used, budget.Limit, budget.Remaining, budget.Window.TotalSeconds);
-            runInfos = (await StoreCall.Run(() => control.GetRecentRunsAsync(cancellationToken), StoreTimeout, cancellationToken)).Select(RunInfo.From).ToArray();
+            await Task.WhenAll(pendingRead, budgetRead, runsRead).ConfigureAwait(false);
         }
         catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
         {
             storeError = ex.Message;
+        }
+
+        if (pendingRead.IsCompletedSuccessfully)
+        {
+            pending = pendingRead.Result;
+        }
+
+        if (budgetRead.IsCompletedSuccessfully)
+        {
+            var budget = budgetRead.Result;
+            budgetStatus = new BudgetStatus(budget.Used, budget.Limit, budget.Remaining, budget.Window.TotalSeconds);
+        }
+
+        if (runsRead.IsCompletedSuccessfully)
+        {
+            runInfos = runsRead.Result.Select(RunInfo.From).ToArray();
         }
 
         var status = new HomeostatStatus(
@@ -338,9 +356,10 @@ public static class HomeostatEndpointRouteBuilderExtensions
         DateTimeOffset from;
         if (since is not null)
         {
-            if (!DateTimeOffset.TryParse(since, System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.AssumeUniversal, out from))
+            if (!DateTimeOffset.TryParse(since, System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.AssumeUniversal, out from)
+                || from > now || now - from > TimeSpan.FromDays(365))
             {
-                return HomeostatResults.BadRequest("'since' must be a date and time, for example 2026-11-02T08:00:00Z.");
+                return HomeostatResults.BadRequest("'since' must be a date and time within the last 365 days, for example 2026-11-02T08:00:00Z.");
             }
         }
         else if (last is not null)

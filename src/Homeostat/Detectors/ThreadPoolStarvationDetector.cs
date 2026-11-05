@@ -49,7 +49,7 @@ internal sealed class ThreadPoolStarvationDetector : ISignalDetector
         // Do not wait forever on a starved pool: past twice the unhealthy threshold the answer is clear.
         using (var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken))
         {
-            var giveUp = Task.Delay(_options.UnhealthyLatency * 2, cts.Token);
+            var giveUp = Task.Delay(Guardrails.TimerLimits.Clamp(_options.UnhealthyLatency * 2), cts.Token);
             await Task.WhenAny(ranAt.Task, giveUp).ConfigureAwait(false);
             cts.Cancel();
         }

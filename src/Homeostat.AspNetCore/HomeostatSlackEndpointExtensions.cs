@@ -110,7 +110,7 @@ public static class HomeostatSlackEndpointExtensions
         {
             logger.LogWarning("Slack user {User} ({UserId}) is not allowed to answer approval {ApprovalId}.", action.UserName, action.UserId, action.ApprovalId);
             reply = $"<@{action.UserId}> is not allowed to answer Homeostat approval requests.";
-            await RespondAsync(http, action.ResponseUrl, reply, replaceOriginal: false, logger);
+            Respond(http, action.ResponseUrl, reply, replaceOriginal: false, logger);
             return Results.Ok();
         }
 
@@ -126,7 +126,7 @@ public static class HomeostatSlackEndpointExtensions
         catch (Exception ex) when (!http.RequestAborted.IsCancellationRequested)
         {
             logger.LogError(ex, "Slack answer to approval {ApprovalId} not recorded: the Homeostat store is unavailable.", action.ApprovalId);
-            await RespondAsync(http, action.ResponseUrl, "Homeostat cannot record the answer now (its store is unavailable). Try again.", replaceOriginal: false, logger);
+            Respond(http, action.ResponseUrl, "Homeostat cannot record the answer now (its store is unavailable). Try again.", replaceOriginal: false, logger);
             return Results.Ok();
         }
 
@@ -135,7 +135,7 @@ public static class HomeostatSlackEndpointExtensions
             : "This approval request is no longer pending (answered, expired or withdrawn).";
         logger.LogInformation("Slack user {User} {Decision} approval {ApprovalId}: {Result}.",
             action.UserName, action.Approve ? "approved" : "rejected", action.ApprovalId, answered ? "done" : "not pending");
-        await RespondAsync(http, action.ResponseUrl, reply, replaceOriginal: answered, logger);
+        Respond(http, action.ResponseUrl, reply, replaceOriginal: answered, logger);
         return Results.Ok();
     }
 
@@ -188,7 +188,11 @@ public static class HomeostatSlackEndpointExtensions
         return CryptographicOperations.FixedTimeEquals(expected, Encoding.ASCII.GetBytes(signature));
     }
 
-    private static async Task RespondAsync(HttpContext http, Uri? responseUrl, string text, bool replaceOriginal, ILogger logger)
+    /// <summary>
+    /// Posts the reply to the message's response URL in the background: the endpoint answers Slack at once (it expects
+    /// an answer within 3 seconds), whatever the time the store took.
+    /// </summary>
+    private static void Respond(HttpContext http, Uri? responseUrl, string text, bool replaceOriginal, ILogger logger)
     {
         // Slack response URLs are always on hooks.slack.com (hooks.slack-gov.com for GovSlack); refuse anything else, so a forged payload cannot make the
         // application call arbitrary addresses (the signature already makes forging hard).
@@ -197,24 +201,26 @@ public static class HomeostatSlackEndpointExtensions
             return;
         }
 
-        try
+        var client = http.RequestServices.GetService<IHttpClientFactory>()?.CreateClient("Homeostat.Slack") ?? SharedClient;
+        var payload = new JsonObject
         {
-            var client = http.RequestServices.GetService<IHttpClientFactory>()?.CreateClient("Homeostat.Slack") ?? SharedClient;
-            var payload = new JsonObject
+            ["text"] = text,
+            ["replace_original"] = replaceOriginal,
+            ["response_type"] = replaceOriginal ? "in_channel" : "ephemeral",
+        }.ToJsonString();
+        _ = Task.Run(async () =>
+        {
+            try
             {
-                ["text"] = text,
-                ["replace_original"] = replaceOriginal,
-                ["response_type"] = replaceOriginal ? "in_channel" : "ephemeral",
-            }.ToJsonString();
-            using var content = new StringContent(payload, Encoding.UTF8, "application/json");
-            using var cts = CancellationTokenSource.CreateLinkedTokenSource(http.RequestAborted);
-            cts.CancelAfter(TimeSpan.FromSeconds(2)); // Slack expects an answer within 3 seconds.
-            using var response = await client.PostAsync(responseUrl, content, cts.Token);
-        }
-        catch (Exception ex) when (ex is HttpRequestException or OperationCanceledException)
-        {
-            logger.LogDebug(ex, "Updating the Slack message failed.");
-        }
+                using var content = new StringContent(payload, Encoding.UTF8, "application/json");
+                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+                using var response = await client.PostAsync(responseUrl, content, cts.Token).ConfigureAwait(false);
+            }
+            catch (Exception ex) when (ex is HttpRequestException or OperationCanceledException)
+            {
+                logger.LogDebug(ex, "Updating the Slack message failed.");
+            }
+        }, CancellationToken.None);
     }
 
     /// <summary>A click on an Approve or Reject button.</summary>

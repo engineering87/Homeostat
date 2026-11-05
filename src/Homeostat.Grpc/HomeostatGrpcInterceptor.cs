@@ -170,22 +170,35 @@ public sealed class HomeostatGrpcInterceptor : Interceptor
 
         public async Task<bool> MoveNext(CancellationToken cancellationToken)
         {
+            bool more;
             try
             {
-                var more = await inner.MoveNext(cancellationToken).ConfigureAwait(false);
-                if (!more)
-                {
-                    // The stream ended: the final status (from the trailers) is available now.
-                    call.Complete(status().StatusCode);
-                }
-
-                return more;
+                more = await inner.MoveNext(cancellationToken).ConfigureAwait(false);
             }
             catch (Exception ex)
             {
                 call.Fail(ex);
                 throw;
             }
+
+            if (!more)
+            {
+                // The stream ended: the final status (from the trailers) is available now. Reading it must not turn
+                // the caller's normal end of stream into an exception.
+                StatusCode final;
+                try
+                {
+                    final = status().StatusCode;
+                }
+                catch (InvalidOperationException)
+                {
+                    final = StatusCode.Unknown;
+                }
+
+                call.Complete(final);
+            }
+
+            return more;
         }
     }
 }

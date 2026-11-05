@@ -5,10 +5,10 @@
 ## Install
 
 ```bash
-dotnet new install Homeostat.Templates::1.0.0-rc.2
+dotnet new install Homeostat.Templates::1.0.0-rc.1
 ```
 
-The current version is a release candidate: name it explicitly (`::1.0.0-rc.2`) until 1.0.0 is published, then `dotnet new install Homeostat.Templates` is enough.
+The current version is a release candidate: name it explicitly (`::1.0.0-rc.1`) until 1.0.0 is published, then `dotnet new install Homeostat.Templates` is enough.
 
 ## Example
 

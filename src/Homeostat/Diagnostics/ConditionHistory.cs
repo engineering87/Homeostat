@@ -123,7 +123,9 @@ internal sealed class ConditionHistory : IHostedService
         IReadOnlyList<ConditionEventRecord> stored;
         try
         {
-            stored = await _store.GetConditionEventsAsync(_options.ConditionHistorySize, cancellationToken).ConfigureAwait(false);
+            stored = await Engine.SharedControl.Bounded(
+                () => _store.GetConditionEventsAsync(_options.ConditionHistorySize, cancellationToken),
+                Engine.SharedControl.ReadTimeout, cancellationToken).ConfigureAwait(false);
         }
         catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
         {
@@ -131,16 +133,20 @@ internal sealed class ConditionHistory : IHostedService
             return recent;
         }
 
-        var missing = recent.Where(r => !stored.Any(s => Same(s, r)));
+        // This instance's events the store does not have yet (one lookup, not a scan per event).
+        var known = stored.Select(Key).ToHashSet();
+        var missing = recent.Where(r =>
+        {
+            var (condition, kind, instance, ms) = Key(r);
+            return !known.Contains((condition, kind, instance, ms)) && !known.Contains((condition, kind, instance, ms - 1))
+                && !known.Contains((condition, kind, instance, ms + 1));
+        });
         return [.. stored.Concat(missing).OrderByDescending(e => e.At).Take(_options.ConditionHistorySize)];
     }
 
-    /// <summary>The same event, read back from a store that may round timestamps to the millisecond.</summary>
-    internal static bool Same(ConditionEventRecord a, ConditionEventRecord b)
-        => a.Kind == b.Kind
-            && (a.At - b.At).Duration() < TimeSpan.FromMilliseconds(1)
-            && string.Equals(a.ConditionName, b.ConditionName, StringComparison.Ordinal)
-            && string.Equals(a.Instance, b.Instance, StringComparison.Ordinal);
+    // The identity of an event, at the millisecond (a store may round timestamps to it).
+    private static (string Condition, ConditionEventKind Kind, string? Instance, long Milliseconds) Key(ConditionEventRecord e)
+        => (e.ConditionName, e.Kind, e.Instance, e.At.UtcTicks / TimeSpan.TicksPerMillisecond);
 
     private async Task WriteLoopAsync()
     {

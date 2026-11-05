@@ -59,12 +59,13 @@ public static class RestartGuard
                 "restarting now could loop. Escalate instead.");
         }
 
-        // One counter per application and fixed window of the configured length, shared by the instances through the
-        // store (ConsecutiveFailures is the count). The restart is counted first, atomically, and allowed only if the count
-        // it got plus the previous window's stays within the limit: any period of one window length lies within two
-        // consecutive windows, so it never holds more than MaxRestarts restarts, and when every replica of a fleet tries
-        // at the same moment at most MaxRestarts of them restart. No counter is ever reset, so no reset can race with a
-        // count. A refused attempt also counts, which only makes the limit stricter.
+        // Counted per application and fixed window of the configured length, shared by the instances through the store
+        // (ConsecutiveFailures is the count). Each attempt is counted first, atomically, and allowed only if the attempts
+        // of this window so far plus the restarts allowed in the previous one stay within the limit: any period of one
+        // window length lies within two consecutive windows, so it never holds more than MaxRestarts restarts, and when
+        // every replica of a fleet tries at the same moment at most MaxRestarts of them restart. No counter is ever reset,
+        // so no reset can race with a count. Refused attempts count against their own window only (the next window looks
+        // at the restarts allowed), so a condition that keeps trying cannot block restarts for good.
         var store = services.GetRequiredService<IHomeostatStore>();
         if (store is InMemoryHomeostatStore)
         {
@@ -75,11 +76,16 @@ public static class RestartGuard
 
         var application = services.GetRequiredService<IOptions<HomeostatOptions>>().Value.ApplicationName;
         var window = now.UtcTicks / limits.Window.Ticks;
-        string Key(long index) => $"restarts/{application}/{index.ToString(System.Globalization.CultureInfo.InvariantCulture)}";
+        string Key(string what, long index) => $"restarts/{application}/{what}/{index.ToString(System.Globalization.CultureInfo.InvariantCulture)}";
+        var increment = new PlanStateUpdate { Failures = FailureCountChange.Increment };
 
-        var counted = await store.UpdatePlanStateAsync(Key(window), new PlanStateUpdate { Failures = FailureCountChange.Increment }, cancellationToken).ConfigureAwait(false);
-        var previous = await store.GetPlanStateAsync(Key(window - 1), cancellationToken).ConfigureAwait(false);
-        if (counted.ConsecutiveFailures + previous.ConsecutiveFailures > limits.MaxRestarts)
+        var attempts = await store.UpdatePlanStateAsync(Key("attempts", window), increment, cancellationToken).ConfigureAwait(false);
+        var allowedBefore = await store.GetPlanStateAsync(Key("allowed", window - 1), cancellationToken).ConfigureAwait(false);
+        if (attempts.ConsecutiveFailures + allowedBefore.ConsecutiveFailures <= limits.MaxRestarts)
+        {
+            await store.UpdatePlanStateAsync(Key("allowed", window), increment, cancellationToken).ConfigureAwait(false);
+        }
+        else
         {
             throw new InvalidOperationException(
                 $"The application already restarted {limits.MaxRestarts} times in the last {limits.Window.TotalMinutes:0.#} minutes " +

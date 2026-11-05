@@ -124,7 +124,10 @@ on until someone turns it off, pass `false`:
 In a `OncePerCluster()` plan the step turns on an **application** switch, on every instance, owned by the condition:
 it is turned off when the condition clears on the instance that ran the plan (the one whose recovery the plan
 waited for). If that instance stops or crashes first, the switch is no longer renewed, and any instance where the
-condition is not active turns it off within a minute or so. A switch a person turned on is never taken over. An
+condition is not active turns it off within a minute or so (at once if it stopped cleanly). One edge case: an instance
+that restarts with the same `InstanceId` and claims the switch again within a few seconds (a plan with almost no
+cooldown) may see it released once by another instance; its next run claims it again. A switch a person turned on is
+never taken over. An
 application switch has one owner: when two conditions with cluster plans turn on the same switch, the first one owns it,
 and it goes off when that condition clears even if the other is still active (the other's step reports success, as
 the switch is on). Give each condition its own switch when they must hold it independently. In other plans it turns on

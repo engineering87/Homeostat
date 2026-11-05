@@ -54,7 +54,7 @@ internal sealed class HomeostatConsumers : IHomeostatConsumers, IDisposable
     {
         foreach (var entry in _consumers.Values)
         {
-            if (string.Equals(ConsumerSwitches.Paused(entry.Consumer.Name), e.Name, StringComparison.Ordinal))
+            if (string.Equals(entry.SwitchName, e.Name, StringComparison.Ordinal))
             {
                 entry.Last = Apply(entry);
             }
@@ -75,7 +75,7 @@ internal sealed class HomeostatConsumers : IHomeostatConsumers, IDisposable
         try
         {
             var consumer = entry.Consumer;
-            var paused = _switches.IsOn(ConsumerSwitches.Paused(consumer.Name));
+            var paused = _switches.IsOn(entry.SwitchName);
             if (paused == entry.Paused || !_consumers.ContainsKey(consumer))
             {
                 entry.Failures = 0;
@@ -155,6 +155,9 @@ internal sealed class HomeostatConsumers : IHomeostatConsumers, IDisposable
     private sealed class Entry(IPausableConsumer consumer)
     {
         public IPausableConsumer Consumer { get; } = consumer;
+
+        /// <summary>The switch that pauses it, named once (looked for on every switch change).</summary>
+        public string SwitchName { get; } = ConsumerSwitches.Paused(consumer.Name);
 
         public SemaphoreSlim Gate { get; } = new(1, 1);
 

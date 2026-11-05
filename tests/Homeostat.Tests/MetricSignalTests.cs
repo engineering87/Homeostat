@@ -169,6 +169,9 @@ public class MetricSignalTests
     {
         Assert.Throws<InvalidOperationException>(() => new ServiceCollection().AddHomeostat(h => h.AddMetricSignal("x", _ => { })));
         Assert.Throws<InvalidOperationException>(() => new ServiceCollection().AddHomeostat(h => h.AddMetricSignal("x", m => m.Statistic(MetricStatistic.Ratio).UnhealthyAbove(1))));
+
+        // RatioOf then another statistic: the match would be silently ignored.
+        Assert.Throws<InvalidOperationException>(() => new ServiceCollection().AddHomeostat(h => h.AddMetricSignal("x", m => m.RatioOf((_, _) => true).Statistic(MetricStatistic.P95).UnhealthyAbove(1))));
     }
 
     [Fact]

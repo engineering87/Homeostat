@@ -10,6 +10,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Time.Testing;
 
 namespace Homeostat.Tests;
@@ -47,6 +48,56 @@ public class ReliabilityGapTests
         })));
 
         Assert.Equal(3, attempts.Count(allowed => allowed));
+    }
+
+    [Fact]
+    public async Task Refused_restarts_do_not_block_the_windows_after_them()
+    {
+        var time = new FakeTimeProvider(DateTimeOffset.Parse("2026-11-05T10:00:00Z"));
+        var collection = new ServiceCollection().AddLogging().AddSingleton<TimeProvider>(time);
+        collection.AddHomeostat();
+        await using var services = collection.BuildServiceProvider();
+        time.Advance(TimeSpan.FromHours(1));
+        var limits = new RestartLimits(TimeSpan.Zero, MaxRestarts: 3, TimeSpan.FromHours(1));
+
+        async Task<int> AllowedOf(int attempts)
+        {
+            var context = new HealingContext("pool-exhausted", new Signal("pool", SignalSeverity.Unhealthy, time.GetUtcNow()), 0, "restart",
+                time.GetUtcNow(), services, () => throw new NotSupportedException());
+            var allowed = 0;
+            for (var i = 0; i < attempts; i++)
+            {
+                try
+                {
+                    await RestartGuard.EnsureAllowedAsync(context, limits, CancellationToken.None);
+                    allowed++;
+                }
+                catch (InvalidOperationException)
+                {
+                }
+            }
+
+            return allowed;
+        }
+
+        Assert.Equal(3, await AllowedOf(5));
+        time.Advance(TimeSpan.FromHours(1));
+        Assert.Equal(0, await AllowedOf(5));   // the previous window already used the limit
+        time.Advance(TimeSpan.FromHours(1));
+        Assert.Equal(3, await AllowedOf(5));   // the refused attempts of the last window do not count
+    }
+
+    [Fact]
+    public async Task A_condition_that_cleared_and_counts_again_is_healed_for_the_verifier()
+    {
+        var time = new FakeTimeProvider(DateTimeOffset.Parse("2026-11-05T10:00:00Z"));
+        await using var services = new ServiceCollection().BuildServiceProvider();
+        var context = new HealingContext("pool-exhausted", new Signal("pool", SignalSeverity.Unhealthy, time.GetUtcNow()), 0, "restart",
+            time.GetUtcNow(), services, () => new ConditionSnapshot { Name = "pool-exhausted", Status = ConditionStatus.Pending });
+        var verifier = new ConditionClearedVerifier(time, Options.Create(new HomeostatOptions()));
+
+        // Pending after an action: the episode the action fixed is over (a new one has started counting).
+        Assert.Equal(VerificationOutcome.Healed, await verifier.VerifyAsync(context, TimeSpan.FromMinutes(1), CancellationToken.None));
     }
 
     [Fact]

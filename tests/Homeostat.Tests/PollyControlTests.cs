@@ -124,6 +124,14 @@ public class PollyControlTests
         time.Advance(TimeSpan.FromSeconds(1));   // decisions are ordered by time: a turn-on does not win a tie
         switches.TurnOn("chaos:geocoder");
         Assert.Throws<TimeoutException>(() => pipeline.Execute(() => 1));
+
+        // Off and on again with no call in between: still another round.
+        time.Advance(TimeSpan.FromMinutes(21));
+        Assert.Equal(1, pipeline.Execute(() => 1));
+        switches.TurnOff("chaos:geocoder");
+        time.Advance(TimeSpan.FromSeconds(1));
+        switches.TurnOn("chaos:geocoder");
+        Assert.Throws<TimeoutException>(() => pipeline.Execute(() => 1));
     }
 
     [Fact]

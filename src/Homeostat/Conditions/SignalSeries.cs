@@ -62,9 +62,10 @@ internal sealed class SignalSeries(TimeSpan window)
         }
 
         var largestExpired = 0d;
-        if (Count >= 2 && signal.Timestamp - _points[^2].At < _spacing)
+        if (Count >= 2 && signal.Timestamp >= _points[^1].At && signal.Timestamp - _points[^2].At < _spacing)
         {
-            // Too close to the point before the latest: the latest is replaced instead of a new point added.
+            // Too close to the point before the latest: the latest is replaced instead of a new point added (only by a
+            // newer one: a signal that arrives out of order never replaces the latest).
             Accumulate(_points[^1], -1);
             largestExpired = Math.Abs(_points[^1].Value - _shift);
             _points[^1] = (signal.Timestamp, value);

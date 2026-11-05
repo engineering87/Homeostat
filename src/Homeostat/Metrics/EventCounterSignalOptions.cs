@@ -20,27 +20,19 @@ public sealed class EventCounterSignalOptions
     /// <summary>Turns the counter value into the signal value, for example a share of a maximum.</summary>
     public Func<double, double>? Transform { get; set; }
 
-    /// <summary>The signal is Degraded when the value is above this threshold.</summary>
+    /// <summary>The signal is Degraded when the value is at or above this threshold.</summary>
     public double? DegradedAbove { get; set; }
 
-    /// <summary>The signal is Unhealthy when the value is above this threshold.</summary>
+    /// <summary>The signal is Unhealthy when the value is at or above this threshold.</summary>
     public double? UnhealthyAbove { get; set; }
 
-    /// <summary>The signal is Degraded when the value is below this threshold.</summary>
+    /// <summary>The signal is Degraded when the value is at or below this threshold.</summary>
     public double? DegradedBelow { get; set; }
 
-    /// <summary>The signal is Unhealthy when the value is below this threshold.</summary>
+    /// <summary>The signal is Unhealthy when the value is at or below this threshold.</summary>
     public double? UnhealthyBelow { get; set; }
 
-    internal SignalSeverity SeverityOf(double value)
-    {
-        if (value > UnhealthyAbove || value < UnhealthyBelow)
-        {
-            return SignalSeverity.Unhealthy;
-        }
-
-        return value > DegradedAbove || value < DegradedBelow ? SignalSeverity.Degraded : SignalSeverity.Healthy;
-    }
+    internal SignalSeverity SeverityOf(double value) => Thresholds.Severity(value, DegradedAbove, UnhealthyAbove, DegradedBelow, UnhealthyBelow);
 }
 
 internal sealed record EventCounterRegistration(string EventSource, string Counter, string Source, EventCounterSignalOptions Options);

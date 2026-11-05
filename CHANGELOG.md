@@ -8,116 +8,15 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 Nothing yet.
 
-## [1.0.0-rc.2] - 2026-11-04
-
-Second release candidate. Failure isolation: Homeostat, or its store, failing must never block the application or leave
-it degraded, and what Homeostat keeps in memory does not grow with the load. The public API changes are additive
-(new members, optional parameters), except the control state of `IHomeostatStore`, now written in decision order: a
-custom store implements `TrySetPauseAsync`, `TrySetSwitchAsync` and `TryReleaseSwitchAsync` with `decidedAt` instead of
-`SetPauseAsync`, `SetSwitchAsync` and the release without it (see
-[Writing your own store](docs/persistence-and-clusters.md#writing-your-own-store)).
-
-### Added
-
-- `HoldAtMost(maximum)` after `TurnOnSwitch` (and the steps built on it, such as `PauseConsumer`), and the
-  `HoldAtMost` step key in configuration: the switch is turned off after that time even if the condition never
-  clears, for actions whose effect can keep their own condition active.
-- `SwitchState.RenewedAt`: the instance that turned on a switch for a cluster plan renews it; when that instance
-  stops or crashes, another instance turns the switch off as soon as the condition is not active there.
-- The pause and the switches are written in decision order: `IHomeostatStore.TrySetPauseAsync` and `TrySetSwitchAsync`
-  replace `SetPauseAsync` and `SetSwitchAsync`, and `TryReleaseSwitchAsync` takes the time the release was decided.
-  Every write carries the time of its decision, and the store refuses one older than the latest decision about the same
-  pause or switch, so a write that timed out on the instance but reached the store later cannot undo a newer decision
-  (a switch turned back on after it was turned off, a pause ended by an older resume). On a tie, a decision that makes
-  Homeostat do less wins. `TryClaimSwitchAsync` follows the same order, and a renewal only updates the claim it renews.
-  The built-in stores implement it; the Redis store adds the `{control}:decided` hash (microseconds).
-- `ChaosEnabledBySwitch(switchName, maximumDuration)`: chaos stops by itself one hour (by default) after its switch
-  was first seen on, so a game day nobody ended does not keep degrading the application.
-- `AddConditionsFromConfiguration(section, failOnInvalid)`: by default an invalid condition in configuration is
-  logged as critical and skipped instead of stopping the application.
-
-### Changed
-
-- With the store unavailable, changes that make Homeostat do less (pause, turning a switch off, releasing a switch
-  it turned on) apply at once on the instance and are written when the store answers again; changes that would let
-  it act (resume, turning a switch on) still fail, with `503` from the endpoints.
-- Every wait on the store is bounded and runs off the caller's thread, so a store with synchronous or never-ending
-  calls cannot block startup, shutdown, a request, the health check (one second at most) or a Slack or Teams command.
-- The file store opens lazily: a file locked by another process no longer stops the application; Homeostat fails
-  closed and tries again every 10 seconds.
-- Redis: the connection is resolved on first use and again after a failure, so a Redis server that is down at
-  startup no longer stops the application.
-- A compensating action (`UndoWith`) is never blocked by the pause, maintenance windows or the action budget, and runs
-  after a step that timed out (it may have half-applied); it does not run after an action that refused.
-- An action or compensating action abandoned at its timeout and still running is not started again until it ends,
-  so a blocked action cannot exhaust the thread pool.
-- Paused consumers: a pause that timed out leaves the state unknown, so the consumer is resumed when the condition
-  clears; calls to the same consumer never overlap.
-- `RestartHostedService` starts the service again even if stopping it failed or timed out.
-- Restart limits are counted atomically in the store; the in-memory store logs a warning that they reset with the
-  process.
-- Kubernetes `RestartPod` evicts the pod (respecting PodDisruptionBudgets; `429` is reported as such) instead of
-  deleting it. The RBAC rule needs `create` on `pods/eviction`.
-- Service Bus: resume restarts only a processor Homeostat stopped, not one the application stopped or closed. Kafka:
-  `KafkaPauseGate.Apply` takes the partitions the application paused, which it never resumes.
-- The `Homeostat.Switch` feature filter never throws: invalid parameters are logged once and the feature is enabled.
-- Detectors: a detector that hangs is skipped until its call returns, instead of piling up calls; failures are logged
-  once and then at debug level while they continue.
-- Call and HTTP counters saturate instead of overflowing.
-- Bounded memory whatever the load: each alert source tracks at most 1,000 firing series (10,000 in all), an
-  observable metric at most 10,000 tag combinations, and a trend, projection or anomaly window about 8,192 points (a
-  faster source keeps the latest value of each interval). See [Performance](docs/performance.md#memory).
-- MongoDB: a closed client no longer counts toward the deployment's state.
-- A pause or a switch turned off applies to the instance before the store is even tried, never waits behind a slow
-  refresh, and is not lost when the caller gives up (an aborted request); deferred changes are written in parallel.
-  A resume that fails no longer drops a pause still waiting to be written. The control endpoints wait up to 15
-  seconds, longer than a store write, so a deferred change answers `204`.
-- A switch claimed by a cluster plan after its step timed out is released instead of staying on unowned; a renewal
-  that races with a release no longer turns the switch back on.
-- If the engine stops unexpectedly, the switches its conditions turned on are turned off.
-- Approval requests are withdrawn off the engine loop, and every store call of a healing run and of the approvals is
-  bounded. The periodic refresh and the health check never start a second read while one abandoned at its timeout
-  still runs.
-- A verifier abandoned at its timeout and still running is not started again.
-- `RestartHostedService` waits a bounded time for a stop that ignores its token, and does not start the service
-  again while the application is stopping.
-- Restart limits are counted in fixed windows, the current one and the previous one together, with no counter ever
-  reset: when every replica restarted at the same moment, a reset racing with a count could let one restart too many.
-- An orphaned cluster switch is released only as of the renewal the sweeping instance saw: one renewed since by its
-  owner stays on. Renewals only update a claim still held by the same instance.
-- The services of a step are disposed only once an action or a verifier abandoned at its timeout has ended, also when
-  the application stops.
-- Shared control state, after a third review: a release deferred during an outage is no longer dropped by a failed
-  refresh; a pause made while a resume is being written stands (the same for turning a switch off while it is being
-  turned on); a resume or a turn-on that times out is decided again in the safe direction, so a write the store runs
-  late cannot undo what the caller was told; read-backs are coalesced, so a burst of changes on a slow store does not
-  hold the periodic refresh; one renewal at a time per switch; the Redis store renews only the claim it was made for.
-- Cluster leases: acquiring is bounded, and a lease that arrives after Homeostat stopped waiting is released at once;
-  releasing is bounded. `IHomeostatControl.ReleaseHoldAsync`, `GetRecentRunsAsync` and `GetBudgetAsync` are bounded too.
-- The HTTP handler of `AddHomeostatSignals` allocates nothing when the response is already there.
-- CI: the `Integration` workflow tests Kafka (statistics signals, pause gate), MongoDB (ping and primary signals),
-  RabbitMQ and Artemis (queue signals) and the Service Bus emulator (pausable processor) against real servers in
-  containers (`tests/Homeostat.IntegrationTests`), and the `kubernetes` job of the CI workflow the Kubernetes actions on
-  a kind cluster with the documented Role.
-- Kubernetes `ScaleDeployment` reads the scale again and retries (up to 4 attempts) when the conditional update
-  answers `409`, as it often does while the deployment is rolling out; found by the new kind job.
-- Shared control state, after a second review: a claim refused by the store no longer drops a pending switch-off; a
-  change that lets Homeostat act shows at once on the instance and never flaps back while older reads complete, and its
-  caller no longer waits behind a slow refresh; a person's turn-on is always written; a hold limit (`HoldAtMost`) only
-  ends the claim it was set for; pending changes are written even while the state cannot be read, one write at a time
-  per change; a file store that cannot save no longer keeps the decision time of the change it undid; the Redis store
-  skips approval records without a request instead of failing the whole read.
-- A pausable consumer that blocks before returning its task no longer holds its gate beyond the timeout.
-- Seasonal baselines and the signal recorder no longer delay or fail shutdown when the store does not answer.
-
-## [1.0.0-rc.1] - 2026-11-02
+## [1.0.0-rc.1] - 2026-11-05
 
 First release candidate of Homeostat, a self-healing library for .NET 10 applications. Homeostat turns health
 information (detectors, metrics, probes, health checks, broker and cloud statistics, external alerts) into signals,
 evaluates them against conditions, and runs healing plans with verification, escalation and human approval when a
 condition becomes active. Every action runs behind guardrails: dry-run by default, budgets, cooldowns, a kill switch
-and persistent state shared across instances. The public API is now listed and checked, and is expected to stay
-stable through 1.0.0.
+and persistent state shared across instances. Homeostat failing, or its store, never blocks the application or leaves it
+degraded, and what it keeps in memory does not grow with the load. The public API is now listed and checked, and is
+expected to stay stable through 1.0.0.
 
 ### Added
 
@@ -378,6 +277,113 @@ All actions require approval by default.
   recipes, FAQ and troubleshooting, design notes, roadmap, versioning, platforms, security hardening and a package
   index.
 
+#### Failure isolation and resource limits
+
+- `HoldAtMost(maximum)` after `TurnOnSwitch` (and the steps built on it, such as `PauseConsumer`), and the
+  `HoldAtMost` step key in configuration: the switch is turned off after that time even if the condition never
+  clears, for actions whose effect can keep their own condition active.
+- `SwitchState.RenewedAt`: the instance that turned on a switch for a cluster plan renews it; when that instance
+  stops or crashes, another instance turns the switch off as soon as the condition is not active there.
+- The pause and the switches are written in decision order: `IHomeostatStore.TrySetPauseAsync` and `TrySetSwitchAsync`
+  replace `SetPauseAsync` and `SetSwitchAsync`, and `TryReleaseSwitchAsync` takes the time the release was decided.
+  Every write carries the time of its decision, and the store refuses one older than the latest decision about the same
+  pause or switch, so a write that timed out on the instance but reached the store later cannot undo a newer decision
+  (a switch turned back on after it was turned off, a pause ended by an older resume). On a tie, a decision that makes
+  Homeostat do less wins. `TryClaimSwitchAsync` follows the same order, and a renewal only updates the claim it renews.
+  The built-in stores implement it; the Redis store adds the `{control}:decided` hash (microseconds).
+- `ChaosEnabledBySwitch(switchName, maximumDuration)`: chaos stops by itself one hour (by default) after its switch
+  was first seen on, so a game day nobody ended does not keep degrading the application.
+- `AddConditionsFromConfiguration(section, failOnInvalid)`: by default an invalid condition in configuration is
+  logged as critical and skipped instead of stopping the application.
+
+Also, compared with earlier builds:
+
+- With the store unavailable, changes that make Homeostat do less (pause, turning a switch off, releasing a switch
+  it turned on) apply at once on the instance and are written when the store answers again; changes that would let
+  it act (resume, turning a switch on) still fail, with `503` from the endpoints.
+- Every wait on the store is bounded and runs off the caller's thread, so a store with synchronous or never-ending
+  calls cannot block startup, shutdown, a request, the health check (one second at most) or a Slack or Teams command.
+- The file store opens lazily: a file locked by another process no longer stops the application; Homeostat fails
+  closed and tries again every 10 seconds.
+- Redis: the connection is resolved on first use and again after a failure, so a Redis server that is down at
+  startup no longer stops the application.
+- A compensating action (`UndoWith`) is never blocked by the pause, maintenance windows or the action budget, and runs
+  after a step that timed out (it may have half-applied); it does not run after an action that refused.
+- An action or compensating action abandoned at its timeout and still running is not started again until it ends,
+  so a blocked action cannot exhaust the thread pool.
+- Paused consumers: a pause that timed out leaves the state unknown, so the consumer is resumed when the condition
+  clears; calls to the same consumer never overlap.
+- `RestartHostedService` starts the service again even if stopping it failed or timed out.
+- Restart limits are counted atomically in the store; the in-memory store logs a warning that they reset with the
+  process.
+- Kubernetes `RestartPod` evicts the pod (respecting PodDisruptionBudgets; `429` is reported as such) instead of
+  deleting it. The RBAC rule needs `create` on `pods/eviction`.
+- Service Bus: resume restarts only a processor Homeostat stopped, not one the application stopped or closed. Kafka:
+  `KafkaPauseGate.Apply` takes the partitions the application paused, which it never resumes.
+- The `Homeostat.Switch` feature filter never throws: invalid parameters are logged once and the feature is enabled.
+- Detectors: a detector that hangs is skipped until its call returns, instead of piling up calls; failures are logged
+  once and then at debug level while they continue.
+- Call and HTTP counters saturate instead of overflowing.
+- Bounded memory whatever the load: each alert source tracks at most 1,000 firing series (10,000 in all), an
+  observable metric at most 10,000 tag combinations, and a trend, projection or anomaly window about 8,192 points (a
+  faster source keeps the latest value of each interval). See [Performance](docs/performance.md#memory).
+- MongoDB: a closed client no longer counts toward the deployment's state.
+- A pause or a switch turned off applies to the instance before the store is even tried, never waits behind a slow
+  refresh, and is not lost when the caller gives up (an aborted request); deferred changes are written in parallel.
+  A resume that fails no longer drops a pause still waiting to be written. The control endpoints wait up to 15
+  seconds, longer than a store write, so a deferred change answers `204`.
+- A switch claimed by a cluster plan after its step timed out is released instead of staying on unowned; a renewal
+  that races with a release no longer turns the switch back on.
+- If the engine stops unexpectedly, the switches its conditions turned on are turned off.
+- Approval requests are withdrawn off the engine loop, and every store call of a healing run and of the approvals is
+  bounded. The periodic refresh and the health check never start a second read while one abandoned at its timeout
+  still runs.
+- A verifier abandoned at its timeout and still running is not started again.
+- `RestartHostedService` waits a bounded time for a stop that ignores its token, and does not start the service
+  again while the application is stopping.
+- Restart limits are counted in fixed windows, the current one and the previous one together, with no counter ever
+  reset: when every replica restarted at the same moment, a reset racing with a count could let one restart too many.
+- An orphaned cluster switch is released only as of the renewal the sweeping instance saw: one renewed since by its
+  owner stays on. Renewals only update a claim still held by the same instance.
+- The services of a step are disposed only once an action or a verifier abandoned at its timeout has ended, also when
+  the application stops.
+- Shared control state, after a third review: a release deferred during an outage is no longer dropped by a failed
+  refresh; a pause made while a resume is being written stands (the same for turning a switch off while it is being
+  turned on); a resume or a turn-on that times out is decided again in the safe direction, so a write the store runs
+  late cannot undo what the caller was told; read-backs are coalesced, so a burst of changes on a slow store does not
+  hold the periodic refresh; one renewal at a time per switch; the Redis store renews only the claim it was made for.
+- Cluster leases: acquiring is bounded, and a lease that arrives after Homeostat stopped waiting is released at once;
+  releasing is bounded. `IHomeostatControl.ReleaseHoldAsync`, `GetRecentRunsAsync` and `GetBudgetAsync` are bounded too.
+- The HTTP handler of `AddHomeostatSignals` allocates nothing when the response is already there.
+- CI: the `Integration` workflow tests Kafka (statistics signals, pause gate), MongoDB (ping and primary signals),
+  RabbitMQ and Artemis (queue signals) and the Service Bus emulator (pausable processor) against real servers in
+  containers (`tests/Homeostat.IntegrationTests`), and the `kubernetes` job of the CI workflow the Kubernetes actions on
+  a kind cluster with the documented Role.
+- Kubernetes `ScaleDeployment` reads the scale again and retries (up to 4 attempts) when the conditional update
+  answers `409`, as it often does while the deployment is rolling out; found by the new kind job.
+- Shared control state, after a second review: a claim refused by the store no longer drops a pending switch-off; a
+  change that lets Homeostat act shows at once on the instance and never flaps back while older reads complete, and its
+  caller no longer waits behind a slow refresh; a person's turn-on is always written; a hold limit (`HoldAtMost`) only
+  ends the claim it was set for; pending changes are written even while the state cannot be read, one write at a time
+  per change; a file store that cannot save no longer keeps the decision time of the change it undid; the Redis store
+  skips approval records without a request instead of failing the whole read.
+- A pausable consumer that blocks before returning its task no longer holds its gate beyond the timeout.
+- Seasonal baselines and the signal recorder no longer delay or fail shutdown when the store does not answer.
+- After a code-quality review: a switch renewal is no longer a decision, so a person's turn-off decided between the
+  claim and its renewal still applies (memory, file and Redis stores); a value rule (`WhenValueAbove`...) is no longer
+  cleared by a signal without a value; a condition that cleared and started counting again is `Healed` for the default
+  verifier; the detectors' timer can no longer stop the application (`DetectionInterval` must be at least 1 ms); the
+  thread pool probe clamps its wait to the timer limit; gRPC streams no longer turn a normal end into an exception when
+  the final status cannot be read; the Slack endpoint answers Slack at once and updates the message in the background;
+  the health check starts one store read for concurrent probes; `HomeostatTestHost` stops every service even when one
+  throws, and reports the errors after disposing.
+- Validation: `AddHomeostatSignals` refuses ratios outside (0, 1] or in the wrong order, non-positive latencies,
+  `MinimumCalls` below 1 and a null `IsFailure`; ratios equal to NaN are refused for call signals too; a metric signal
+  that calls `RatioOf` and then another `Statistic` is refused instead of ignoring the match.
+- `ChaosEnabledBySwitch` starts a new round when the switch is turned off and on again, also with no call in between.
+- Hot paths: `KafkaPauseGate.Apply` returns before reading the assignment when there is nothing to do; Prometheus and
+  Alertmanager sources pick their worst series in one pass; the analyzer compares symbols instead of formatting names.
+
 ### Security
 
 - Control endpoints require an `Authorization: Bearer` token or the `X-Requested-With` header, and refuse requests
@@ -542,6 +548,5 @@ repository (version `0.1.0` in the project files):
   condition.
 - `HomeostatOptions`, `RedisStoreOptions` and the built-in detector options are validated at startup.
 
-[Unreleased]: https://github.com/engineering87/Homeostat/compare/v1.0.0-rc.2...HEAD
-[1.0.0-rc.2]: https://github.com/engineering87/Homeostat/compare/v1.0.0-rc.1...v1.0.0-rc.2
+[Unreleased]: https://github.com/engineering87/Homeostat/compare/v1.0.0-rc.1...HEAD
 [1.0.0-rc.1]: https://github.com/engineering87/Homeostat/releases/tag/v1.0.0-rc.1

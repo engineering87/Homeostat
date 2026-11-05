@@ -5,7 +5,7 @@ together with the same version number, so `Homeostat.Redis 1.2.0` always goes wi
 
 ## Current status
 
-The current version is **1.0.0-rc.2**, a release candidate. NuGet hides prerelease versions by default, so install
+The current version is **1.0.0-rc.1**, a release candidate. NuGet hides prerelease versions by default, so install
 the packages with `--prerelease` until 1.0.0 ships:
 
 ```bash

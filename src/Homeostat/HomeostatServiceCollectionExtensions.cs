@@ -59,7 +59,7 @@ public static class HomeostatServiceCollectionExtensions
             .Validate(o => o.ConditionHistorySize >= 0, "ConditionHistorySize cannot be negative.")
             .Validate(o => !string.IsNullOrWhiteSpace(o.InstanceId), "InstanceId cannot be empty.")
             .Validate(o => Guardrails.TimerLimits.IsValid(o.ClusterLeaseDuration) && o.ClusterLeaseDuration >= TimeSpan.FromSeconds(1), "ClusterLeaseDuration must be at least one second.")
-            .Validate(o => Guardrails.TimerLimits.IsValid(o.DetectionInterval), "DetectionInterval must be positive and at most about 49 days.")
+            .Validate(o => Guardrails.TimerLimits.IsValid(o.DetectionInterval) && o.DetectionInterval >= TimeSpan.FromMilliseconds(1), "DetectionInterval must be at least one millisecond and at most about 49 days.")
             .Validate(o => Guardrails.TimerLimits.IsValid(o.ControlRefreshInterval), "ControlRefreshInterval must be positive and at most about 49 days.")
             .ValidateOnStart();
 

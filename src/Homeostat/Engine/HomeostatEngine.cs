@@ -82,7 +82,7 @@ internal sealed class HomeostatEngine : BackgroundService
 
                     Process(signal, stoppingToken);
                 }
-                catch (Exception ex) when (ex is not OperationCanceledException)
+                catch (Exception ex) when (!stoppingToken.IsCancellationRequested)
                 {
                     // One malformed signal must not stop self-healing for the whole application.
                     _logger.LogError(ex, "A signal from {Source} could not be processed.", signal.Source);
@@ -131,9 +131,8 @@ internal sealed class HomeostatEngine : BackgroundService
         // Only switches this condition turned on, and that no other active condition still holds.
         foreach (var name in _ownership.Release(definition.Name))
         {
-            if (_switches.IsOn(name))
+            if (_switches.TurnOffLocal(name))
             {
-                _switches.TurnOffLocal(name);
                 _logger.LogInformation("Condition {Condition} cleared: switch {Switch} turned off.", definition.Name, name);
             }
         }
@@ -160,7 +159,8 @@ internal sealed class HomeostatEngine : BackgroundService
 
     private void Process(Signal signal, CancellationToken stoppingToken)
     {
-        // Arrays and for loops: this runs for every signal, without allocating.
+        // Arrays and for loops: this runs for every signal. Only a composite that holds or is not yet inactive gets a
+        // signal of its own.
         var trackers = _conditions.SignalTrackersFor(signal.Source);
         for (var i = 0; i < trackers.Length; i++)
         {
@@ -174,6 +174,11 @@ internal sealed class HomeostatEngine : BackgroundService
             var composite = composites[i];
             var definition = composite.Definition;
             var holds = _conditions.CompositeHolds(definition);
+            if (!holds && composite.Status == ConditionStatus.Inactive)
+            {
+                continue;   // nothing to track: no signal needed (and none allocated) for every incoming signal
+            }
+
             var texts = _compositeTexts.GetValue(definition, static d => new CompositeTexts(
                 ConditionBuilder.CompositeSource(d.Name), $"{d.Composite} of {string.Join(", ", d.DependsOn)} active."));
             var synthetic = new Signal(texts.Source, holds ? SignalSeverity.Unhealthy : SignalSeverity.Healthy, signal.Timestamp)

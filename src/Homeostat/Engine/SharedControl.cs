@@ -33,6 +33,7 @@ internal sealed class SharedControl
     // Guards replacing the view: never held across a store call, so a change made here applies at once.
     private readonly object _viewGate = new();
     private long _reads;
+    private readonly InFlight<bool> _writes = new();
     private readonly object _readBackGate = new();
     private Task? _readBack;   // guarded by _readBackGate
     private bool _readBackAgain;   // guarded by _readBackGate
@@ -159,18 +160,16 @@ internal sealed class SharedControl
     /// every refresh until it does, unless the store shows a newer decision first (<paramref name="superseded"/>).
     /// </summary>
     /// <remarks>
-    /// The caller's token is not used for the write: a caller that gives up (a request aborted while the store is slow)
-    /// must not lose a change that makes Homeostat do less. The wait is bounded by <see cref="WriteTimeout"/>.
+    /// It takes no cancellation token: a caller that gives up (a request aborted while the store is slow) must not lose a
+    /// change that makes Homeostat do less. The wait is bounded by <see cref="WriteTimeout"/>.
     /// </remarks>
     /// <returns><c>true</c> if the store took the change now; <c>false</c> if it is deferred.</returns>
     public async Task<bool> ChangeOrDeferAsync(
         string key,
         Func<IHomeostatStore, CancellationToken, ValueTask<bool>> change,
         Func<ControlState, ControlState> apply,
-        Func<ControlState, bool> superseded,
-        CancellationToken cancellationToken)
+        Func<ControlState, bool> superseded)
     {
-        _ = cancellationToken;
         var deferred = new Deferred(change, apply, superseded);
         lock (_viewGate)
         {
@@ -193,24 +192,24 @@ internal sealed class SharedControl
         return true;
     }
 
-    /// <summary>Forgets a deferred change: a newer decision replaces it (a switch turned on again, a resume).</summary>
-    public void Forget(string key) => _deferred.TryRemove(key, out _);
-
-    /// <summary>Whether changes wait to be written to the store.</summary>
-    public bool HasDeferredChanges => _deferred.Values.Any(d => d.WrittenBefore is null);
-
     // Writes one change; on success, records which reads may still miss it.
     private async Task<bool> TryWriteAsync(string key, Deferred deferred)
     {
         bool applied;
         try
         {
-            // One write at a time per change: while a write abandoned at its timeout still runs (a store blocked on
-            // I/O), retries wait for it instead of starting another.
+            // One write at a time per change, and per thing changed: while a write abandoned at its timeout still runs
+            // (a store blocked on I/O), retries wait for it instead of starting another, also when a newer change of the
+            // same thing (a release asked again) replaced the change it was writing.
             var write = deferred.Writing;
             if (write is null || write.IsCompleted)
             {
-                write = Task.Run(() => deferred.Change(_store, CancellationToken.None).AsTask(), CancellationToken.None);
+                if (_writes.IsRunning(key))
+                {
+                    return false;   // still pending: tried again at the next refresh
+                }
+
+                write = _writes.Start(key, () => deferred.Change(_store, CancellationToken.None).AsTask());
                 deferred.Writing = write;
             }
 
@@ -368,7 +367,8 @@ internal sealed class SharedControl
             // A change in the safe direction made while this write ran (a pause during a resume) is the later decision:
             // it stays pending and shown, and reaches the store after this one. Otherwise this change is shown.
             _deferred.TryGetValue(key, out var pending);
-            if (pending is null || ReferenceEquals(pending, older))
+            // (A change already written, by a concurrent call of this method, is not newer: this one is shown.)
+            if (pending is null || ReferenceEquals(pending, older) || pending.WrittenBefore is not null)
             {
                 if (older is not null)
                 {
@@ -508,7 +508,8 @@ internal sealed class SharedControl
 
 /// <summary>Reads the control state at startup and then periodically, so changes made on other instances apply here.</summary>
 internal sealed class SharedControlRefresher(
-    SharedControl control, IOptions<HomeostatOptions> options, TimeProvider timeProvider, HomeostatSwitches? switches = null) : BackgroundService
+    SharedControl control, IOptions<HomeostatOptions> options, TimeProvider timeProvider, ILogger<SharedControlRefresher> logger,
+    HomeostatSwitches? switches = null) : BackgroundService
 {
     internal static readonly TimeSpan StartupWait = TimeSpan.FromSeconds(5);
 
@@ -578,6 +579,11 @@ internal sealed class SharedControlRefresher(
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
             {
                 return;
+            }
+            catch (Exception ex)
+            {
+                // Never out of a background service (it would stop the application): the next refresh tries again.
+                logger.LogError(ex, "Refreshing the Homeostat control state failed.");
             }
         }
     }

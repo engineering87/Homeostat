@@ -57,6 +57,20 @@ public class HttpSignalTests
     }
 
     [Fact]
+    public void Signal_settings_that_could_never_work_are_refused()
+    {
+        static void Add(Action<HttpClientSignalOptions> configure)
+            => new ServiceCollection().AddHttpClient("forecast").AddHomeostatSignals(configure);
+
+        Assert.Throws<ArgumentOutOfRangeException>(() => Add(o => o.DegradedFailureRatio = 0));
+        Assert.Throws<ArgumentOutOfRangeException>(() => Add(o => o.UnhealthyFailureRatio = double.NaN));
+        Assert.Throws<ArgumentOutOfRangeException>(() => Add(o => o.DegradedFailureRatio = 0.6));   // above the unhealthy 0.5
+        Assert.Throws<ArgumentOutOfRangeException>(() => Add(o => o.UnhealthyLatency = TimeSpan.Zero));
+        Assert.Throws<ArgumentOutOfRangeException>(() => Add(o => o.MinimumCalls = 0));
+        Assert.Throws<ArgumentException>(() => Add(o => o.IsFailure = null!));
+    }
+
+    [Fact]
     public async Task Instrumented_client_reports_failures()
     {
         var fault = new FaultSwitch();

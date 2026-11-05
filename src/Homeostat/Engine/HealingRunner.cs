@@ -86,6 +86,8 @@ internal sealed class HealingRunner
     /// </summary>
     public bool TryStart(ConditionTracker tracker, Signal trigger, CancellationToken stoppingToken)
     {
+        // Runs for every triggering signal of an active condition, also during a cooldown or a pause: the debug logs
+        // below are guarded, so nothing is allocated for them when debug logging is off.
         _hostStopping = stoppingToken;
         var definition = tracker.Definition;
         var name = definition.Name;
@@ -93,20 +95,29 @@ internal sealed class HealingRunner
 
         if (plan is null)
         {
-            _logger.LogDebug("Condition {Condition} has no healing plan.", name);
+            if (_logger.IsEnabled(LogLevel.Debug))
+            {
+                _logger.LogDebug("Condition {Condition} has no healing plan.", name);
+            }
             return false;
         }
 
         if (_control.IsPaused)
         {
             // Debug: an active condition reports this on every triggering signal while paused.
-            _logger.LogDebug("Condition {Condition} is active, but Homeostat is paused.", name);
+            if (_logger.IsEnabled(LogLevel.Debug))
+            {
+                _logger.LogDebug("Condition {Condition} is active, but Homeostat is paused.", name);
+            }
             return false;
         }
 
         if (_conditions.FindActiveSuppressor(definition) is { } cause)
         {
-            _logger.LogDebug("Condition {Condition} is active, but suppressed by {Cause}.", name, cause);
+            if (_logger.IsEnabled(LogLevel.Debug))
+            {
+                _logger.LogDebug("Condition {Condition} is active, but suppressed by {Cause}.", name, cause);
+            }
             return false;
         }
 
@@ -116,14 +127,20 @@ internal sealed class HealingRunner
             && !(known.Held && (!_heldReadAt.TryGetValue(key, out var readAt) || now - readAt >= HeldRecheckInterval))
             && Blocked(plan, known, now, describe: _logger.IsEnabled(LogLevel.Debug)) is { } reason)
         {
-            _logger.LogDebug("Condition {Condition}: not starting, {Reason}.", name, reason);
+            if (_logger.IsEnabled(LogLevel.Debug))
+            {
+                _logger.LogDebug("Condition {Condition}: not starting, {Reason}.", name, reason);
+            }
             return false;
         }
 
         var run = new object();
         if (!_running.TryAdd(name, run))
         {
-            _logger.LogDebug("A healing run for condition {Condition} is already in progress.", name);
+            if (_logger.IsEnabled(LogLevel.Debug))
+            {
+                _logger.LogDebug("A healing run for condition {Condition} is already in progress.", name);
+            }
             return false;
         }
 
@@ -181,7 +198,11 @@ internal sealed class HealingRunner
 
     /// <summary>Key of a plan in the store: shared for cluster plans, per instance otherwise.</summary>
     internal string StateKey(HealingPlan plan)
-        => plan.Scope == PlanScope.Cluster ? plan.ConditionName : $"{_options.InstanceId}/{plan.ConditionName}";
+        => plan.Scope == PlanScope.Cluster
+            ? plan.ConditionName
+            : _stateKeys.GetValue(plan, p => $"{_options.InstanceId}/{p.ConditionName}");   // built once per plan: asked for on every triggering signal
+
+    private readonly System.Runtime.CompilerServices.ConditionalWeakTable<HealingPlan, string> _stateKeys = new();
 
     /// <summary>Effective cooldown, with backoff.</summary>
     internal TimeSpan EffectiveCooldown(HealingPlan plan, PlanState state)
@@ -447,8 +468,9 @@ internal sealed class HealingRunner
         var saved = true;
 
         // Persist before notifying, so a test or an operator who sees the run also sees its cooldown. Use a fresh
-        // token: the outcome of a run canceled by the shutdown is still worth recording.
-        using (var persistCts = new CancellationTokenSource(TimeSpan.FromSeconds(10)))
+        // token: the outcome of a run canceled by the shutdown is still worth recording. Real time, enough for the three
+        // writes below (each bounded by the write timeout).
+        using (var persistCts = new CancellationTokenSource(3 * SharedControl.WriteTimeout))
         {
             var failed = outcome is HealingRunOutcome.NotHealed or HealingRunOutcome.Inconclusive or HealingRunOutcome.Failed;
             var update = new PlanStateUpdate
@@ -713,7 +735,7 @@ internal sealed class HealingRunner
                 // The verifier gets its timeout; Homeostat waits at most twice as long, plus ClearAfter (the default
                 // verifier waits for a recovery in progress to hold), so one that never returns cannot hold the run,
                 // its concurrency slot or the shutdown.
-                var verificationLimitSpan = timeout + timeout + tracker.Definition.ClearAfter;
+                var verificationLimitSpan = Guardrails.TimerLimits.Clamp(timeout + timeout + tracker.Definition.ClearAfter);
                 using var verificationDeadline = new CancellationTokenSource(verificationLimitSpan, _timeProvider);
                 using var verificationLimit = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, verificationDeadline.Token);
                 var what = $"the verification after {step.Name}";
@@ -724,7 +746,9 @@ internal sealed class HealingRunner
                     throw new TimeoutException($"The verifier after '{step.Name}' is not started: its previous call, abandoned at its timeout, is still running.");
                 }
 
-                var verifying = Task.Run(() => verifier.VerifyAsync(context, timeout, cancellationToken), CancellationToken.None);
+                // The verifier's token is canceled at Homeostat's own limit, so one that honours it is not left running.
+                var verifyToken = verificationLimit.Token;
+                var verifying = Task.Run(() => verifier.VerifyAsync(context, timeout, verifyToken), CancellationToken.None);
                 try
                 {
                     verification = await verifying.WaitAsync(verificationLimit.Token).ConfigureAwait(false);
@@ -737,10 +761,14 @@ internal sealed class HealingRunner
                 }
                 catch (OperationCanceledException) when (verificationDeadline.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
                 {
-                    _abandoned[key] = verifying;
-                    _ = verifying.ContinueWith(t => _abandoned.TryRemove(new KeyValuePair<string, Task>(key, t)), CancellationToken.None,
-                        TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
-                    Abandon(verifying, name, what);
+                    if (!await EndsSoonAsync(verifying).ConfigureAwait(false))
+                    {
+                        _abandoned[key] = verifying;
+                        _ = verifying.ContinueWith(t => _abandoned.TryRemove(new KeyValuePair<string, Task>(key, t)), CancellationToken.None,
+                            TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
+                        Abandon(verifying, name, what);
+                    }
+
                     throw new TimeoutException($"The verifier after '{step.Name}' did not return within {verificationLimitSpan} (twice its timeout, plus ClearAfter).");
                 }
             }
@@ -1023,14 +1051,35 @@ internal sealed class HealingRunner
         {
             await task.WaitAsync(deadline).ConfigureAwait(false);
         }
-        catch (OperationCanceledException) when (deadline.IsCancellationRequested && !task.IsCompleted)
+        catch (OperationCanceledException) when (deadline.IsCancellationRequested)
         {
-            _abandoned[key] = task;
-            _ = task.ContinueWith(t => _abandoned.TryRemove(new KeyValuePair<string, Task>(key, t)), CancellationToken.None,
-                TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
-            Abandon(task, condition, what);
+            // An action that honours its token ends a moment after the cancellation: only one still running after that
+            // moment is abandoned.
+            if (!await EndsSoonAsync(task).ConfigureAwait(false))
+            {
+                _abandoned[key] = task;
+                _ = task.ContinueWith(t => _abandoned.TryRemove(new KeyValuePair<string, Task>(key, t)), CancellationToken.None,
+                    TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
+                Abandon(task, condition, what);
+            }
+
             throw;
         }
+    }
+
+    // How long a call that honours its cancellation token gets to end (real time) before it counts as abandoned.
+    private static readonly TimeSpan CancellationGrace = TimeSpan.FromMilliseconds(250);
+
+    private static async Task<bool> EndsSoonAsync(Task task)
+    {
+        if (!task.IsCompleted)
+        {
+            await Task.WhenAny(task, Task.Delay(CancellationGrace)).ConfigureAwait(false);
+        }
+
+        _ = task.ContinueWith(static t => _ = t.Exception, CancellationToken.None,
+            TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
+        return task.IsCompleted;
     }
 
     private readonly ConcurrentDictionary<string, Task> _abandoned = new(StringComparer.Ordinal);
@@ -1133,14 +1182,9 @@ internal sealed class HealingRunner
 
                 var released = cluster
                     ? await _switches.ReleaseOwnedAsync(switchName, condition, CancellationToken.None, claimedAt).ConfigureAwait(false)
-                    : _ownership.Release(condition, switchName) && _switches.IsOn(switchName);
+                    : _ownership.Release(condition, switchName) && _switches.TurnOffLocal(switchName);
                 if (released)
                 {
-                    if (!cluster)
-                    {
-                        _switches.TurnOffLocal(switchName);
-                    }
-
                     _logger.LogWarning(
                         "Condition {Condition}: switch {Switch} turned off after being held for {Hold} (HoldAtMost); the plan runs again after its cooldown if the condition is still active.",
                         condition, switchName, hold);
@@ -1163,9 +1207,8 @@ internal sealed class HealingRunner
         var released = new List<string>();
         foreach (var free in _ownership.Release(condition))
         {
-            if (_switches.IsOn(free))
+            if (_switches.TurnOffLocal(free))
             {
-                _switches.TurnOffLocal(free);
                 released.Add(free);
             }
         }

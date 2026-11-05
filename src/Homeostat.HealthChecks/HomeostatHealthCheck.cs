@@ -42,13 +42,19 @@ internal sealed class HomeostatHealthCheck : IHealthCheck
             var reads = Volatile.Read(ref box.Value);
             if (reads is null || reads.IsCompleted)
             {
-                reads = Task.Run(async () =>
+                // Concurrent probes: only the first one's read is started, the others share it.
+                var start = new Task<Task<(Guardrails.ActionBudgetStatus, int)>>(ReadStoreAsync);
+                var candidate = start.Unwrap();
+                var current = Interlocked.CompareExchange(ref box.Value, candidate, reads);
+                if (current == reads)
                 {
-                    var budgetRead = _control.GetBudgetAsync(CancellationToken.None).AsTask();
-                    var pendingRead = _approvals.GetPendingAsync(CancellationToken.None).AsTask();
-                    return (await budgetRead.ConfigureAwait(false), (await pendingRead.ConfigureAwait(false)).Count);
-                }, CancellationToken.None);
-                Volatile.Write(ref box.Value, reads);
+                    start.Start(TaskScheduler.Default);   // off the request thread: a store may block before returning its task
+                    reads = candidate;
+                }
+                else
+                {
+                    reads = current!;
+                }
             }
 
             (budget, pending) = await reads.WaitAsync(StoreTimeout, cancellationToken).ConfigureAwait(false);
@@ -57,7 +63,6 @@ internal sealed class HomeostatHealthCheck : IHealthCheck
         {
             return new HealthCheckResult(_attentionStatus, "The Homeostat store is unavailable.", ex);
         }
-
 
         var data = new Dictionary<string, object>
         {
@@ -93,5 +98,12 @@ internal sealed class HomeostatHealthCheck : IHealthCheck
             ? HealthCheckResult.Healthy("No active condition.", data)
             : new HealthCheckResult(_attentionStatus, string.Join("; ", reasons), data: data);
         return result;
+    }
+
+    private async Task<(Guardrails.ActionBudgetStatus, int)> ReadStoreAsync()
+    {
+        var budgetRead = _control.GetBudgetAsync(CancellationToken.None).AsTask();
+        var pendingRead = _approvals.GetPendingAsync(CancellationToken.None).AsTask();
+        return (await budgetRead.ConfigureAwait(false), (await pendingRead.ConfigureAwait(false)).Count);
     }
 }

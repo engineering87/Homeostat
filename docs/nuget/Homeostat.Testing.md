@@ -8,7 +8,7 @@ Test helpers for Homeostat: an in-memory host that runs the real engine on simul
 dotnet add package Homeostat.Testing --prerelease
 ```
 
-The current version is a release candidate (`1.0.0-rc.2`): `--prerelease` is needed until 1.0.0 is published.
+The current version is a release candidate (`1.0.0-rc.1`): `--prerelease` is needed until 1.0.0 is published.
 
 ## Example
 

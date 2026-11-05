@@ -8,7 +8,7 @@ Azure Service Bus for Homeostat: the active and dead-letter message counts of qu
 dotnet add package Homeostat.ServiceBus --prerelease
 ```
 
-The current version is a release candidate (`1.0.0-rc.2`): `--prerelease` is needed until 1.0.0 is published.
+The current version is a release candidate (`1.0.0-rc.1`): `--prerelease` is needed until 1.0.0 is published.
 
 ## Example
 

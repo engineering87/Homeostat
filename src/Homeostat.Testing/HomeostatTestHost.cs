@@ -244,24 +244,26 @@ public sealed class HomeostatTestHost : IAsyncDisposable
     public async ValueTask DisposeAsync()
     {
         // Stop the services first, while simulated time still moves, so anything waiting on it can finish;
-        // bound the wait so a misbehaving action or verifier cannot hang the test.
+        // bound the wait so a misbehaving action or verifier cannot hang the test. A service that throws does not keep
+        // the others running: its error is reported once everything is stopped and disposed.
+        var errors = new List<Exception>();
         using (var stopCts = new CancellationTokenSource(_options.DefaultTimeout))
         {
             // Enumerable.Reverse explicitly: on C# 14 array.Reverse() binds to the in-place span overload.
             var reversed = Enumerable.Reverse(_hostedServices).ToArray();
             foreach (var lifecycle in reversed.OfType<IHostedLifecycleService>())
             {
-                await StopSafelyAsync(() => lifecycle.StoppingAsync(stopCts.Token)).ConfigureAwait(false);
+                await StopSafelyAsync(() => lifecycle.StoppingAsync(stopCts.Token), errors).ConfigureAwait(false);
             }
 
             foreach (var hosted in reversed)
             {
-                await StopSafelyAsync(() => hosted.StopAsync(stopCts.Token)).ConfigureAwait(false);
+                await StopSafelyAsync(() => hosted.StopAsync(stopCts.Token), errors).ConfigureAwait(false);
             }
 
             foreach (var lifecycle in reversed.OfType<IHostedLifecycleService>())
             {
-                await StopSafelyAsync(() => lifecycle.StoppedAsync(stopCts.Token)).ConfigureAwait(false);
+                await StopSafelyAsync(() => lifecycle.StoppedAsync(stopCts.Token), errors).ConfigureAwait(false);
             }
         }
 
@@ -277,9 +279,14 @@ public sealed class HomeostatTestHost : IAsyncDisposable
 
         await _provider.DisposeAsync().ConfigureAwait(false);
         _autoAdvance.Dispose();
+
+        if (errors.Count > 0)
+        {
+            throw new AggregateException("Some services failed to stop.", errors);
+        }
     }
 
-    private static async Task StopSafelyAsync(Func<Task> stop)
+    private static async Task StopSafelyAsync(Func<Task> stop, List<Exception> errors)
     {
         try
         {
@@ -288,6 +295,10 @@ public sealed class HomeostatTestHost : IAsyncDisposable
         catch (OperationCanceledException)
         {
             // Shutdown timeout reached; keep stopping the others.
+        }
+        catch (Exception ex)
+        {
+            errors.Add(ex);
         }
     }
 

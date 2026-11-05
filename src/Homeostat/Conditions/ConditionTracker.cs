@@ -22,7 +22,7 @@ internal sealed class ConditionTracker
     internal static readonly TimeSpan StalePendingAfter = TimeSpan.FromMinutes(1);
 
     private readonly object _gate = new();
-    private ConditionStatus _status = ConditionStatus.Inactive;
+    private volatile ConditionStatus _status = ConditionStatus.Inactive;   // written under _gate, read without it
     private DateTimeOffset? _pendingSince;
     private DateTimeOffset? _activeSince;
     private DateTimeOffset? _clearingSince;
@@ -135,16 +135,7 @@ internal sealed class ConditionTracker
     }
 
     /// <summary>The current status, without the allocation of a snapshot (read on every signal).</summary>
-    public ConditionStatus Status
-    {
-        get
-        {
-            lock (_gate)
-            {
-                return _status;
-            }
-        }
-    }
+    public ConditionStatus Status => _status;
 
     /// <summary>
     /// A gap between triggering signals after which the SustainFor window starts again: twice SustainFor, at least five

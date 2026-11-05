@@ -490,6 +490,9 @@ public class MessagingTests
         Assert.Equal(2, ((IEnumerable<TopicPartition>)calls[0].Arguments[0]!).Count());
         Assert.Equal(3, ((IEnumerable<TopicPartition>)calls[1].Arguments[0]!).Count());
         Assert.Equal(3, ((IEnumerable<TopicPartition>)calls[2].Arguments[0]!).Count());
+
+        // Running with nothing to resume, the gate does not even read the assignment (the client copies it each time).
+        Assert.Equal(3, recorder.Calls.Count(c => c.Method == "get_Assignment"));
     }
 
     [Fact]

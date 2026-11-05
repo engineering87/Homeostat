@@ -225,6 +225,10 @@ At each sample the detector looks at the requests sent since the previous one:
 | `IsFailure` | `HttpClientSignalOptions.IsServiceFailure`: 5xx, 408, 429, failed gRPC calls | Which responses count as failures. Combine the default with your own rule: `o.IsFailure = r => HttpClientSignalOptions.IsServiceFailure(r) \|\| r.StatusCode == HttpStatusCode.Conflict` |
 | `CountCancellationsAsFailures` | `true` | Whether canceled requests (including `HttpClient` timeouts) count as failures |
 
+`AddHomeostatSignals` refuses settings that could never give a meaningful signal: ratios outside (0, 1] or a
+degraded ratio above the unhealthy one, latency thresholds that are not positive, `MinimumCalls` below 1, or a
+null `IsFailure`.
+
 Exceptions always count as failures. Canceled requests count as failures too, because `HttpClient`
 reports its own timeout as a cancellation and the two cannot be told apart from inside the handler;
 set `CountCancellationsAsFailures = false` if your callers often cancel requests for unrelated reasons.

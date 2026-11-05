@@ -111,9 +111,8 @@ internal sealed class ConditionReloader : IHostedService, IDisposable
                 _approvals.CancelFor(removed);
                 foreach (var name in _ownership.Release(removed))
                 {
-                    if (_switches.IsOn(name))
+                    if (_switches.TurnOffLocal(name))
                     {
-                        _switches.TurnOffLocal(name);
                         _logger.LogInformation("Condition {Condition} was removed from configuration: switch {Switch} turned off.", removed, name);
                     }
                 }

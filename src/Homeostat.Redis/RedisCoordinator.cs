@@ -65,8 +65,10 @@ internal sealed class RedisCoordinator : IHomeostatCoordinator
         private readonly TimeSpan _duration;
         private readonly CancellationTokenSource _stop = new();
         private readonly CancellationTokenSource _lost = new();
+        private readonly CancellationToken _lostToken;   // still readable once the lease is disposed
         private readonly Task _renewal;
         private readonly Task _watchdog;
+        private int _disposed;
 
         // Stopwatch timestamp until which the key certainly exists: the send time of the last successful renewal (or of
         // the acquisition) plus the duration.
@@ -79,15 +81,21 @@ internal sealed class RedisCoordinator : IHomeostatCoordinator
             _key = key;
             _token = token;
             _duration = duration;
+            _lostToken = _lost.Token;
             _validUntil = requestedAt + ToTimestamp(duration);
             _renewal = RenewAsync();
             _watchdog = WatchAsync();
         }
 
-        public CancellationToken Lost => _lost.Token;
+        public CancellationToken Lost => _lostToken;
 
         public async ValueTask DisposeAsync()
         {
+            if (Interlocked.Exchange(ref _disposed, 1) == 1)
+            {
+                return;   // released already
+            }
+
             await _stop.CancelAsync().ConfigureAwait(false);
             foreach (var task in new[] { _renewal, _watchdog })
             {

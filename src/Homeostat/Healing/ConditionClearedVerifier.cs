@@ -35,8 +35,10 @@ public sealed class ConditionClearedVerifier : IHealingVerifier
 
         while (true)
         {
+            // An active condition only stops being active by clearing: Pending means it cleared and a new signal has
+            // already started counting again, which is a new episode, not this one going on.
             var state = context.GetConditionState();
-            if (state.Status == ConditionStatus.Inactive)
+            if (state.Status != ConditionStatus.Active)
             {
                 return VerificationOutcome.Healed;
             }

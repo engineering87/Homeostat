@@ -92,8 +92,7 @@ internal sealed class HomeostatControl : IHomeostatControl
             "pause",
             (store, ct) => store.TrySetPauseAsync(pause, pause.At, ct),
             s => Engine.SharedControl.WithPause(s, pause),
-            s => s.Pause is { } stored && stored.At > pause.At,
-            cancellationToken).ConfigureAwait(false))
+            s => s.Pause is { } stored && stored.At > pause.At).ConfigureAwait(false))
         {
             _logger.LogWarning("Homeostat paused on this instance; the store will take the pause when it answers.");
         }
@@ -123,8 +122,7 @@ internal sealed class HomeostatControl : IHomeostatControl
                 "pause",
                 (store, ct) => store.TrySetPauseAsync(again, again.At, ct),
                 s => Engine.SharedControl.WithPause(s, again),
-                s => s.Pause is { } stored && stored.At > again.At,
-                CancellationToken.None).ConfigureAwait(false);
+                s => s.Pause is { } stored && stored.At > again.At).ConfigureAwait(false);
             throw;
         }
 
@@ -189,8 +187,15 @@ internal sealed class HomeostatControl : IHomeostatControl
         int Activations(string condition)
         {
             var mine = stored.Where(e => string.Equals(e.ConditionName, condition, StringComparison.Ordinal)).ToList();
-            var local = _activations.Since(condition, since).Count(at => !mine.Any(e => Diagnostics.ConditionHistory.Same(e,
-                new ConditionEventRecord { ConditionName = condition, Kind = ConditionEventKind.Activated, At = at, Instance = _options.InstanceId })));
+
+            // This process's activations the history does not hold, matched at the millisecond (a store may round to it).
+            var held = mine.Where(e => string.Equals(e.Instance, _options.InstanceId, StringComparison.Ordinal))
+                .Select(e => e.At.UtcTicks / TimeSpan.TicksPerMillisecond).ToHashSet();
+            var local = _activations.Since(condition, since).Count(at =>
+            {
+                var ms = at.UtcTicks / TimeSpan.TicksPerMillisecond;
+                return !held.Contains(ms) && !held.Contains(ms - 1) && !held.Contains(ms + 1);
+            });
             return mine.Count + local;
         }
 

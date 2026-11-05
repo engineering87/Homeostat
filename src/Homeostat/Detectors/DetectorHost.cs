@@ -40,8 +40,6 @@ internal sealed class DetectorHost : BackgroundService
         // Leave StartAsync immediately, whatever the hosting model: a slow detector must not delay host startup.
         await Task.Yield();
 
-        using var timer = new PeriodicTimer(_interval, _timeProvider);
-
         // One call per detector at a time, each bounded (in real time, at least 30 seconds): a detector that never completes
         // (a blocking call, a lost token) is skipped until it does, instead of stopping every other detector.
         var pending = new Task?[_detectors.Length];
@@ -49,6 +47,8 @@ internal sealed class DetectorHost : BackgroundService
 
         try
         {
+            // Inside the try: whatever the timer refuses stops the detectors, never the application.
+            using var timer = new PeriodicTimer(_interval, _timeProvider);
             do
             {
                 for (var i = 0; i < _detectors.Length; i++)

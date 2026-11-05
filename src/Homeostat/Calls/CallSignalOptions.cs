@@ -34,7 +34,7 @@ public sealed class CallSignalOptions
 
     internal void Validate(string source)
     {
-        if (DegradedFailureRatio is <= 0 or > 1 || UnhealthyFailureRatio is <= 0 or > 1 || DegradedFailureRatio > UnhealthyFailureRatio)
+        if (DegradedFailureRatio is not (> 0 and <= 1) || UnhealthyFailureRatio is not (> 0 and <= 1) || DegradedFailureRatio > UnhealthyFailureRatio)
         {
             throw new ArgumentOutOfRangeException(nameof(DegradedFailureRatio),
                 $"Call signals '{source}': the failure ratios must be in (0, 1], the degraded one at most the unhealthy one.");
