@@ -28,7 +28,7 @@ feedback: open an issue to discuss priorities.
 ## Wave 2: integrations where .NET applications break
 
 - [x] Probes: any number or round trip as a signal, concurrent, with timeouts and no pile-up (`AddProbe`, `AddLatencyProbe`)
-- [x] Databases (`Homeostat.Data`): connectivity and latency probes for any ADO.NET provider, transient error tagging, pool reset actions
+- [x] Databases (in the core package): connectivity and latency probes for any ADO.NET provider, transient error tagging, pool reset actions
 - [x] Redis client health signals: ping round trip and connection events
 - [x] Caches (`Homeostat.Caching`): memory cache hit ratio; HybridCache, distributed and memory cache purge actions
 - [x] Feature flags as degradation (`Homeostat.FeatureManagement`, `Homeostat.OpenFeature`), driven by switches with change events

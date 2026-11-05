@@ -1,0 +1,19 @@
+<Project>
+
+  <!--
+    Stability level of a package. A project that sets <HomeostatPreview>true</HomeostatPreview> is released as a preview:
+    with HomeostatVersion 1.2.0 its version is 1.2.0-preview, so its API can still change in a minor version and NuGet
+    shows it as a prerelease. A release candidate (1.2.0-rc.1) is already a prerelease and is used as it is.
+    Set here, after the project, because the props are read before the project sets HomeostatPreview.
+  -->
+  <PropertyGroup Condition="'$(HomeostatPreview)' == 'true' and !$(HomeostatVersion.Contains('-'))">
+    <Version>$(HomeostatVersion)-preview</Version>
+    <PackageVersion>$(Version)</PackageVersion>
+  </PropertyGroup>
+
+  <!-- A preview package is compared with its own previous version, which carries the same suffix. -->
+  <PropertyGroup Condition="'$(HomeostatPreview)' == 'true' and '$(PackageValidationBaselineVersion)' != '' and !$(PackageValidationBaselineVersion.Contains('-'))">
+    <PackageValidationBaselineVersion>$(PackageValidationBaselineVersion)-preview</PackageValidationBaselineVersion>
+  </PropertyGroup>
+
+</Project>

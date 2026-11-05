@@ -143,7 +143,11 @@ Maintainers only.
    `git tag v1.0.0 origin/main && git push origin v1.0.0`. The `Release` workflow refuses a tag that is not on `main`.
 3. The `Release` workflow builds, tests, packs (with symbols and SourceLink), signs the packages when a certificate is
    configured, produces an SBOM and a build provenance attestation, pushes the packages to NuGet and creates a GitHub
-   release with the packages and the SBOM. Versions with a suffix (`-preview.1`) are marked as pre-releases.
+   release with the packages and the SBOM. Versions with a suffix (`-rc.1`) are marked as pre-releases. The version
+   comes from the tag (`-p:HomeostatVersion=1.0.0`); preview packages get `-preview` on top of a stable version (see
+   [Stable and preview packages](docs/versioning.md#stable-and-preview-packages)). To promote a preview package,
+   remove `<HomeostatPreview>true</HomeostatPreview>` from its project and move it to the stable rows of
+   `docs/versioning.md` and `docs/packages.md` (a test checks that they agree).
 
 The workflow publishes with nuget.org [trusted publishing](https://learn.microsoft.com/nuget/nuget-org/trusted-publishing),
 so no API key is stored: on nuget.org, add a trusted publishing policy (owner `engineering87`, repository `Homeostat`,
@@ -151,8 +155,13 @@ workflow `release.yml`, environment `nuget`), and save the nuget.org profile nam
 `NUGET_USER`. The workflow runs in the `nuget` environment, where you can require a manual approval. To author-sign the packages,
 add `NUGET_SIGNING_CERTIFICATE` (the code signing certificate as a base64 PFX) and `NUGET_SIGNING_PASSWORD`, and
 register the certificate on the nuget.org account first.
+Before the first release, reserve the `Homeostat` ID prefix on nuget.org
+([ID prefix reservation](https://learn.microsoft.com/nuget/nuget-org/id-prefix-reservation)), so that no one else can
+publish a package named `Homeostat.*` and the packages show as verified.
 After the first release, set `PackageValidationBaselineVersion` in `Directory.Build.props` to the latest
-published version, so that accidental breaking changes fail the build.
+published version (for example `1.0.0`; preview packages compare with `1.0.0-preview` by themselves), so that
+accidental breaking changes fail the build. A package added after that release has no baseline yet: set
+`<EnablePackageValidation>false</EnablePackageValidation>` in its project until it has been published once.
 
 Notes for dependencies:
 

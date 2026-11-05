@@ -19,7 +19,6 @@ public class PublicApiTests
         "Homeostat.AspNetCore",
         "Homeostat.Azure",
         "Homeostat.Caching",
-        "Homeostat.Data",
         "Homeostat.EntityFrameworkCore",
         "Homeostat.FeatureManagement",
         "Homeostat.Grpc",

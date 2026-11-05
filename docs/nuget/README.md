@@ -77,14 +77,13 @@ execute renew-client.`) and does nothing. When the decisions look right, add `.C
 
 ## Packages
 
-- `Homeostat`: core engine, runtime detectors, starter presets, call signals, built-in actions, approvals, audit log.
+- `Homeostat`: core engine, runtime detectors, starter presets, call signals, database probes and pool signals for any ADO.NET provider, built-in actions, approvals, audit log.
 - `Homeostat.AspNetCore`: status, history, coverage and control endpoints, dashboard with one-click approvals, Slack and Teams approvals; alerts from Alertmanager, Grafana and Azure Monitor as signals.
 - `Homeostat.HealthChecks`: health check results as signals; Homeostat's own health check.
 - `Homeostat.Http`: HTTP client failures and latency as signals (HTTP-level for gRPC clients); webhook, PagerDuty, Opsgenie, Slack and Microsoft Teams notifiers.
 - `Homeostat.Grpc`: gRPC client failures and latency as signals, judged on the gRPC status, streaming calls included.
 - `Homeostat.Polly`: Polly v8 circuit breaker state as signals; circuit isolation; chaos enabled by switches.
 - `Homeostat.Redis`: shared state and coordination across instances; Redis client health signals.
-- `Homeostat.Data`: database probes for any ADO.NET provider; SqlClient and Npgsql pool exhaustion; connection pool reset.
 - `Homeostat.EntityFrameworkCore`: command failures and latency of a `DbContext` as signals, for any relational provider; connectivity probe.
 - `Homeostat.ServiceBus`, `Homeostat.RabbitMQ`, `Homeostat.Kafka`, `Homeostat.Artemis`: backlog, dead letters, consumers, lag and broker connections as signals; consumers that plans pause and resume.
 - `Homeostat.MongoDB`: ping, primary availability, connection pool exhaustion and replication lag as signals.
@@ -94,6 +93,8 @@ execute renew-client.`) and does nothing. When the decisions look right, add `.C
 - `Homeostat.Testing`: test host with simulated time.
 - `Homeostat.Kubernetes` and `Homeostat.Azure`: platform actions (pods, deployments, nodes, App Service, VMs, Front Door), with approval by default.
 - `Homeostat.Cli`: the `homeostat` command-line tool. `Homeostat.Templates`: `dotnet new` templates.
+
+`Homeostat.Grpc`, `Homeostat.EntityFrameworkCore`, `Homeostat.Caching`, `Homeostat.FeatureManagement`, `Homeostat.OpenFeature`, `Homeostat.Azure` and `Homeostat.Aspire.Hosting` are [previews](https://github.com/engineering87/Homeostat/blob/main/docs/versioning.md#stable-and-preview-packages): tested, but their API can still change in a minor version.
 
 The core package includes [build-time analyzers](https://github.com/engineering87/Homeostat/blob/main/docs/analyzers.md)
 that catch mistakes that compile but misbehave at runtime. The [package index](https://github.com/engineering87/Homeostat/blob/main/docs/packages.md)

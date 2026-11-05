@@ -150,17 +150,19 @@ The [getting started guide](docs/getting-started.md) walks through this step by 
 
 ## Packages
 
-Reference only what you use. Every package targets .NET 10.
+Reference only what you use. Every package targets .NET 10. `Homeostat.Grpc`, `Homeostat.EntityFrameworkCore`,
+`Homeostat.Caching`, `Homeostat.FeatureManagement`, `Homeostat.OpenFeature`, `Homeostat.Azure` and
+`Homeostat.Aspire.Hosting` are [previews](docs/versioning.md#stable-and-preview-packages): tested, but their API can
+still change in a minor version.
 
 | Package | Adds |
 |---|---|
-| `Homeostat` | Engine, conditions, healing plans, guardrails, runtime detectors, starter presets, call signals for any client, built-in actions, switches, approvals, audit log, file store, build-time analyzers |
+| `Homeostat` | Engine, conditions, healing plans, guardrails, runtime detectors, starter presets, call signals for any client, database probes and pool signals for any ADO.NET provider, built-in actions, switches, approvals, audit log, file store, build-time analyzers |
 | `Homeostat.HealthChecks` | Health check results as signals; Homeostat's own health check |
 | `Homeostat.AspNetCore` | Status, control and history endpoints, dashboard, Slack and Teams approvals, alert ingestion |
 | `Homeostat.Http` | Failure ratio and latency of `IHttpClientFactory` clients; webhook, Slack, Teams, PagerDuty and Opsgenie notifiers |
 | `Homeostat.Grpc` | Failure ratio and latency of gRPC clients, judged on the gRPC status, streaming calls included |
 | `Homeostat.Polly` | Polly v8 circuit breakers as signals, circuit isolation, chaos enabled by switches |
-| `Homeostat.Data` | Database probes for any ADO.NET provider, SqlClient and Npgsql pool signals, connection pool reset |
 | `Homeostat.EntityFrameworkCore` | Failure ratio and latency of the commands of a `DbContext`, connectivity probe |
 | `Homeostat.Redis` | Shared state and once-per-cluster plans; Redis health signals |
 | `Homeostat.Caching` | Memory cache hit ratio; HybridCache, distributed and memory cache purge actions |

@@ -1,4 +1,6 @@
 namespace Homeostat
+  public static class HealingPlanBuilderDataExtensions
+    public static Homeostat.Healing.HealingPlanBuilder ClearConnectionPools<TConnection>(this Homeostat.Healing.HealingPlanBuilder plan) where TConnection : System.Data.Common.DbConnection
   public static class HomeostatAuditLogExtensions
     public static Homeostat.HomeostatBuilder AddAuditLog(this Homeostat.HomeostatBuilder builder, System.Action<Homeostat.Notifications.AuditLogOptions> configure)
     public static Homeostat.HomeostatBuilder AddAuditLog(this Homeostat.HomeostatBuilder builder, string path)
@@ -28,6 +30,10 @@ namespace Homeostat
     public static Homeostat.HomeostatBuilder AddPausableConsumer(this Homeostat.HomeostatBuilder builder, System.Func<System.IServiceProvider, Homeostat.Consumers.IPausableConsumer> consumer)
     public static Homeostat.HomeostatBuilder AddPauseGate(this Homeostat.HomeostatBuilder builder, string name)
     public static Homeostat.Healing.HealingPlanBuilder PauseConsumer(this Homeostat.Healing.HealingPlanBuilder plan, string consumer, bool resumeWhenCleared = true)
+  public static class HomeostatDataExtensions
+    public static Homeostat.HomeostatBuilder AddDatabaseProbe(this Homeostat.HomeostatBuilder builder, string source, System.Func<System.IServiceProvider, System.Data.Common.DbConnection> createConnection, System.Action<Homeostat.Data.DatabaseProbeOptions>? configure = null)
+    public static Homeostat.HomeostatBuilder AddNpgsqlPoolSignal(this Homeostat.HomeostatBuilder builder, System.Action<Homeostat.Data.NpgsqlPoolSignalOptions>? configure = null)
+    public static Homeostat.HomeostatBuilder AddSqlClientPoolSignal(this Homeostat.HomeostatBuilder builder, System.Action<Homeostat.Data.SqlClientPoolSignalOptions>? configure = null)
   public static class HomeostatDetectorServiceCollectionExtensions
     public static Microsoft.Extensions.DependencyInjection.IServiceCollection AddHomeostatDetector<TDetector>(this Microsoft.Extensions.DependencyInjection.IServiceCollection services) where TDetector : class, Homeostat.Detectors.ISignalDetector
   public static class HomeostatEventSinkExtensions
@@ -204,6 +210,20 @@ namespace Homeostat.Coordination
   public sealed class InMemoryCoordinator : Homeostat.Coordination.IHomeostatCoordinator
     public InMemoryCoordinator()
     public System.Threading.Tasks.ValueTask<Homeostat.Coordination.IHomeostatLease?> TryAcquireAsync(string resource, System.TimeSpan duration, System.Threading.CancellationToken cancellationToken = default)
+namespace Homeostat.Data
+  public sealed class DatabaseProbeOptions : Homeostat.Probes.LatencyProbeOptions
+    public DatabaseProbeOptions()
+    public string? CommandText { get; set; }
+  public sealed class NpgsqlPoolSignalOptions : Homeostat.Data.PoolSignalOptions
+    public NpgsqlPoolSignalOptions()
+    public string? DataSourceName { get; set; }
+  public class PoolSignalOptions
+    public double DegradedAbove { get; set; }
+    public int MaxPoolSize { get; set; }
+    public string Source { get; set; }
+    public double UnhealthyAbove { get; set; }
+  public sealed class SqlClientPoolSignalOptions : Homeostat.Data.PoolSignalOptions
+    public SqlClientPoolSignalOptions()
 namespace Homeostat.Detectors
   public sealed class BackgroundServiceSignalOptions
     public BackgroundServiceSignalOptions()

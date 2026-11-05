@@ -5,6 +5,7 @@
     <IsAotCompatible>true</IsAotCompatible>
     <PackageId>Homeostat</PackageId>
     <Description>Lightweight self-healing for .NET applications: turn signals into conditions, run guarded remediation plans and verify that the system actually recovered.</Description>
+    <PackageTags>$(PackageTags);database;ado-net;sqlclient;npgsql;connection-pool</PackageTags>
   </PropertyGroup>
 
   <ItemGroup>

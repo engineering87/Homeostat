@@ -114,10 +114,10 @@ expected to stay stable through 1.0.0.
 
 #### Integrations: data, Entity Framework Core, caching, Redis, MongoDB, HTTP and gRPC, Polly, feature flags
 
-- `Homeostat.Data`: `AddDatabaseProbe` for any ADO.NET provider (failures tagged `transient` from
+- Databases, in the core package (option types in `Homeostat.Data`): `AddDatabaseProbe` for any ADO.NET provider (failures tagged `transient` from
   `DbException.IsTransient`), the `ClearConnectionPools<TConnection>()` action and `AddSqlClientPoolSignal(o => ...)`
   (`SqlClientPoolSignalOptions`) for SqlClient pool exhaustion.
-- `AddNpgsqlPoolSignal(o => ...)` (Homeostat.Data, `NpgsqlPoolSignalOptions`): Npgsql 10+ pool usage as a share of
+- `AddNpgsqlPoolSignal(o => ...)` (`NpgsqlPoolSignalOptions`): Npgsql 10+ pool usage as a share of
   the maximum, from the `Npgsql` meter.
 - `Homeostat.EntityFrameworkCore`: `AddDbContextSignals<TContext>()` publishes the failure ratio and p95 duration of
   the commands of a `DbContext` (`efcore:{context type name}`) through an interceptor added with `ConfigureDbContext`,
@@ -482,7 +482,13 @@ repository (version `0.1.0` in the project files):
   names), no longer with the application's `HttpJsonOptions`; `/homeostat/status` writes enums as names, including
   `triggeringSignal.severity`.
 - Homeostat.Artemis: `AddArtemis` is `UseArtemis`, like `UseRedis`, `UseAzure` and `UseKubernetes`.
-- Homeostat.Data: `ThenClearConnectionPools` is removed; `ClearConnectionPools` works at any position in a plan.
+- Databases: `ThenClearConnectionPools` is removed; `ClearConnectionPools` works at any position in a plan.
+- The `Homeostat.Data` package is merged into `Homeostat`: it had no dependency of its own (ADO.NET is part of .NET).
+  Remove the package reference; the namespaces and the API are unchanged.
+- Packages have a stability level: the integrations not yet proven in production (`Homeostat.Azure`,
+  `Homeostat.EntityFrameworkCore`, `Homeostat.Grpc`, `Homeostat.Caching`, `Homeostat.FeatureManagement`,
+  `Homeostat.OpenFeature`, `Homeostat.Aspire.Hosting`) ship as previews (`1.0.0-preview` when the others are `1.0.0`),
+  so their API can still change in a minor version. See [Versioning](docs/versioning.md#stable-and-preview-packages).
 - Homeostat.Aspire.Hosting: `HomeostatResourceOptions` is in the `Homeostat.Aspire.Hosting` namespace.
 - Homeostat.Testing: `StartAsync`, `WaitForRunAsync`, `WaitForConditionAsync` and `WaitForApprovalAsync` take a
   `CancellationToken`.

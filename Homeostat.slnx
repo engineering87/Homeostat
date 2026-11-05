@@ -8,7 +8,6 @@
     <Project Path="src/Homeostat.Azure/Homeostat.Azure.csproj" />
     <Project Path="src/Homeostat.Caching/Homeostat.Caching.csproj" />
     <Project Path="src/Homeostat.Cli/Homeostat.Cli.csproj" />
-    <Project Path="src/Homeostat.Data/Homeostat.Data.csproj" />
     <Project Path="src/Homeostat.EntityFrameworkCore/Homeostat.EntityFrameworkCore.csproj" />
     <Project Path="src/Homeostat.FeatureManagement/Homeostat.FeatureManagement.csproj" />
     <Project Path="src/Homeostat.Grpc/Homeostat.Grpc.csproj" />

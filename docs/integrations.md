@@ -7,14 +7,14 @@ view (databases, gRPC services, Redis, message brokers, caches, external monitor
 | Need | Package | API |
 |---|---|---|
 | Any number or round trip, polled periodically | `Homeostat` | `AddProbe`, `AddLatencyProbe` |
-| Database connectivity, latency, transient errors; pool reset | `Homeostat.Data` | `AddDatabaseProbe`, `ClearConnectionPools<T>` |
+| Database connectivity, latency, transient errors; pool reset | `Homeostat` | `AddDatabaseProbe`, `ClearConnectionPools<T>` |
 | Entity Framework Core: command failures and latency of a `DbContext`, connectivity | `Homeostat.EntityFrameworkCore` | [`AddDbContextSignals<T>`, `AddDbContextProbe<T>`](#entity-framework-core) |
 | gRPC clients: failures and latency judged on the gRPC status | `Homeostat.Grpc` | [`AddHomeostatGrpcSignals`](#grpc-clients), `HomeostatGrpcInterceptor` |
 | Any other client (SDK, TCP protocol): failures and latency of the calls you record | `Homeostat` | [`AddCallSignals`, `CallRecorder`](detectors.md#signals-from-any-client-call-signals) |
 | Redis client health | `Homeostat.Redis` | `AddRedisSignals` |
 | MongoDB: ping, primary availability, pool exhaustion, replication lag | `Homeostat.MongoDB` | `AddMongoSignals`, `AddHomeostatSignals` on the client settings |
 | Message brokers: backlog, dead letters, lag; pause and resume consumers | `Homeostat.ServiceBus`, `Homeostat.RabbitMQ`, `Homeostat.Kafka`, `Homeostat.Artemis` | [Message brokers](messaging.md) |
-| Connection pool exhaustion (SqlClient, Npgsql) and other event counters | `Homeostat`, `Homeostat.Data` | `AddSqlClientPoolSignal`, `AddNpgsqlPoolSignal`, `AddEventCounterSignal` |
+| Connection pool exhaustion (SqlClient, Npgsql) and other event counters | `Homeostat` | `AddSqlClientPoolSignal`, `AddNpgsqlPoolSignal`, `AddEventCounterSignal` |
 | .NET Aspire dashboard: link and Pause/Resume commands | `Homeostat.Aspire.Hosting` | `WithHomeostat` |
 | Cache hit ratio; purge and compaction | `Homeostat.Caching` | `AddMemoryCacheSignals`, `PurgeHybridCacheTags`, `RemoveDistributedCacheKeys`, `CompactMemoryCache` |
 | Alerts from Prometheus Alertmanager, Grafana, Azure Monitor | `Homeostat.AspNetCore` | `MapHomeostatAlerts` |
@@ -88,12 +88,9 @@ h.AddCondition("backlog-growing", c => c
 
 ## Databases
 
-```bash
-dotnet add package Homeostat.Data --prerelease
-```
-
-`Homeostat.Data` works with any ADO.NET provider: SqlClient, Npgsql, MySqlConnector, Microsoft.Data.Sqlite,
-Oracle. It references no provider: you bring the one you already use. Applications that reach the database through
+The database support is in the core package `Homeostat` (namespace `Homeostat.Data` for the option types). It works
+with any ADO.NET provider: SqlClient, Npgsql, MySqlConnector, Microsoft.Data.Sqlite, Oracle. It references no
+provider: you bring the one you already use. Applications that reach the database through
 Entity Framework Core get command-level signals from `Homeostat.EntityFrameworkCore`: see
 [Entity Framework Core](#entity-framework-core).
 
@@ -260,7 +257,7 @@ Notes:
 
 - The package targets EF Core 10 (`Microsoft.EntityFrameworkCore.Relational` 10.0.14 or later); `ConfigureDbContext`
   appeared in EF Core 9.
-- `ClearConnectionPools<SqlConnection>()` (package `Homeostat.Data`, or the connection type of your provider) works
+- `ClearConnectionPools<SqlConnection>()` (core package, with the connection type of your provider) works
   for EF Core contexts too: they use the provider's pool.
 - For code that uses ADO.NET directly, without a `DbContext`, use [`AddDatabaseProbe`](#connectivity-and-latency).
 

@@ -18,7 +18,7 @@ lambda, or write a class. All three can be mixed in the same plan.
 | `ReloadConfiguration()` | Reloads `IConfiguration` from all providers | Stale settings, rotated endpoints |
 | `TurnOnSwitch(name)` | Turns on a named switch your code reads | Degraded mode: serve cache, skip non-essential work |
 | `PauseConsumer(name)` | Pauses message consumers until the condition clears ([Message brokers](messaging.md)) | A dependency the consumer writes to is down: stop filling the dead-letter queue |
-| `ClearConnectionPools<TConnection>()` (`Homeostat.Data`) | Empties the ADO.NET provider's connection pools | Stale connections after a database failover |
+| `ClearConnectionPools<TConnection>()` | Empties the ADO.NET provider's connection pools | Stale connections after a database failover |
 | `PurgeHybridCacheTags(...)`, `RemoveHybridCacheKeys(...)` (`Homeostat.Caching`) | Invalidates `HybridCache` entries | Stale or poisoned cached data |
 | `RemoveDistributedCacheKeys(...)` (`Homeostat.Caching`) | Removes `IDistributedCache` keys | Same, for a distributed cache |
 | `CompactMemoryCache(percentage)` (`Homeostat.Caching`) | Evicts part of the memory cache | Memory pressure |

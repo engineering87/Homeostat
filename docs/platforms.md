@@ -61,7 +61,7 @@ the minimum version above.
 
 Packages without a client library:
 
-- `Homeostat.Data` references no database provider: bring yours (SqlClient, Npgsql, MySqlConnector,
+- The database support of `Homeostat` references no database provider: bring yours (SqlClient, Npgsql, MySqlConnector,
   Microsoft.Data.Sqlite, Oracle). `AddNpgsqlPoolSignal` reads the metrics of **Npgsql 10 or later**.
 - `Homeostat.Artemis` talks to the broker's management API over HTTP; any ActiveMQ Artemis version with Jolokia
   enabled on the web console works.
@@ -76,7 +76,7 @@ Packages without a client library:
 | `Homeostat.HealthChecks` | Yes | |
 | `Homeostat.Http` | Yes | Webhook, Slack, Teams, PagerDuty and Opsgenie notifiers covered by the smoke test |
 | `Homeostat.Caching`, `Homeostat.Kubernetes`, `Homeostat.Azure` | Yes | Compiled and analyzed in the smoke test |
-| `Homeostat.Data`, `Homeostat.Grpc`, `Homeostat.Polly`, `Homeostat.Redis`, `Homeostat.MongoDB`, `Homeostat.ServiceBus`, `Homeostat.RabbitMQ`, `Homeostat.Kafka`, `Homeostat.Artemis`, `Homeostat.FeatureManagement`, `Homeostat.OpenFeature` | Yes | Homeostat's code is analyzed; whether the application publishes with Native AOT also depends on the client library |
+| `Homeostat.Grpc`, `Homeostat.Polly`, `Homeostat.Redis`, `Homeostat.MongoDB`, `Homeostat.ServiceBus`, `Homeostat.RabbitMQ`, `Homeostat.Kafka`, `Homeostat.Artemis`, `Homeostat.FeatureManagement`, `Homeostat.OpenFeature` | Yes | Homeostat's code is analyzed; whether the application publishes with Native AOT also depends on the client library |
 | `Homeostat.EntityFrameworkCore` | No | EF Core's own Native AOT support is limited (compiled models, precompiled queries, still experimental) |
 | `Homeostat.Testing` | Yes | Meant for test projects |
 | `Homeostat.Aspire.Hosting` | No | Runs in the Aspire app host, which is not trimmed |

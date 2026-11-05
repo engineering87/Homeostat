@@ -34,7 +34,6 @@
     <ProjectReference Include="..\..\src\Homeostat.Azure\Homeostat.Azure.csproj" />
     <ProjectReference Include="..\..\src\Homeostat.Caching\Homeostat.Caching.csproj" />
     <ProjectReference Include="..\..\src\Homeostat.Cli\Homeostat.Cli.csproj" />
-    <ProjectReference Include="..\..\src\Homeostat.Data\Homeostat.Data.csproj" />
     <ProjectReference Include="..\..\src\Homeostat.FeatureManagement\Homeostat.FeatureManagement.csproj" />
     <ProjectReference Include="..\..\src\Homeostat.Grpc\Homeostat.Grpc.csproj" />
     <ProjectReference Include="..\..\src\Homeostat.EntityFrameworkCore\Homeostat.EntityFrameworkCore.csproj" />

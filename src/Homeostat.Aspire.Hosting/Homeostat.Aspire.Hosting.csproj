@@ -3,6 +3,8 @@
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
     <PackageId>Homeostat.Aspire.Hosting</PackageId>
+    <!-- Preview: not yet proven in production; its API can still change in a minor version (docs/versioning.md). -->
+    <HomeostatPreview>true</HomeostatPreview>
     <Description>.NET Aspire hosting integration for Homeostat: a link to the Homeostat dashboard and Pause and Resume healing commands on the application resources in the Aspire dashboard.</Description>
     <PackageTags>$(PackageTags);aspire;aspire-hosting;dashboard</PackageTags>
   </PropertyGroup>

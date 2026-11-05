@@ -77,6 +77,49 @@ public class DocumentationTests
     public void The_http_client_window_keeps_as_many_samples_as_the_call_recorder()
         => Assert.Equal(CallRecorder.MaxLatencySamples, HttpClientWindow.MaxLatencySamples);
 
+    [Fact]
+    public void The_documented_stability_of_each_package_is_the_one_it_is_built_with()
+    {
+        // Every packed project, preview when it sets HomeostatPreview: the package index, the versioning page and the
+        // package's own NuGet readme say the same.
+        var root = RepositoryRoot();
+        var index = File.ReadAllText(Path.Combine(root, "docs/packages.md"));
+        var versioning = File.ReadAllText(Path.Combine(root, "docs/versioning.md")).Split('\n');
+        var stableRow = versioning.Single(l => l.StartsWith("| Stable |", StringComparison.Ordinal));
+        var previewRow = versioning.Single(l => l.StartsWith("| Preview |", StringComparison.Ordinal));
+        var problems = new List<string>();
+        foreach (var project in Directory.GetFiles(Path.Combine(root, "src"), "*.csproj", SearchOption.AllDirectories))
+        {
+            var xml = File.ReadAllText(project);
+            if (!xml.Contains("<PackageId>", StringComparison.Ordinal) || project.Contains($"{Path.DirectorySeparatorChar}content{Path.DirectorySeparatorChar}", StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            var id = Path.GetFileNameWithoutExtension(project);
+            var preview = xml.Contains("<HomeostatPreview>true</HomeostatPreview>", StringComparison.Ordinal);
+            var level = preview ? "Preview" : "Stable";
+            var row = index.Split('\n').SingleOrDefault(l => l.StartsWith($"| `{id}` |", StringComparison.Ordinal));
+            if (row is null || !row.TrimEnd().EndsWith($"| {level} |", StringComparison.Ordinal))
+            {
+                problems.Add($"docs/packages.md: {id} is not listed as {level}");
+            }
+
+            if (!(preview ? previewRow : stableRow).Contains($"`{id}`", StringComparison.Ordinal))
+            {
+                problems.Add($"docs/versioning.md: {id} is not in the {level} row");
+            }
+
+            var readme = Path.Combine(root, "docs/nuget", id + ".md");
+            if (File.Exists(readme) && File.ReadAllText(readme).Contains("**preview**", StringComparison.Ordinal) != preview)
+            {
+                problems.Add($"docs/nuget/{id}.md does not match its stability ({level})");
+            }
+        }
+
+        Assert.True(problems.Count == 0, string.Join(Environment.NewLine, problems));
+    }
+
     private static string RepositoryRoot()
     {
         for (var directory = new DirectoryInfo(AppContext.BaseDirectory); directory is not null; directory = directory.Parent)

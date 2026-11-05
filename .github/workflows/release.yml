@@ -76,13 +76,13 @@ jobs:
         run: dotnet restore Homeostat.slnx
 
       - name: Build
-        run: dotnet build Homeostat.slnx --configuration Release --no-restore -p:Version=$VERSION
+        run: dotnet build Homeostat.slnx --configuration Release --no-restore -p:HomeostatVersion=$VERSION
 
       - name: Test
         run: dotnet test Homeostat.slnx --configuration Release --no-build
 
       - name: Pack
-        run: dotnet pack Homeostat.slnx --configuration Release --no-build -p:Version=$VERSION --output artifacts
+        run: dotnet pack Homeostat.slnx --configuration Release --no-build -p:HomeostatVersion=$VERSION --output artifacts
 
       - name: Sign packages
         # Only when a certificate is configured; nuget.org then also checks the signature against the certificate

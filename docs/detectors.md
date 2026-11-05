@@ -16,7 +16,7 @@ fixed interval and publish one signal per sample, ready to be used by [condition
 | Metrics | `Homeostat` | `metric:{instrument}` or your choice | Any `System.Diagnostics.Metrics` instrument: ASP.NET Core, HttpClient, Kestrel, runtime, your own |
 | Health checks | `Homeostat.HealthChecks` | health check name | See [Signals](signals.md#health-checks-as-signals) |
 | Probes | `Homeostat` | your choice | Any number or round trip you can fetch: backlogs, lag, free space, pings. See [Integrations](integrations.md#probes-any-number-as-a-signal) |
-| Databases | `Homeostat.Data` | your choice | Connection round trip and transient errors of any ADO.NET provider |
+| Databases | `Homeostat` | your choice | Connection round trip and transient errors of any ADO.NET provider |
 | Redis client | `Homeostat.Redis` | `redis` | `PING` round trip and lost connections |
 | Memory cache | `Homeostat.Caching` | `cache:memory` | Hit ratio of an `IMemoryCache` |
 | Alerts | `Homeostat.AspNetCore` | `alert:{alert name}` | Alertmanager, Grafana and Azure Monitor notifications. See [Integrations](integrations.md#alerts-from-your-monitoring) |
@@ -490,7 +490,7 @@ h.AddEventCounterSignal("Microsoft.Data.SqlClient.EventSource", "hard-connects",
 Polling counters (a level, such as connections in use) publish their value; incrementing counters (events, such as
 connections opened) publish a **rate per second**, so thresholds hold whatever interval the event source reports at.
 
-`AddSqlClientPoolSignal()` (package `Homeostat.Data`) is the ready-made one for SqlClient pool exhaustion, and
+`AddSqlClientPoolSignal()` (in the core package) is the ready-made one for SqlClient pool exhaustion, and
 `AddNpgsqlPoolSignal()` the one for Npgsql, from its metrics: see [Integrations](integrations.md#pool-exhaustion).
 
 ## Writing your own detector

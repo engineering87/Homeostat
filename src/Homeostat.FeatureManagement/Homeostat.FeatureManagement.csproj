@@ -4,6 +4,8 @@
     <TargetFramework>net10.0</TargetFramework>
     <IsAotCompatible>true</IsAotCompatible>
     <PackageId>Homeostat.FeatureManagement</PackageId>
+    <!-- Preview: not yet proven in production; its API can still change in a minor version (docs/versioning.md). -->
+    <HomeostatPreview>true</HomeostatPreview>
     <Description>Microsoft.FeatureManagement integration for Homeostat: a feature filter that turns features off while a Homeostat switch is on, so healing plans degrade gracefully through your existing feature flags.</Description>
     <PackageTags>$(PackageTags);feature-flags;feature-management;graceful-degradation</PackageTags>
   </PropertyGroup>

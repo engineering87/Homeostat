@@ -8,7 +8,7 @@ Azure actions for Homeostat through Azure Resource Manager: restart App Service 
 dotnet add package Homeostat.Azure --prerelease
 ```
 
-The current version is a release candidate (`1.0.0-rc.1`): `--prerelease` is needed until 1.0.0 is published.
+This package is a **preview**: it works and is tested, but its API can still change in a minor version (see [Stable and preview packages](https://github.com/engineering87/Homeostat/blob/main/docs/versioning.md#stable-and-preview-packages)), so `--prerelease` stays needed after 1.0.0.
 
 ## Example
 
