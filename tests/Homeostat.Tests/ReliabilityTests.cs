@@ -149,13 +149,13 @@ public class ReliabilityTests
 
         public ValueTask<ControlState> GetControlStateAsync(CancellationToken cancellationToken = default) => Never<ControlState>();
 
-        public ValueTask SetPauseAsync(PauseState? pause, CancellationToken cancellationToken = default) => Never();
+        public ValueTask<bool> TrySetPauseAsync(PauseState? pause, DateTimeOffset decidedAt, CancellationToken cancellationToken = default) => Never<bool>();
 
-        public ValueTask SetSwitchAsync(string name, SwitchState? state, CancellationToken cancellationToken = default) => Never();
+        public ValueTask<bool> TrySetSwitchAsync(string name, SwitchState? state, DateTimeOffset decidedAt, CancellationToken cancellationToken = default) => Never<bool>();
 
         public ValueTask<bool> TryClaimSwitchAsync(SwitchState state, CancellationToken cancellationToken = default) => Never<bool>();
 
-        public ValueTask<bool> TryReleaseSwitchAsync(string name, string condition, string? instance, CancellationToken cancellationToken = default) => Never<bool>();
+        public ValueTask<bool> TryReleaseSwitchAsync(string name, string condition, string? instance, DateTimeOffset decidedAt, CancellationToken cancellationToken = default) => Never<bool>();
 
         public ValueTask AddApprovalAsync(ApprovalRecord approval, CancellationToken cancellationToken = default) => Never();
 

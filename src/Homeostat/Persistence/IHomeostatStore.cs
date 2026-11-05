@@ -101,58 +101,37 @@ public interface IHomeostatStore
     /// <param name="cancellationToken">Cancellation token.</param>
     ValueTask<ControlState> GetControlStateAsync(CancellationToken cancellationToken = default);
 
-    /// <summary>Sets the pause, or removes it with <c>null</c>.</summary>
-    /// <param name="pause">The pause.</param>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    ValueTask SetPauseAsync(PauseState? pause, CancellationToken cancellationToken = default);
+    // The pause and the switches are written in decision order: every write carries the time the decision was taken,
+    // and the store applies it only if no later decision about the same pause or switch is recorded. A write that
+    // timed out on the caller's side but that the store runs afterwards then cannot undo a newer decision. On a tie, a
+    // decision that makes Homeostat do less (a pause, a switch off, a release) is accepted, one that lets it act (a
+    // resume, a switch on, a claim) is not. Each operation is atomic.
 
-    /// <summary>Turns an application switch on (replacing its previous state) or, with <c>null</c>, off.</summary>
-    /// <param name="name">Name of the switch.</param>
-    /// <param name="state">The switch, or <c>null</c> to turn it off.</param>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    ValueTask SetSwitchAsync(string name, SwitchState? state, CancellationToken cancellationToken = default);
-
-    /// <summary>
-    /// Sets or removes the pause <b>in decision order</b>: only if no decision taken later than
-    /// <paramref name="decidedAt"/> has been applied to the pause. A write that reaches the store late (it timed out on
-    /// the caller's side, but the store ran it afterwards) then cannot undo a newer pause or resume.
-    /// </summary>
-    /// <remarks>
-    /// The default implementation calls <see cref="SetPauseAsync"/> and returns <c>true</c>, without the ordering
-    /// guarantee: implement it in a custom store shared by several instances. The built-in stores implement it.
-    /// </remarks>
+    /// <summary>Sets the pause, or removes it with <c>null</c> (a resume), <b>in decision order</b>.</summary>
     /// <param name="pause">The pause, or <c>null</c> to resume.</param>
-    /// <param name="decidedAt">When the decision was taken.</param>
+    /// <param name="decidedAt">When the decision was taken (<see cref="PauseState.At"/> for a pause).</param>
     /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns><c>true</c> if applied; <c>false</c> if a later decision is already in the store.</returns>
-    ValueTask<bool> TrySetPauseAsync(PauseState? pause, DateTimeOffset decidedAt, CancellationToken cancellationToken = default)
-        => StoreDefaults.ThenTrue(SetPauseAsync(pause, cancellationToken));
+    /// <returns><c>true</c> if applied; <c>false</c> if a later decision about the pause is already in the store.</returns>
+    ValueTask<bool> TrySetPauseAsync(PauseState? pause, DateTimeOffset decidedAt, CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Turns an application switch on or off <b>in decision order</b>: only if no decision taken later than
-    /// <paramref name="decidedAt"/> has been applied to that switch (turning it on or off, or a condition claiming it).
-    /// A late write then cannot turn back on a switch turned off since, or the reverse.
+    /// Turns an application switch on (replacing its previous state) or, with <c>null</c>, off, <b>in decision order</b>:
+    /// decisions about a switch include turning it on or off and a condition claiming or releasing it.
     /// </summary>
-    /// <remarks>
-    /// The default implementation calls <see cref="SetSwitchAsync"/> and returns <c>true</c>, without the ordering
-    /// guarantee: implement it in a custom store shared by several instances, together with
-    /// <see cref="TryClaimSwitchAsync"/> refusing a claim older than the switch's latest decision. The built-in stores
-    /// implement both.
-    /// </remarks>
     /// <param name="name">Name of the switch.</param>
     /// <param name="state">The switch, or <c>null</c> to turn it off.</param>
     /// <param name="decidedAt">When the decision was taken.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns><c>true</c> if applied; <c>false</c> if a later decision is already in the store.</returns>
-    ValueTask<bool> TrySetSwitchAsync(string name, SwitchState? state, DateTimeOffset decidedAt, CancellationToken cancellationToken = default)
-        => StoreDefaults.ThenTrue(SetSwitchAsync(name, state, cancellationToken));
+    /// <returns><c>true</c> if applied; <c>false</c> if a later decision about the switch is already in the store.</returns>
+    ValueTask<bool> TrySetSwitchAsync(string name, SwitchState? state, DateTimeOffset decidedAt, CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Turns an application switch on for a condition's cluster plan <b>atomically</b>, only if it is off or already
-    /// owned by the same condition (then this state replaces the previous one): a switch a person turned on, or that
-    /// another condition owns, is left as it is. The built-in stores also refuse to turn on a switch that is off when a
-    /// decision about it was taken at or after <see cref="SwitchState.At"/> (a late claim, or a renewal of a switch
-    /// released meanwhile).
+    /// Turns an application switch on for a condition's cluster plan <b>atomically</b>, in decision order
+    /// (<see cref="SwitchState.At"/> is the decision): only if it is owned by the same condition and not claimed later
+    /// since, or off and not decided about at or after the claim. A switch a person turned on, or that another condition
+    /// owns, is left as it is. A <b>renewal</b> (<see cref="SwitchState.RenewedAt"/> differs from
+    /// <see cref="SwitchState.At"/>) only updates the claim it renews: still there, made by the same instance at the same
+    /// <see cref="SwitchState.At"/>; it records <see cref="SwitchState.RenewedAt"/> as the switch's latest decision.
     /// </summary>
     /// <param name="state">The switch, with <see cref="SwitchState.Condition"/> set.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
@@ -160,34 +139,17 @@ public interface IHomeostatStore
     ValueTask<bool> TryClaimSwitchAsync(SwitchState state, CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Turns an application switch off <b>atomically</b>, only if it is still owned by the condition (and, when
-    /// <paramref name="instance"/> is given, was turned on by that instance): a switch a person took over in the
-    /// meantime stays on.
+    /// Turns an application switch off <b>atomically</b>, in decision order, only if it is still owned by the condition
+    /// (and, when <paramref name="instance"/> is given, was turned on by that instance): a switch a person took over, or
+    /// that the condition claimed again after <paramref name="decidedAt"/>, stays on.
     /// </summary>
-    /// <param name="name">Name of the switch.</param>
-    /// <param name="condition">The owning condition.</param>
-    /// <param name="instance">The instance that turned it on, or <c>null</c> for any.</param>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns><c>true</c> if the switch was turned off.</returns>
-    ValueTask<bool> TryReleaseSwitchAsync(string name, string condition, string? instance, CancellationToken cancellationToken = default);
-
-    /// <summary>
-    /// Like <see cref="TryReleaseSwitchAsync(string, string, string?, CancellationToken)"/>, <b>in decision order</b>:
-    /// refused when a decision about the switch was taken after <paramref name="decidedAt"/> (the condition claimed it
-    /// again since), so a release that reaches the store late never turns off a newer claim.
-    /// </summary>
-    /// <remarks>
-    /// The default implementation calls the overload without <paramref name="decidedAt"/>, without the ordering
-    /// guarantee. The built-in stores implement it.
-    /// </remarks>
     /// <param name="name">Name of the switch.</param>
     /// <param name="condition">The owning condition.</param>
     /// <param name="instance">The instance that turned it on, or <c>null</c> for any.</param>
     /// <param name="decidedAt">When the release was decided.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns><c>true</c> if the switch was turned off.</returns>
-    ValueTask<bool> TryReleaseSwitchAsync(string name, string condition, string? instance, DateTimeOffset decidedAt, CancellationToken cancellationToken = default)
-        => TryReleaseSwitchAsync(name, condition, instance, cancellationToken);
+    ValueTask<bool> TryReleaseSwitchAsync(string name, string condition, string? instance, DateTimeOffset decidedAt, CancellationToken cancellationToken = default);
 
     /// <summary>Adds a pending approval request.</summary>
     /// <param name="approval">The request.</param>

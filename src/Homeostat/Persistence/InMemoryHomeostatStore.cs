@@ -41,12 +41,6 @@ public sealed class InMemoryHomeostatStore : IHomeostatStore
     public ValueTask<ControlState> GetControlStateAsync(CancellationToken cancellationToken = default) => _store.GetControlStateAsync(cancellationToken);
 
     /// <inheritdoc />
-    public ValueTask SetPauseAsync(PauseState? pause, CancellationToken cancellationToken = default) => _store.SetPauseAsync(pause, cancellationToken);
-
-    /// <inheritdoc />
-    public ValueTask SetSwitchAsync(string name, SwitchState? state, CancellationToken cancellationToken = default) => _store.SetSwitchAsync(name, state, cancellationToken);
-
-    /// <inheritdoc />
     public ValueTask<bool> TrySetPauseAsync(PauseState? pause, DateTimeOffset decidedAt, CancellationToken cancellationToken = default) => _store.TrySetPauseAsync(pause, decidedAt, cancellationToken);
 
     /// <inheritdoc />
@@ -57,10 +51,6 @@ public sealed class InMemoryHomeostatStore : IHomeostatStore
 
     /// <inheritdoc />
     public ValueTask<bool> TryClaimSwitchAsync(SwitchState state, CancellationToken cancellationToken = default) => _store.TryClaimSwitchAsync(state, cancellationToken);
-
-    /// <inheritdoc />
-    public ValueTask<bool> TryReleaseSwitchAsync(string name, string condition, string? instance, CancellationToken cancellationToken = default)
-        => _store.TryReleaseSwitchAsync(name, condition, instance, cancellationToken);
 
     /// <inheritdoc />
     public ValueTask AddApprovalAsync(ApprovalRecord approval, CancellationToken cancellationToken = default) => _store.AddApprovalAsync(approval, cancellationToken);

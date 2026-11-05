@@ -257,9 +257,9 @@ off and on again.
 ## Writing your own store
 
 `IHomeostatStore` has fourteen required methods: read and update plan state, consume and count the budget, append and
-read the run history, and the control state (`GetControlStateAsync`, `SetPauseAsync`, `SetSwitchAsync`,
+read the run history, and the control state (`GetControlStateAsync`, `TrySetPauseAsync`, `TrySetSwitchAsync`,
 `TryClaimSwitchAsync`, `TryReleaseSwitchAsync`, `AddApprovalAsync`, `TryResolveApprovalAsync`, `RemoveApprovalAsync`, with the types `ControlState`, `PauseState`,
-`SwitchState` and `ApprovalRecord` of `Homeostat.Persistence`). Eight more have default implementations, and members added after 1.0 will have them too:
+`SwitchState` and `ApprovalRecord` of `Homeostat.Persistence`). Six more have default implementations, and members added after 1.0 will have them too:
 
 - `SupportsConditionHistory`, `AppendConditionEventAsync`, `GetConditionEventsAsync`: the condition history. By default
   the store does not keep it (`false`), and Homeostat keeps it in process memory instead.
@@ -267,13 +267,6 @@ read the run history, and the control state (`GetControlStateAsync`, `SetPauseAs
   about 150 KB of JSON). By default nothing is kept (`false`), seasonal baselines start over at every restart, and
   Homeostat logs a warning once. The file store keeps documents until
   they are replaced: after renaming a seasonal condition, the old baseline stays in the file, unused.
-- `TrySetPauseAsync`, `TrySetSwitchAsync`: the pause and the switches **in decision order**. Homeostat writes through
-  them, with the time the decision was taken; the store applies a write only if no later decision about the same pause
-  or switch is recorded, and returns `false` otherwise. A write that timed out on the instance but that the store runs
-  later then cannot turn back on a switch turned off since, or end a newer pause. By default they call `SetPauseAsync`
-  and `SetSwitchAsync` and return `true`, without that guarantee: implement them in a store shared by several
-  instances, and make `TryClaimSwitchAsync` refuse to turn on a switch that is off when a decision about it was taken
-  at or after the claim's `At` (see `InMemoryHomeostatStore`, or the scripts of the Redis store).
 
 Requirements:
 
@@ -283,6 +276,14 @@ Requirements:
   answers a request only if it is still pending: of two answers given at the same time, exactly one wins.
   `TryClaimSwitchAsync` sets a switch only if it is off or owned by the same condition, and `TryReleaseSwitchAsync`
   removes it only if that condition (and instance) still owns it, so a plan never overrides a person's decision.
+- **Decision order** for the pause and the switches. Every write carries the time the decision was taken (`decidedAt`,
+  or `SwitchState.At` for a claim); keep, for the pause and for each switch, the latest decision applied, and refuse an
+  older one (return `false`): a write that timed out on the instance but that the store runs later then cannot turn
+  back on a switch turned off since, or end a newer pause. On a tie, accept a pause, a switch off and a release, and
+  refuse a resume, a switch on and a claim. A claim of a switch that is off is refused when a decision about it was
+  taken at or after the claim's `At`; a renewal (`RenewedAt` other than `At`) only updates the claim it renews (same
+  instance, same `At`), and records `RenewedAt` as the latest decision. `InMemoryHomeostatStore` and the scripts of
+  the Redis store implement exactly this.
 - `GetControlStateAsync` skips records it cannot read rather than failing: one bad record must not hide the pause.
 - Return `PlanState.Empty` for unknown plans.
 - Throw on failure: Homeostat handles it (fail closed).

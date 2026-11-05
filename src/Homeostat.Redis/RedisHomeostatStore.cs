@@ -296,31 +296,6 @@ internal sealed class RedisHomeostatStore : IHomeostatStore
         };
     }
 
-    public async ValueTask SetPauseAsync(PauseState? pause, CancellationToken cancellationToken = default)
-    {
-        if (pause is null)
-        {
-            await Db.KeyDeleteAsync(ControlKey("pause")).ConfigureAwait(false);
-        }
-        else
-        {
-            await Db.StringSetAsync(ControlKey("pause"), JsonSerializer.Serialize(pause, RedisJsonContext.Default.PauseState)).ConfigureAwait(false);
-        }
-    }
-
-    public async ValueTask SetSwitchAsync(string name, SwitchState? state, CancellationToken cancellationToken = default)
-    {
-        ArgumentException.ThrowIfNullOrWhiteSpace(name);
-        if (state is null)
-        {
-            await Db.HashDeleteAsync(ControlKey("switches"), name).ConfigureAwait(false);
-        }
-        else
-        {
-            await Db.HashSetAsync(ControlKey("switches"), name, JsonSerializer.Serialize(state, RedisJsonContext.Default.SwitchState)).ConfigureAwait(false);
-        }
-    }
-
     // Decision times are Unix microseconds (exact in a Lua number). A change that makes Homeostat do less (a pause, a
     // switch off, a release) is accepted on a tie, as a deferred change may be written again with the same time; a change
     // that lets it act (a resume, a switch on, a claim) only when strictly later.
@@ -421,7 +396,7 @@ internal sealed class RedisHomeostatStore : IHomeostatStore
     }
 
     // KEYS[1] = switches, KEYS[2] = decided; ARGV[1] = name, ARGV[2] = condition, ARGV[3] = instance ('' any),
-    // ARGV[4] = decided at ('' unordered). Removes the switch only if that condition (and instance) still owns it, and
+    // ARGV[4] = decided at. Removes the switch only if that condition (and instance) still owns it, and
     // nothing was decided about it after the release (the condition claimed it again).
     private const string ReleaseSwitchScript = """
         local current = redis.call('HGET', KEYS[1], ARGV[1])
@@ -459,15 +434,6 @@ internal sealed class RedisHomeostatStore : IHomeostatStore
                 renewal ? "1" : "0", state.Instance ?? string.Empty,
                 renewal && state.RenewedAt > DateTimeOffset.UnixEpoch ? Micros(state.RenewedAt.Value).ToString(System.Globalization.CultureInfo.InvariantCulture) : string.Empty,
             ]).ConfigureAwait(false);
-        return (int)result == 1;
-    }
-
-    public async ValueTask<bool> TryReleaseSwitchAsync(string name, string condition, string? instance, CancellationToken cancellationToken = default)
-    {
-        ArgumentException.ThrowIfNullOrWhiteSpace(name);
-        ArgumentException.ThrowIfNullOrWhiteSpace(condition);
-        var result = await Db.ScriptEvaluateAsync(
-            ReleaseSwitchScript, [ControlKey("switches"), ControlKey("decided")], [name, condition, instance ?? string.Empty, string.Empty]).ConfigureAwait(false);
         return (int)result == 1;
     }
 

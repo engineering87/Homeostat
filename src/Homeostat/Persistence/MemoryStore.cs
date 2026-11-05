@@ -188,30 +188,6 @@ internal class MemoryStore : IHomeostatStore
         }
     }
 
-    /// <inheritdoc />
-    public ValueTask SetPauseAsync(PauseState? pause, CancellationToken cancellationToken = default)
-    {
-        lock (_gate)
-        {
-            _pause = pause;
-            OnChanged();
-        }
-
-        return ValueTask.CompletedTask;
-    }
-
-    /// <inheritdoc />
-    public ValueTask SetSwitchAsync(string name, SwitchState? state, CancellationToken cancellationToken = default)
-    {
-        ArgumentException.ThrowIfNullOrWhiteSpace(name);
-        lock (_gate)
-        {
-            SetSwitchLocked(name, state);
-        }
-
-        return ValueTask.CompletedTask;
-    }
-
     private void SetSwitchLocked(string name, SwitchState? state)
     {
         var changed = state is null ? _switches.Remove(name) : !_switches.TryGetValue(name, out var current) || current != state;
@@ -315,10 +291,6 @@ internal class MemoryStore : IHomeostatStore
             return ValueTask.FromResult(true);
         }
     }
-
-    /// <inheritdoc />
-    public ValueTask<bool> TryReleaseSwitchAsync(string name, string condition, string? instance, CancellationToken cancellationToken = default)
-        => Release(name, condition, instance, decidedAt: null);
 
     /// <inheritdoc />
     public ValueTask<bool> TryReleaseSwitchAsync(string name, string condition, string? instance, DateTimeOffset decidedAt, CancellationToken cancellationToken = default)

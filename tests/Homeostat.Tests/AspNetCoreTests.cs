@@ -219,13 +219,13 @@ public class AspNetCoreTests
 
         public ValueTask<Homeostat.Persistence.ControlState> GetControlStateAsync(CancellationToken cancellationToken = default) => throw Down;
 
-        public ValueTask SetPauseAsync(Homeostat.Persistence.PauseState? pause, CancellationToken cancellationToken = default) => throw Down;
+        public ValueTask<bool> TrySetPauseAsync(Homeostat.Persistence.PauseState? pause, DateTimeOffset decidedAt, CancellationToken cancellationToken = default) => throw Down;
 
-        public ValueTask SetSwitchAsync(string name, Homeostat.Persistence.SwitchState? state, CancellationToken cancellationToken = default) => throw Down;
+        public ValueTask<bool> TrySetSwitchAsync(string name, Homeostat.Persistence.SwitchState? state, DateTimeOffset decidedAt, CancellationToken cancellationToken = default) => throw Down;
 
         public ValueTask<bool> TryClaimSwitchAsync(Homeostat.Persistence.SwitchState state, CancellationToken cancellationToken = default) => throw Down;
 
-        public ValueTask<bool> TryReleaseSwitchAsync(string name, string condition, string? instance, CancellationToken cancellationToken = default) => throw Down;
+        public ValueTask<bool> TryReleaseSwitchAsync(string name, string condition, string? instance, DateTimeOffset decidedAt, CancellationToken cancellationToken = default) => throw Down;
 
         public ValueTask AddApprovalAsync(Homeostat.Persistence.ApprovalRecord approval, CancellationToken cancellationToken = default) => throw Down;
 

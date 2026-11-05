@@ -55,10 +55,6 @@ internal sealed class OpeningFileStore : IHomeostatStore, IDisposable
 
     public ValueTask<ControlState> GetControlStateAsync(CancellationToken cancellationToken = default) => Store().GetControlStateAsync(cancellationToken);
 
-    public ValueTask SetPauseAsync(PauseState? pause, CancellationToken cancellationToken = default) => Store().SetPauseAsync(pause, cancellationToken);
-
-    public ValueTask SetSwitchAsync(string name, SwitchState? state, CancellationToken cancellationToken = default) => Store().SetSwitchAsync(name, state, cancellationToken);
-
     public ValueTask<bool> TrySetPauseAsync(PauseState? pause, DateTimeOffset decidedAt, CancellationToken cancellationToken = default) => Store().TrySetPauseAsync(pause, decidedAt, cancellationToken);
 
     public ValueTask<bool> TrySetSwitchAsync(string name, SwitchState? state, DateTimeOffset decidedAt, CancellationToken cancellationToken = default) => Store().TrySetSwitchAsync(name, state, decidedAt, cancellationToken);
@@ -66,8 +62,6 @@ internal sealed class OpeningFileStore : IHomeostatStore, IDisposable
     public ValueTask<bool> TryReleaseSwitchAsync(string name, string condition, string? instance, DateTimeOffset decidedAt, CancellationToken cancellationToken = default) => Store().TryReleaseSwitchAsync(name, condition, instance, decidedAt, cancellationToken);
 
     public ValueTask<bool> TryClaimSwitchAsync(SwitchState state, CancellationToken cancellationToken = default) => Store().TryClaimSwitchAsync(state, cancellationToken);
-
-    public ValueTask<bool> TryReleaseSwitchAsync(string name, string condition, string? instance, CancellationToken cancellationToken = default) => Store().TryReleaseSwitchAsync(name, condition, instance, cancellationToken);
 
     public ValueTask AddApprovalAsync(ApprovalRecord approval, CancellationToken cancellationToken = default) => Store().AddApprovalAsync(approval, cancellationToken);
 

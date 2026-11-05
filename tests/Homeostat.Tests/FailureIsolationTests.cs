@@ -148,13 +148,7 @@ public class FailureIsolationTests
 
         public ValueTask<ControlState> GetControlStateAsync(CancellationToken cancellationToken = default) => _inner.GetControlStateAsync(cancellationToken);
 
-        public ValueTask SetPauseAsync(PauseState? pause, CancellationToken cancellationToken = default) => _inner.SetPauseAsync(pause, cancellationToken);
-
-        public ValueTask SetSwitchAsync(string name, SwitchState? state, CancellationToken cancellationToken = default) => _inner.SetSwitchAsync(name, state, cancellationToken);
-
         public ValueTask<bool> TryClaimSwitchAsync(SwitchState state, CancellationToken cancellationToken = default) => _inner.TryClaimSwitchAsync(state, cancellationToken);
-
-        public ValueTask<bool> TryReleaseSwitchAsync(string name, string condition, string? instance, CancellationToken cancellationToken = default) => _inner.TryReleaseSwitchAsync(name, condition, instance, cancellationToken);
 
         public ValueTask<bool> TryReleaseSwitchAsync(string name, string condition, string? instance, DateTimeOffset decidedAt, CancellationToken cancellationToken = default) => _inner.TryReleaseSwitchAsync(name, condition, instance, decidedAt, cancellationToken);
 
@@ -386,9 +380,9 @@ public class FailureIsolationTests
 
         public ValueTask<ControlState> GetControlStateAsync(CancellationToken cancellationToken = default) => _inner.GetControlStateAsync(cancellationToken);
 
-        public ValueTask SetPauseAsync(PauseState? pause, CancellationToken cancellationToken = default) => _inner.SetPauseAsync(pause, cancellationToken);
+        public ValueTask<bool> TrySetPauseAsync(PauseState? pause, DateTimeOffset decidedAt, CancellationToken cancellationToken = default) => _inner.TrySetPauseAsync(pause, decidedAt, cancellationToken);
 
-        public ValueTask SetSwitchAsync(string name, SwitchState? state, CancellationToken cancellationToken = default) => _inner.SetSwitchAsync(name, state, cancellationToken);
+        public ValueTask<bool> TrySetSwitchAsync(string name, SwitchState? state, DateTimeOffset decidedAt, CancellationToken cancellationToken = default) => _inner.TrySetSwitchAsync(name, state, decidedAt, cancellationToken);
 
         public async ValueTask<bool> TryClaimSwitchAsync(SwitchState state, CancellationToken cancellationToken = default)
         {
@@ -398,8 +392,8 @@ public class FailureIsolationTests
             return claimed;
         }
 
-        public ValueTask<bool> TryReleaseSwitchAsync(string name, string condition, string? instance, CancellationToken cancellationToken = default)
-            => _inner.TryReleaseSwitchAsync(name, condition, instance, cancellationToken);
+        public ValueTask<bool> TryReleaseSwitchAsync(string name, string condition, string? instance, DateTimeOffset decidedAt, CancellationToken cancellationToken = default)
+            => _inner.TryReleaseSwitchAsync(name, condition, instance, decidedAt, cancellationToken);
 
         public ValueTask AddApprovalAsync(ApprovalRecord approval, CancellationToken cancellationToken = default) => _inner.AddApprovalAsync(approval, cancellationToken);
 
@@ -465,13 +459,13 @@ public class FailureIsolationTests
 
         public ValueTask<ControlState> GetControlStateAsync(CancellationToken cancellationToken = default) { Block(); return _inner.GetControlStateAsync(cancellationToken); }
 
-        public ValueTask SetPauseAsync(PauseState? pause, CancellationToken cancellationToken = default) { Block(); return _inner.SetPauseAsync(pause, cancellationToken); }
+        public ValueTask<bool> TrySetPauseAsync(PauseState? pause, DateTimeOffset decidedAt, CancellationToken cancellationToken = default) { Block(); return _inner.TrySetPauseAsync(pause, decidedAt, cancellationToken); }
 
-        public ValueTask SetSwitchAsync(string name, SwitchState? state, CancellationToken cancellationToken = default) { Block(); return _inner.SetSwitchAsync(name, state, cancellationToken); }
+        public ValueTask<bool> TrySetSwitchAsync(string name, SwitchState? state, DateTimeOffset decidedAt, CancellationToken cancellationToken = default) { Block(); return _inner.TrySetSwitchAsync(name, state, decidedAt, cancellationToken); }
 
         public ValueTask<bool> TryClaimSwitchAsync(SwitchState state, CancellationToken cancellationToken = default) { Block(); return _inner.TryClaimSwitchAsync(state, cancellationToken); }
 
-        public ValueTask<bool> TryReleaseSwitchAsync(string name, string condition, string? instance, CancellationToken cancellationToken = default) { Block(); return _inner.TryReleaseSwitchAsync(name, condition, instance, cancellationToken); }
+        public ValueTask<bool> TryReleaseSwitchAsync(string name, string condition, string? instance, DateTimeOffset decidedAt, CancellationToken cancellationToken = default) { Block(); return _inner.TryReleaseSwitchAsync(name, condition, instance, decidedAt, cancellationToken); }
 
         public ValueTask AddApprovalAsync(ApprovalRecord approval, CancellationToken cancellationToken = default) { Block(); return _inner.AddApprovalAsync(approval, cancellationToken); }
 
@@ -509,13 +503,13 @@ public class FailureIsolationTests
 
         public ValueTask<ControlState> GetControlStateAsync(CancellationToken cancellationToken = default) { Check(); return _inner.GetControlStateAsync(cancellationToken); }
 
-        public ValueTask SetPauseAsync(PauseState? pause, CancellationToken cancellationToken = default) { Check(); return _inner.SetPauseAsync(pause, cancellationToken); }
+        public ValueTask<bool> TrySetPauseAsync(PauseState? pause, DateTimeOffset decidedAt, CancellationToken cancellationToken = default) { Check(); return _inner.TrySetPauseAsync(pause, decidedAt, cancellationToken); }
 
-        public ValueTask SetSwitchAsync(string name, SwitchState? state, CancellationToken cancellationToken = default) { Check(); return _inner.SetSwitchAsync(name, state, cancellationToken); }
+        public ValueTask<bool> TrySetSwitchAsync(string name, SwitchState? state, DateTimeOffset decidedAt, CancellationToken cancellationToken = default) { Check(); return _inner.TrySetSwitchAsync(name, state, decidedAt, cancellationToken); }
 
         public ValueTask<bool> TryClaimSwitchAsync(SwitchState state, CancellationToken cancellationToken = default) { Check(); return _inner.TryClaimSwitchAsync(state, cancellationToken); }
 
-        public ValueTask<bool> TryReleaseSwitchAsync(string name, string condition, string? instance, CancellationToken cancellationToken = default) { Check(); return _inner.TryReleaseSwitchAsync(name, condition, instance, cancellationToken); }
+        public ValueTask<bool> TryReleaseSwitchAsync(string name, string condition, string? instance, DateTimeOffset decidedAt, CancellationToken cancellationToken = default) { Check(); return _inner.TryReleaseSwitchAsync(name, condition, instance, decidedAt, cancellationToken); }
 
         public ValueTask AddApprovalAsync(ApprovalRecord approval, CancellationToken cancellationToken = default) { Check(); return _inner.AddApprovalAsync(approval, cancellationToken); }
 

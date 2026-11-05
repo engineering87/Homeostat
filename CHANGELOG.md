@@ -12,12 +12,10 @@ Nothing yet.
 
 Second release candidate. Failure isolation: Homeostat, or its store, failing must never block the application or leave
 it degraded, and what Homeostat keeps in memory does not grow with the load. The public API changes are additive
-(new members with default implementations, optional parameters).
-
-Upgrading from rc.1: recompile code that calls `ChaosEnabledBySwitch` (it gains an optional parameter, which changes its
-binary signature); custom stores keep compiling, and should implement the new ordered writes when several instances
-share them (see [Writing your own store](docs/persistence-and-clusters.md#writing-your-own-store)). Restart limits now
-count in fixed windows: the counts kept by rc.1 are not carried over.
+(new members, optional parameters), except the control state of `IHomeostatStore`, now written in decision order: a
+custom store implements `TrySetPauseAsync`, `TrySetSwitchAsync` and `TryReleaseSwitchAsync` with `decidedAt` instead of
+`SetPauseAsync`, `SetSwitchAsync` and the release without it (see
+[Writing your own store](docs/persistence-and-clusters.md#writing-your-own-store)).
 
 ### Added
 
@@ -26,11 +24,13 @@ count in fixed windows: the counts kept by rc.1 are not carried over.
   clears, for actions whose effect can keep their own condition active.
 - `SwitchState.RenewedAt`: the instance that turned on a switch for a cluster plan renews it; when that instance
   stops or crashes, another instance turns the switch off as soon as the condition is not active there.
-- `IHomeostatStore.TrySetPauseAsync`, `TrySetSwitchAsync` and a `TryReleaseSwitchAsync` overload with `decidedAt` (all
-  with default implementations): the pause and the switches are written in decision order, so a write that timed out on the instance but reached the store later cannot undo a
-  newer decision (a switch turned back on after it was turned off, a pause ended by an older resume). The built-in
-  stores implement them, and their `TryClaimSwitchAsync` refuses a claim older than the switch's latest decision. The
-  Redis store adds the `{control}:decided` hash (microseconds). On a tie, a decision that makes Homeostat do less wins.
+- The pause and the switches are written in decision order: `IHomeostatStore.TrySetPauseAsync` and `TrySetSwitchAsync`
+  replace `SetPauseAsync` and `SetSwitchAsync`, and `TryReleaseSwitchAsync` takes the time the release was decided.
+  Every write carries the time of its decision, and the store refuses one older than the latest decision about the same
+  pause or switch, so a write that timed out on the instance but reached the store later cannot undo a newer decision
+  (a switch turned back on after it was turned off, a pause ended by an older resume). On a tie, a decision that makes
+  Homeostat do less wins. `TryClaimSwitchAsync` follows the same order, and a renewal only updates the claim it renews.
+  The built-in stores implement it; the Redis store adds the `{control}:decided` hash (microseconds).
 - `ChaosEnabledBySwitch(switchName, maximumDuration)`: chaos stops by itself one hour (by default) after its switch
   was first seen on, so a game day nobody ended does not keep degrading the application.
 - `AddConditionsFromConfiguration(section, failOnInvalid)`: by default an invalid condition in configuration is
