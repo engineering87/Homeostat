@@ -15,7 +15,7 @@ dotnet add package Homeostat.HealthChecks --prerelease   # health checks as sign
 
 The current version is a release candidate (`1.0.0-rc.1`): `--prerelease` is needed until 1.0.0 is published.
 
-## Quick look
+## Example
 
 ```csharp
 using Homeostat;
@@ -49,35 +49,30 @@ public sealed class WeatherFeedClient
 ```
 
 Homeostat starts in **dry-run**: it logs what it would do (`[dry-run] Condition weather-feed-down: step 1/2 would
-execute renew-client.`) and does nothing. When the decisions look right, add `.Configure(o => o.DryRun = false)`.
+execute renew-client.`) and changes nothing. When the decisions look right, add `.Configure(o => o.DryRun = false)`.
 
 ## Safe by default
 
-- **Dry-run on**: logs what it would do until you set `DryRun = false`.
-- Global action budget, cooldowns, timeouts, one run at a time, kill switch.
-- **Human approval** for risky steps, **suppression** of symptoms while their cause is active,
-  **hysteresis** so conditions do not flap.
+- Dry-run is on until you set `DryRun = false`: Homeostat only logs what it would do.
+- A global action budget, cooldowns, timeouts, one run at a time and a kill switch bound what it can do.
+- Risky steps wait for a person's approval, symptoms are suppressed while their cause is active, and hysteresis keeps
+  conditions from flapping.
 
 ## Batteries included
 
-- **Starter presets**: `AddWebApiDefaults()` and `AddWorkerDefaults()` register the usual detectors with an
-  observe-only condition for each; give a condition a plan when its activations look right.
-- **Detectors**: thread pool starvation, memory pressure, exception rate, HTTP and gRPC clients, Entity Framework Core
-  commands, call signals for any other client (`AddCallSignals`), Polly circuit breakers,
-  any `System.Diagnostics.Metrics` instrument (OpenTelemetry metrics) or event counter, message broker backlogs,
-  dead letters and lag.
-- **Conditions**: thresholds, values, trends, anomalies (also by time of day and week), predictions, intermittent
-  problems, combinations, hysteresis.
-- **Production**: file and Redis stores, plans that run once per cluster, conditions from `appsettings.json`.
-- **Actions**: inline lambdas, restart a hosted service, reload configuration, switches for degraded mode.
-- **Operations**: dashboard with one-click approvals, condition history and coverage, status and control endpoints,
-  command-line tool with offline replay, Homeostat as a health check, PagerDuty, Opsgenie, Slack and Teams (with
-  approvals from the channel), JSON Lines audit log, OpenTelemetry traces, metrics and a Grafana dashboard.
-- **Testing**: in-memory host with simulated time and fault injection.
+| Area | What is included |
+|---|---|
+| Starter presets | `AddWebApiDefaults()` and `AddWorkerDefaults()` register the usual detectors with an observe-only condition for each; give a condition a plan when its activations look right |
+| Detectors | Thread pool starvation, memory pressure, exception rate, HTTP and gRPC clients, Entity Framework Core commands, call signals for any other client (`AddCallSignals`), database probes and connection pools, Polly circuit breakers, any `System.Diagnostics.Metrics` instrument (OpenTelemetry metrics) or event counter, message broker backlogs, dead letters and lag |
+| Conditions | Thresholds, values, trends, anomalies (also by time of day and week), predictions, intermittent problems, combinations, hysteresis |
+| Production | File and Redis stores, plans that run once per cluster, conditions from `appsettings.json` |
+| Actions | Inline lambdas, restart a hosted service, reload configuration, switches for degraded mode |
+| Operations | Dashboard with one-click approvals, condition history and coverage, status and control endpoints, command-line tool with offline replay, Homeostat as a health check, PagerDuty, Opsgenie, Slack and Teams (with approvals from the channel), JSON Lines audit log, OpenTelemetry traces and metrics, a Grafana dashboard |
+| Testing | In-memory host with simulated time and fault injection |
 
 ## Packages
 
-- `Homeostat`: core engine, runtime detectors, starter presets, call signals, database probes and pool signals for any ADO.NET provider, built-in actions, approvals, audit log.
+- `Homeostat`: core engine, runtime detectors, starter presets, call signals, database probes for any ADO.NET provider, connection pool signals for Npgsql and SqlClient, built-in actions, approvals, audit log.
 - `Homeostat.AspNetCore`: status, history, coverage and control endpoints, dashboard with one-click approvals, Slack and Teams approvals; alerts from Alertmanager, Grafana and Azure Monitor as signals.
 - `Homeostat.HealthChecks`: health check results as signals; Homeostat's own health check.
 - `Homeostat.Http`: HTTP client failures and latency as signals (HTTP-level for gRPC clients); webhook, PagerDuty, Opsgenie, Slack and Microsoft Teams notifiers.
@@ -100,7 +95,7 @@ The core package includes [build-time analyzers](https://github.com/engineering8
 that catch mistakes that compile but misbehave at runtime. The [package index](https://github.com/engineering87/Homeostat/blob/main/docs/packages.md)
 lists every package with its install command.
 
-## Learn more
+## Documentation
 
 - [Documentation](https://github.com/engineering87/Homeostat/tree/main/docs)
 - [Getting started in 5 minutes](https://github.com/engineering87/Homeostat/blob/main/docs/getting-started.md)

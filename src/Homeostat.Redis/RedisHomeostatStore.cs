@@ -340,7 +340,8 @@ internal sealed class RedisHomeostatStore : IHomeostatStore
     // instance), or off and not decided about at or after the claim (a late claim, or a renewal of a switch released
     // meanwhile).
     // ARGV[5] = '1' for a renewal (or an abandonment), which only updates a claim still held by ARGV[6] (the instance),
-    // and records ARGV[7] (the renewal's time, '' for an abandonment) as the latest decision.
+    // and records ARGV[7] (the renewal's time, '' for an abandonment) in 'renewed:{name}'. A renewal is not a decision:
+    // the switch's decision time stays the claim's, and a release decided before the renewal is refused.
     private const string ClaimSwitchScript = """
         local field = 'switch:' .. ARGV[1]
         local latest = tonumber(redis.call('HGET', KEYS[2], field) or '-1')

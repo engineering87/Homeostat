@@ -1,13 +1,17 @@
 # Observability
 
-A system that fixes itself must also explain itself. Homeostat logs every decision, traces every run
-and exposes metrics and runtime state.
+This page lists what Homeostat logs, the traces and metrics it emits, the runtime state you can read in code, and how
+to react to its events with your own observers. It is for the people who operate and monitor an application that uses
+Homeostat.
 
 ## Logs
 
-Categories: `Homeostat.Engine.HomeostatEngine` (conditions), `Homeostat.Engine.HealingRunner` (runs),
-`Homeostat.Detectors.DetectorHost` (detectors), `Homeostat.Engine.ObserverNotifier` (observers) and the
-built-in sinks `Homeostat.Notifications.AuditLogSink` and `Homeostat.Http.WebhookSink`.
+Every log category starts with `Homeostat.`, so one filter on that prefix covers them all. The main ones are
+`Homeostat.Engine.HomeostatEngine` (conditions), `Homeostat.Engine.HealingRunner` (runs),
+`Homeostat.Detectors.DetectorHost` (detectors), `Homeostat.Engine.ObserverNotifier` (observers),
+`Homeostat.Configuration.ConditionReloader` (configuration reloads), `Homeostat.Redis.RedisCoordinator` (leases) and
+`Homeostat.Notifications.EventSinkHost<...>` (event sinks such as the audit log and the webhook, with the sink type
+as the generic argument).
 
 | Level | Message | Meaning |
 |---|---|---|
@@ -45,10 +49,11 @@ built-in sinks `Homeostat.Notifications.AuditLogSink` and `Homeostat.Http.Webhoo
 | Debug | `Condition {Condition} is active, but suppressed by {Cause}.` | Retry skipped while the cause is active |
 | Debug | `Condition {Condition}: not starting, {Reason}.` | Cooldown, backoff or hold |
 | Debug | `Condition {Condition}: the plan is running on another instance.` | `OncePerCluster()` lease taken |
-| Warning | `Condition {Condition}: {Action} did not heal; compensating with {Undo}.` | Compensation |
+| Warning | `Condition {Condition}: {Action} did not heal or failed; compensating with {Undo}.` | Compensation |
 | Error | `Condition {Condition}: compensating action {Undo} failed.` | Compensation failed |
 | Error | `Condition {Condition}: the store is unavailable; not starting the plan.` | Fail closed (Error at most once a minute per condition, Debug otherwise) |
-| Error | `Condition {Condition}: the store is unavailable; the action budget cannot be checked.` | Fail closed |
+| Error | `Condition {Condition}: the store is unavailable; the action budget cannot be checked.` | Fail closed (same rate limit) |
+| Error | `Condition {Condition}: the coordinator is unavailable; not starting the cluster plan.` | Fail closed for an `OncePerCluster()` plan (same rate limit) |
 | Error | `Condition {Condition}: could not save the plan state.` | Store write failed |
 | Warning | `Condition {Condition}: could not record the run in the history.` | Store write failed |
 | Information | `Homeostat conditions reloaded from configuration ({Count} conditions).` | [Configuration](configuration.md) change applied |
@@ -57,14 +62,15 @@ built-in sinks `Homeostat.Notifications.AuditLogSink` and `Homeostat.Http.Webhoo
 | Warning | `The Homeostat lease {Lease} could not be renewed in time; another instance may take over.` | Redis unreachable for a whole lease duration |
 | Warning | `Condition {Condition}: the cluster lease was lost during the run, which was stopped.` | Run ended `Canceled` |
 | Information | `Condition {Condition} was removed from configuration: switch {Switch} turned off.` | Configuration change |
-| Warning | `{Sink} could not deliver a {Kind} event for condition {Condition}.` | Audit log or webhook failed |
+| Warning | `{Sink} could not deliver a {Kind} event for condition {Condition}.` | A sink (audit log, webhook, incident or chat notifier) failed |
 | Warning | `{Sink} stopped before delivering all queued events.` | Shutdown timeout reached |
 | Warning | `{Sink} dropped {Count} event(s) raised after the application stopped.` | Late events |
 
-Skipped runs because of cooldown or a run already in progress are logged at `Debug` level.
+Runs skipped because of a cooldown or a run already in progress are logged at `Debug` level.
 
-**Suggested alerts:** every `Error` from `Homeostat.Engine.HealingRunner`, `Inconclusive` warnings and
-approval requests (or use the [webhook notifier](notifications.md), which sends them for you).
+> [!TIP]
+> Alert on every `Error` from `Homeostat.Engine.HealingRunner`, on `Inconclusive` warnings and on approval requests,
+> or let the [notifiers](notifications.md) send them for you.
 
 ## Traces and metrics
 
@@ -103,15 +109,15 @@ Each run produces an activity named `homeostat.heal` with these tags:
 Run outcomes: `Healed`, `NotHealed`, `Inconclusive`, `DryRun`, `BudgetExhausted`, `Paused`, `NotApproved`,
 `Suppressed`, `ConditionCleared`, `Canceled`, `Failed` (see [Run outcomes](healing-plans.md#run-outcomes)).
 
-Gauges describe the current state of each instance:
+Gauges describe the current state, as seen by the instance that reports them:
 
-| Instrument | Type | Tags |
-|---|---|---|
-| `homeostat.conditions` | Gauge | `status` (`Inactive`, `Pending`, `Active`) |
-| `homeostat.approvals.pending` | Gauge | |
-| `homeostat.switches.on` | Gauge | |
-| `homeostat.paused` | Gauge (0 or 1) | |
-| `homeostat.dry_run` | Gauge (0 or 1) | |
+| Instrument | Type | Tags | Meaning |
+|---|---|---|---|
+| `homeostat.conditions` | Gauge | `status` (`Inactive`, `Pending`, `Active`) | Conditions by status, on this instance |
+| `homeostat.approvals.pending` | Gauge | | Steps waiting for approval on every instance, as last read from the store |
+| `homeostat.switches.on` | Gauge | | Application switches and this instance's switches that are on |
+| `homeostat.paused` | Gauge (0 or 1) | | 1 while paused (kill switch, timed pause or maintenance window) |
+| `homeostat.dry_run` | Gauge (0 or 1) | | 1 while actions are only logged |
 
 ### Grafana dashboard
 
@@ -124,9 +130,9 @@ produced by the OpenTelemetry Prometheus exporter (`homeostat_conditions`, `home
 
 Useful views:
 
-- **Success rate per condition**: `outcomes{outcome="Healed"}` / `runs`.
-- **Time to recover**: `duration` filtered by `outcome="Healed"`.
-- **Noisy conditions**: `runs` by `condition` over time.
+- Success rate per condition: `outcomes{outcome="Healed"}` / `runs`.
+- Time to recover: `duration` filtered by `outcome="Healed"`.
+- Noisy conditions: `runs` by `condition` over time.
 
 ## Runtime state
 
@@ -138,11 +144,11 @@ Useful views:
 | `GetConditions()` | A `ConditionSnapshot` per condition: status, timestamps, last signal, `ClearingSince`, `SuppressedBy` |
 | `GetRecentRunsAsync()` | The latest completed runs, newest first, from the store (`RunHistorySize`, default 50); with a shared store, of every instance |
 | `GetBudgetAsync()` | Actions used and remaining in the current budget window, from the store |
-| `GetConditionHistoryAsync()` | The latest activations and clears, newest first, with the signal that caused them (`ConditionHistorySize`, default 200); from the store, so with a shared store of every instance |
+| `GetConditionHistoryAsync()` | The latest activations and clears, newest first, with the signal that caused them (`ConditionHistorySize`, default 200); from the store when it keeps the history (the built-in stores do; with a shared store, of every instance), merged with this process's events not stored yet; only this process's events when the store cannot be read |
 | `GetCoverageAsync(since)` | What was exercised in a period: see [Learning and foresight](intelligence.md#coverage) |
 
-`await IHomeostatApprovals.GetPendingAsync()` lists the steps waiting for approval (from the store, so with a shared
-store of every instance), and `IHomeostatSwitches.GetActive()` the switches that are on, for the application or for
+`await IHomeostatApprovals.GetPendingAsync()` lists the steps waiting for approval, oldest first, without expired
+requests (from the store, so with a shared store of every instance), and `IHomeostatSwitches.GetActive()` the switches that are on, for the application or for
 this instance. `PauseAsync`, `ResumeAsync` and `ReleaseHoldAsync` change the state: see [Guardrails](guardrails.md#kill-switch)
 and [Releasing a hold](healing-plans.md#releasing-a-hold).
 
@@ -152,8 +158,8 @@ The quickest way to see all of it is the status endpoint of [Homeostat.AspNetCor
 
 ## Observers: react to events
 
-For the common cases there are built-in observers: an [audit log and a webhook notifier](notifications.md).
-For anything else, implement `IHealingObserver`, for example to open an incident in your tracker. Implement
+For the common cases there are built-in observers: the [audit log, the webhook notifier, and the incident and chat
+notifiers](notifications.md). For anything else, implement `IHealingObserver`, for example to open an incident in your tracker. Implement
 only the methods you need:
 
 ```csharp
@@ -188,6 +194,14 @@ order. `OnStepCompleted` fires only for executed steps (not in dry-run, not for 
 pause).
 
 `AddObserver<T>()` resolves `T` from the container (registered as a singleton unless you registered it
-yourself, in which case keep it a singleton), so the same instance can be injected elsewhere. Observers are singletons called **synchronously** on Homeostat's threads: keep them fast and hand off
-slow work (HTTP calls, database writes) to a queue or a background service. Exceptions thrown by an
-observer are logged and do not affect healing.
+yourself, in which case keep it a singleton), so the same instance can be injected elsewhere. Registering the same
+type twice has no effect.
+
+> [!IMPORTANT]
+> Observers are called **synchronously** on Homeostat's threads. Keep them fast and hand off slow work (HTTP calls,
+> database writes) to a queue or a background service, or implement `IHomeostatEventSink` instead, which gets its own
+> background queue ([Your own sink](notifications.md#your-own-sink)). Exceptions thrown by an observer are logged and
+> do not affect healing.
+
+See also: [Notifications and audit](notifications.md), [ASP.NET Core endpoints](aspnetcore.md),
+[Persistence and clusters](persistence-and-clusters.md).

@@ -1,6 +1,7 @@
 # Homeostat documentation
 
-New to Homeostat? Read the pages in this order: each one builds on the previous.
+The map of Homeostat's documentation, for developers adding it to an application and for the people who operate
+it. If you are new to Homeostat, read the two pages under Learn first, then the reference pages you need.
 
 ## Learn
 

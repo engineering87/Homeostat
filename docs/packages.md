@@ -1,6 +1,7 @@
 # Packages
 
-Every package is released together with the same version number (preview packages add `-preview` to it). Start with `Homeostat` (and usually
+Every Homeostat package, what it adds, how to install it and where to start in its API. All packages are released
+together with the same version number (preview packages add `-preview` to it). Start with `Homeostat` (and usually
 `Homeostat.HealthChecks`), then add the packages of the technologies you use. While the current version is a release
 candidate, install with `--prerelease` (see [Versioning](versioning.md)).
 
@@ -16,7 +17,7 @@ candidate, install with `--prerelease` (see [Versioning](versioning.md)).
 | `Homeostat.EntityFrameworkCore` | Command failures and latency of a `DbContext`; `DbContext` connectivity probe | `dotnet add package Homeostat.EntityFrameworkCore --prerelease` | `AddDbContextSignals<TContext>`, `AddDbContextProbe<TContext>` | No | Preview |
 | `Homeostat.Caching` | Memory cache hit ratio; HybridCache, distributed and memory cache purge actions | `dotnet add package Homeostat.Caching --prerelease` | `AddMemoryCacheSignals`, `PurgeHybridCacheTags`, `RemoveHybridCacheKeys`, `RemoveDistributedCacheKeys`, `CompactMemoryCache` | Yes | Preview |
 | `Homeostat.MongoDB` | Ping, primary availability, pool exhaustion, replication lag | `dotnet add package Homeostat.MongoDB --prerelease` | `AddMongoSignals`, `AddHomeostatSignals` (on `MongoClientSettings`) | Yes | Stable |
-| `Homeostat.ServiceBus` | Queue and subscription backlog and dead letters; pausable processors | `dotnet add package Homeostat.ServiceBus --prerelease` | `AddServiceBusQueueSignals`, `AddServiceBusSubscriptionSignals`, `AddPausableServiceBusProcessor` | Yes | Stable |
+| `Homeostat.ServiceBus` | Queue and subscription backlog and dead letters; pausable processors | `dotnet add package Homeostat.ServiceBus --prerelease` | `AddServiceBusQueueSignals`, `AddServiceBusSubscriptionSignals`, `AddPausableServiceBusProcessor`, `AddPausableServiceBusSessionProcessor` | Yes | Stable |
 | `Homeostat.RabbitMQ` | Queue backlog, consumers and dead letters; pausable consumer | `dotnet add package Homeostat.RabbitMQ --prerelease` | `AddRabbitMqQueueSignals`, `PausableRabbitMqConsumer` | Yes | Stable |
 | `Homeostat.Kafka` | Consumer lag, broker connections and producer queue from client statistics; pause gate | `dotnet add package Homeostat.Kafka --prerelease` | `SetHomeostatSignals`, `AddKafkaPauseGate`, `KafkaPauseGate` | Yes | Stable |
 | `Homeostat.Artemis` | ActiveMQ Artemis queue depth, consumers and dead letters through Jolokia | `dotnet add package Homeostat.Artemis --prerelease` | `UseArtemis`, `AddArtemisQueueSignals` | Yes | Stable |
@@ -30,15 +31,20 @@ candidate, install with `--prerelease` (see [Versioning](versioning.md)).
 | `Homeostat.Templates` | `dotnet new` templates: `homeostat-webapi`, `homeostat-worker` | `dotnet new install Homeostat.Templates::1.0.0-rc.1` | `dotnet new homeostat-webapi`, `dotnet new homeostat-worker` | No | Stable |
 | Analyzers | Build-time checks | Bundled in `Homeostat`; not a separate package | See [Analyzers](analyzers.md) | No | Stable |
 
-**Stability**: stable packages follow [Semantic Versioning](versioning.md) strictly from 1.0.0. Preview packages
-are released with every version but carry a `-preview` suffix (`1.0.0-preview` next to `1.0.0`): they work and are
-tested, but have not been proven in production yet, so their API can still change in a minor version. Install them
-with `--prerelease`. See [Stable and preview packages](versioning.md#stable-and-preview-packages).
+Stable packages follow [Semantic Versioning](versioning.md) strictly from 1.0.0. Preview packages are released with
+every version but carry a `-preview` suffix (`1.0.0-preview` next to `1.0.0`): they work and are tested, but have not
+been proven in production yet, so their API can still change in a minor version. NuGet treats them as prerelease
+versions, so install them with `--prerelease`. See [Stable and preview packages](versioning.md#stable-and-preview-packages).
 
 "Native AOT: Yes" means the library is marked `IsAotCompatible` and builds without trimming or AOT warnings. For
 packages that wrap a client library, whether the application can be published with Native AOT also depends on that
 library: see [Platforms](platforms.md#trimming-and-native-aot).
 
 Most extension methods are in the `Homeostat` namespace, so `using Homeostat;` is enough; option types are in
-sub-namespaces named after the package (`Homeostat.Http`, `Homeostat.Kafka`, ...). `WithHomeostat` is in the
-`Aspire.Hosting` namespace, like the other app host extensions.
+sub-namespaces named after the package (`Homeostat.Http`, `Homeostat.Kafka`, ...). The exceptions: `WithHomeostat` is
+in the `Aspire.Hosting` namespace, like the other app host extensions; the Polly helpers on `IServiceProvider`
+(`TrackCircuitBreaker`, `CircuitControl`, `ChaosEnabledBySwitch`) are in `Homeostat.Polly`; `HomeostatSwitchProvider`
+is in `Homeostat.OpenFeature`; the test types are in `Homeostat.Testing`. The database probe options keep the
+`Homeostat.Data` namespace, although they ship in the core package.
+
+See also: [Versioning](versioning.md) · [Platforms](platforms.md) · [Trimming and Native AOT](native-aot.md)

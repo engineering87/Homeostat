@@ -1,6 +1,6 @@
 # Homeostat.OpenFeature
 
-OpenFeature integration for Homeostat: a provider that exposes Homeostat switches as boolean flags, alone or next to your flag provider in a multi-provider, so healing plans degrade gracefully through OpenFeature.
+OpenFeature integration for Homeostat: a provider that exposes Homeostat switches as boolean flags, alone or next to your flag provider in a multi-provider, so healing plans can turn features off through OpenFeature. An optional key prefix keeps switch names apart from your other flags.
 
 ## Install
 

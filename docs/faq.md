@@ -1,5 +1,8 @@
 # FAQ & troubleshooting
 
+Answers to the questions that come up when Homeostat does something you did not expect, or does nothing, and to
+common questions about production use.
+
 ## Troubleshooting
 
 ### Nothing happens when the problem occurs
@@ -21,8 +24,9 @@ Work through this list in order:
 
 ### It ran the first step but did not escalate
 
-The verification was probably **inconclusive**: no new signal arrived during the verification
-timeout. Either make signals more frequent or extend the timeout:
+The verification was probably **inconclusive**: the condition was still active, but no new signal arrived during the
+verification timeout (1 minute by default, `DefaultVerificationTimeout`). The log says
+`verification after ... was inconclusive; not escalating further`. Make signals more frequent or extend the timeout:
 
 ```csharp
 .Heal(p => p
@@ -33,14 +37,15 @@ timeout. Either make signals more frequent or extend the timeout:
 
 ### The same action runs again after a few minutes
 
-The condition is still active. After the cooldown, the next triggering signal starts a new run.
-This is intended: a problem that is not fixed is retried at a controlled pace, within the budget.
-Increase the cooldown or lower the budget if it is too frequent.
+The condition is still active. After the cooldown (5 minutes by default), the next triggering signal starts a new
+run. This is intended: a problem that is not fixed is retried at a controlled pace, within the budget. Increase the
+cooldown, add `CooldownBackoff`, or lower the budget if it is too frequent.
 
 ### The application fails at startup with an `InvalidOperationException`
 
 The message says what is wrong. Common causes: two conditions with the same name, a condition with
-neither `ForSource` nor `ClearWhen`, a plan with no actions.
+neither `ForSource` nor `ClearWhen`, a plan with no actions, a `SuppressedBy` or composite condition that names a
+condition that is not registered, or a cycle between them.
 
 ## Questions
 
@@ -48,15 +53,17 @@ neither `ForSource` nor `ClearWhen`, a plan with no actions.
 
 No. Polly and `Microsoft.Extensions.Resilience` protect **individual calls** (retry, timeout, circuit
 breaker). Homeostat reacts to problems that **persist** at application level and verifies recovery.
-Use both.
+Use both: `Homeostat.Polly` turns a circuit breaker that stays open into a signal.
 
 ### Is it safe to use in production?
 
-That is the goal of the defaults: dry-run on, budget, cooldown, timeouts, one run at a time, kill
+The defaults are chosen for that: dry-run on, budget, cooldown, timeouts, one run at a time, kill
 switch, and no escalation without evidence. Start in dry-run, review the decisions, then enable
 actions one plan at a time, and review the [security guide](security.md). The current version is a release
 candidate for 1.0: the public API changes before 1.0.0 only if a problem found in the release candidate requires
-it, and from 1.0.0 it follows semantic versioning (see [Versioning](versioning.md)).
+it, and from 1.0.0 the stable packages follow semantic versioning. Preview packages (gRPC, Entity Framework Core,
+caching, feature flags, Azure, Aspire) can still change in a minor version (see
+[Stable and preview packages](versioning.md#stable-and-preview-packages)).
 
 ### What happens with several instances of my application?
 
@@ -91,8 +98,8 @@ Yes. Actions return a `Task`, and each step runs in its own DI scope.
 
 ### Do I need OpenTelemetry?
 
-No. Homeostat uses `System.Diagnostics` types from the BCL. OpenTelemetry is only needed if you want
-to export traces and metrics.
+No. Homeostat uses `System.Diagnostics` types from the BCL. You need OpenTelemetry only to export the traces and
+metrics.
 
 ### Which .NET versions are supported?
 
@@ -103,3 +110,5 @@ and [Versioning](versioning.md) for how new .NET versions are adopted.
 ### Where does the name come from?
 
 From *homeostasis*: the ability of a living system to return to a stable state after a disturbance.
+
+See also: [Guardrails](guardrails.md) · [Observability](observability.md) · [Recipes](recipes.md)

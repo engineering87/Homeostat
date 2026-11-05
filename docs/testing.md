@@ -1,7 +1,8 @@
 # Testing
 
-Self-healing logic is code, and it deserves tests. The `Homeostat.Testing` package lets you test
-**whole healing scenarios** in milliseconds, with simulated time, and unit test your actions in isolation.
+Self-healing logic is code and needs tests like any other. The `Homeostat.Testing` package runs whole healing
+scenarios in milliseconds on simulated time, unit tests actions in isolation, injects HTTP faults and replays recorded
+signals against new conditions.
 
 ```bash
 dotnet add package Homeostat.Testing --prerelease
@@ -9,10 +10,9 @@ dotnet add package Homeostat.Testing --prerelease
 
 ## Scenario tests with `HomeostatTestHost`
 
-`HomeostatTestHost` runs Homeostat in memory with a simulated clock (`FakeTimeProvider`). From the moment
-the host starts, simulated time moves forward automatically in the background (1 simulated second every
-5 ms of real time by default), so a 5-minute cooldown or a 1-minute verification
-takes a fraction of a second.
+`HomeostatTestHost` runs the real Homeostat engine in memory with a simulated clock (`FakeTimeProvider`). From the
+moment the host starts, simulated time moves forward in the background (1 simulated second every 5 ms of real time
+by default), so a 5-minute cooldown or a 1-minute verification takes a fraction of a second.
 
 ```csharp
 [Fact]
@@ -31,9 +31,10 @@ public async Task Renewing_the_client_heals_the_feed()
 }
 ```
 
-The outcome in this example is `Inconclusive` on purpose: nothing published a new signal after the
-action, so the default verifier had no evidence. To test a full recovery, publish the recovery signal
-yourself or let your fake publish it:
+The outcome in this example is `Inconclusive` on purpose: nothing published a new signal after the action, so the
+default verifier had no evidence either way. The default verifier reports `Healed` as soon as the condition is no
+longer active (pending included). To test a full recovery, publish the recovery signal yourself or let your fake
+publish it:
 
 ```csharp
 host.Publish("feed", SignalSeverity.Unhealthy);
@@ -64,16 +65,20 @@ Assert.Collection(run.Steps,
 | Member | Purpose |
 |---|---|
 | `StartAsync(configure, services, options, cancellationToken)` | Build and start a host; all but `configure` are optional |
-| `Publish(source, severity, message)` | Publish a signal stamped with simulated time; for a value or tags, use `Signals.TryPublish(new Signal(...) { Value = ... })` with `Time.GetUtcNow()` |
+| `Publish(source, severity, message)` | Publish a signal stamped with simulated time. For a value, use `Signals.TryPublish(source, severity, message, value)`, also stamped with simulated time; for tags, `Signals.TryPublish(new Signal(source, severity, Time.GetUtcNow()) { Tags = ... })` |
 | `WaitForRunAsync(condition, timeout, cancellationToken)` | Wait for the next completed run of a condition; each run is returned once |
 | `WaitForConditionAsync(condition, status, timeout, cancellationToken)` | Wait until a condition reaches a status |
 | `WaitForApprovalAsync(condition, timeout, cancellationToken)` | Wait until a step of the condition asks for approval; returns the request |
 | `CompletedRuns` | All runs completed so far |
 | `Control`, `Switches`, `Approvals`, `Signals`, `Services` | The real Homeostat services |
 | `Time` | The `FakeTimeProvider`, to advance time manually |
+| `DisposeAsync()` | Stop every service, then dispose the host (see below) |
 
 `timeout` is real time, and defaults to `DefaultTimeout` of the host options; the waiting methods throw
 `TimeoutException` when it elapses, and `OperationCanceledException` when `cancellationToken` is canceled.
+
+`DisposeAsync` stops the services while simulated time still moves, waiting at most `DefaultTimeout`. It stops every
+service even if one of them throws, then disposes the host and throws an `AggregateException` with the errors.
 
 ### Host options
 
@@ -83,7 +88,7 @@ Assert.Collection(run.Steps,
 | `AutoAdvanceStep` | 1 s | Simulated time added at each tick; `null` disables automatic advancing |
 | `AutoAdvanceInterval` | 5 ms | Real time between ticks |
 | `DefaultTimeout` | 10 s | Real time before waiting methods throw `TimeoutException` |
-| `StartTime` | 2030-01-01 | Initial simulated time |
+| `StartTime` | 2030-01-01 00:00 UTC | Initial simulated time |
 
 Timeout messages include the current state of the condition, which usually explains what went wrong.
 
@@ -100,13 +105,14 @@ var run = await host.WaitForRunAsync("weather-feed-down");
 Assert.Equal(HealingRunOutcome.Healed, run.Outcome);
 ```
 
-Simulated time keeps moving while the test waits, so the approval timeout elapses quickly (15 simulated
-minutes take about 4.5 seconds). Answer right after `WaitForApprovalAsync`, or use `RequireApproval(timeout)`
-with a longer timeout in the test. To test expiry, do nothing and expect `NotApproved`.
+Simulated time keeps moving while the test waits, so the approval timeout elapses quickly: the default 15 simulated
+minutes take about 4.5 seconds. Answer right after `WaitForApprovalAsync`, or use `RequireApproval(timeout)` with a
+longer timeout in the test. To test expiry, do nothing and expect `NotApproved`.
 
-> Action timeouts (`ActionTimeout`) follow simulated time too. With automatic advancing, 30 simulated
-> seconds pass in about 150 ms of real time, so a fake action that waits on real time (for example
-> `Task.Delay` without the `TimeProvider`) can time out. Keep fake actions fast, or raise `ActionTimeout`.
+> [!WARNING]
+> Action timeouts (`ActionTimeout`) follow simulated time too. With automatic advancing, the default 30 simulated
+> seconds pass in about 150 ms of real time, so a fake action that waits on real time (for example `Task.Delay`
+> without the `TimeProvider`) can time out. Keep fake actions fast, or raise `ActionTimeout`.
 
 ## Simulating faults
 
@@ -123,12 +129,12 @@ fault.Activate();     // the dependency "goes down"
 fault.Deactivate();   // and comes back
 ```
 
-`fault.IsActive` tells whether the fault is on, for assertions or for fakes that share the switch.
+`fault.IsActive` tells whether the fault is on, for assertions or for fakes that share the switch. The handler
+answers `503` by default; pass another status code to the constructor if you need one, for example
+`HttpStatusCode.BadGateway`.
 
-Add the fault handler after `AddHomeostatSignals()`: an outer fault handler would answer before the
-Homeostat handler sees the request.
-
-Pass a different status code to the constructor if you need one, for example `HttpStatusCode.BadGateway`.
+Add the fault handler after `AddHomeostatSignals()`: an outer fault handler would answer before the Homeostat handler
+sees the request.
 
 ## Unit testing actions
 
@@ -147,8 +153,8 @@ public async Task Failover_switches_region()
 }
 ```
 
-All parameters are optional: condition name, triggering signal, services, condition state, step name
-and index, start time.
+All parameters are optional: `conditionName` (`"test-condition"`), `triggeringSignal`, `services`, `conditionState`,
+`stepName` (`"test-step"`), `step` (the index, `0`) and `now`, the start time of the step (the current time).
 
 ## Testing custom detectors
 
@@ -158,16 +164,20 @@ collects signals, then assert on them. To test a detector end to end, register i
 
 ## Replaying recorded signals
 
-`HomeostatReplay` runs recorded signals (`AddSignalRecording`) through the conditions and plans you pass in, in dry-run on
-simulated time, and reports what would have happened: a regression test on real traffic for a new threshold or plan.
+`HomeostatReplay` runs recorded signals (`AddSignalRecording`) through the conditions and plans you pass in, in
+dry-run on simulated time, and reports what would have happened. Use it as a regression test on real traffic for a
+new threshold or plan.
 
 | Method | Signals from | Conditions from |
 |---|---|---|
 | `RunAsync(signals, configure, cancellationToken)` | A sequence of `RecordedSignal` | Code: `h => h.AddCondition(...)` |
-| `RunAsync(signals, conditions, options, cancellationToken)` | A sequence of `RecordedSignal` | An `IConfiguration` section, with optional `HomeostatOptions` |
+| `RunAsync(signals, conditions, options, cancellationToken)` | A sequence of `RecordedSignal` | An `IConfiguration` section, with an optional `Action<HomeostatOptions>` |
 | `RunFilesAsync(paths, configure, cancellationToken)` | Recording files, merged in time order | Code |
 | `RunFilesAsync(paths, conditions, options, cancellationToken)` | Recording files | An `IConfiguration` section |
 
-All return a `ReplayReport` (`From`, `To`, `Signals`, `Events`, `Conditions`, `Runs`, and `ToText()`). See
-[Learning and foresight](intelligence.md#recording-and-replay).
+All return a `ReplayReport` (`From`, `To`, `Signals`, `Events`, `Conditions`, `Runs`, and `ToText()`). The
+[`homeostat replay`](tools.md#command-line-tool) command does the same from the command line.
+
+See also: [Learning and foresight](intelligence.md#recording-and-replay), [Recipes](recipes.md#unit-test-an-action),
+[Healing plans](healing-plans.md).
 

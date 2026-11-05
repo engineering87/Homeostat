@@ -1,7 +1,8 @@
 # Guardrails
 
-Homeostat acts on a running application, so its defaults are deliberately conservative.
-**When in doubt, it does less.**
+Homeostat acts on a running application, so its defaults are deliberately conservative: when in doubt, it does
+less. This page describes each guardrail (dry-run, budget, cooldown, concurrency, timeouts, pause, maintenance windows,
+approval, suppression), how Homeostat behaves when it fails itself, and every global option.
 
 ```csharp
 .AddHomeostat(h => h
@@ -18,52 +19,52 @@ Homeostat acts on a running application, so its defaults are deliberately conser
 
 **Default: on.**
 
-In dry-run Homeostat tracks conditions normally, but instead of executing a plan it logs every step it
-would run:
+In dry-run Homeostat tracks conditions normally, but instead of executing a plan it logs every step it would run:
 
 ```text
 warn: [dry-run] Condition weather-feed-down: step 1/2 would execute RenewFeedClientAction.
 ```
 
-Recommended rollout: run in dry-run in a real environment, check that conditions activate when and
-only when you expect, then set `DryRun = false`. Dry-run runs still count toward cooldowns, so the logs
-are not flooded. They do not consume the action budget. Observers still receive condition events and
-`OnRunCompleted` (outcome `DryRun`, no steps), but never `OnStepCompleted`.
+Recommended rollout: run in dry-run in a real environment, check that conditions activate when and only when you
+expect, then set `DryRun = false`. Dry-run runs still start the cooldown, so the logs are not flooded, and they do not
+consume the action budget. Observers still receive condition events and `OnRunCompleted` (outcome `DryRun`, no steps),
+but never `OnStepCompleted`.
 
 ## Action budget
 
 **Default: 10 actions per rolling hour, across all plans.**
 
-Before every executed action (dry-run steps do not count), Homeostat consumes one unit of a global budget. Compensating
-actions count too, but an exhausted budget never stops one: it reverts a change that did not help. When the budget is exhausted,
-the run stops with an error:
+Before every executed action (dry-run steps do not count), Homeostat consumes one unit of a global budget.
+Compensating actions count too, but an exhausted budget never stops one: it reverts a change that did not help. When
+the budget is exhausted, the run stops with outcome `BudgetExhausted` and an error:
 
 ```text
 fail: Condition weather-feed-down: action budget exhausted (10 actions per 01:00:00). Manual intervention required.
 ```
 
-This protects you from a faulty signal or a misconfigured condition triggering a storm of
-interventions.
+This protects you from a faulty signal or a misconfigured condition triggering a storm of interventions.
+`IHomeostatControl.GetBudgetAsync()` reports how much of the budget is used.
 
 ## Cooldown
 
 **Default: 5 minutes per plan.** Override per plan with `.Cooldown(...)`.
 
-After a run ends, whatever the outcome, the same plan cannot start again until the cooldown has
-elapsed. If the condition is still active after the cooldown, the next triggering signal starts a new
-run from step 1. With [`CooldownBackoff`](healing-plans.md#cooldown-backoff), the cooldown grows after every run
-in a row that does not heal.
+After a run ends, whatever the outcome, the same plan cannot start again until the cooldown has elapsed. If the
+condition is still active after the cooldown, the next triggering signal starts a new run from step 1. With
+[`CooldownBackoff`](healing-plans.md#cooldown-backoff), the cooldown grows after every run in a row that does not
+heal.
 
-Cooldowns, backoff and the budget live in the [store](persistence-and-clusters.md): with the default in-memory
-store they reset on restart; with a file or Redis store they do not. When the store is unavailable Homeostat
-fails closed and does not start runs.
+Cooldowns, backoff and the budget live in the [store](persistence-and-clusters.md): with the default in-memory store
+they reset on restart; with a file or Redis store they do not. When the store is unavailable, Homeostat fails closed
+and does not start runs.
 
 ## Concurrency
 
 **Default: 1 run at a time** (`MaxConcurrentHealings`).
 
-- At most **one run per condition**, always.
-- At most `MaxConcurrentHealings` runs **overall**; additional runs wait for a free slot.
+- At most one run per condition, always.
+- At most `MaxConcurrentHealings` runs overall; additional runs wait for a free slot.
+- A run waiting for an approval gives its slot back until the answer arrives.
 
 ## Timeouts
 
@@ -71,18 +72,21 @@ fails closed and does not start runs.
 |---|---|---|
 | `DefaultActionTimeout` | 30 s | Each action and compensating action (`.ActionTimeout(...)` after a step) |
 | `DefaultVerificationTimeout` | 1 min | Each verification (`.VerificationTimeout(...)` after a step) |
+| `DefaultApprovalTimeout` | 15 min | Each approval request (`.RequireApproval(timeout)` after a step) |
 
-When the timeout expires, the action's `CancellationToken` is canceled and the step fails with a `TimeoutException`.
-Homeostat stops waiting at that moment even if the action ignores the token: a stuck action (a blocking call, a
-lost token) cannot hold the run, the concurrency slot or the shutdown. .NET cannot stop code that ignores
-cancellation, so such an action keeps running in the background, and Homeostat logs an error saying so: pass the
-token to every call an action makes. A verifier gets its timeout and Homeostat waits at most twice as long for it, plus the condition's
-`ClearAfter` (the default verifier waits for a recovery in progress to hold); one that never returns ends the run as
-`Inconclusive`.
+When the action timeout expires, the action's `CancellationToken` is canceled and the step fails with a
+`TimeoutException`. Homeostat stops waiting at that moment even if the action ignores the token: a stuck action (a
+blocking call, a lost token) cannot hold the run, the concurrency slot or the shutdown. .NET cannot stop code that
+ignores cancellation, so such an action keeps running in the background, and Homeostat logs an error saying so: pass
+the token to every call an action makes.
+
+A verifier gets its timeout, and Homeostat waits at most twice as long for it, plus the condition's `ClearAfter` (the
+default verifier waits for a recovery in progress to hold). One that never returns ends the run as `Inconclusive`.
 
 ## What Homeostat does when it is the problem
 
-Self-healing must never be what takes the application down. These are the rules, and `ReliabilityTests` checks them:
+Self-healing must never be what takes the application down. These are the rules, and the `ReliabilityTests` test
+class checks them:
 
 | Failure | What happens |
 |---|---|
@@ -103,15 +107,17 @@ Self-healing must never be what takes the application down. These are the rules,
 Every store call is bounded and starts off the caller's thread; while a read abandoned at its timeout still runs,
 the periodic refresh and the health check do not start another, so a store blocked on I/O cannot pile up threads.
 
-What Homeostat cannot prevent: an observer (`IHealingObserver`) runs on Homeostat's threads, so a slow one delays
-signal processing (use an [event sink](observability.md) for slow work); and code that ignores cancellation keeps
-running after Homeostat stops waiting for it (it is not started again while it runs, but it keeps its thread, and
-its services may be disposed under it when the run ends).
+What Homeostat cannot prevent:
+
+- An observer (`IHealingObserver`) runs on Homeostat's threads, so a slow one delays signal processing. Use an
+  [event sink](observability.md) for slow work.
+- Code that ignores cancellation keeps running after Homeostat stops waiting for it. It is not started again while it
+  runs, but it keeps its thread, and the services of its step stay alive until it ends.
 
 ## Kill switch
 
-Pause all interventions at runtime, for example during a deployment or an incident handled by people.
-With `Homeostat.AspNetCore` the endpoints are ready ([details](aspnetcore.md)):
+Pause all interventions at runtime, for example during a deployment or an incident handled by people. With
+`Homeostat.AspNetCore` the endpoints are ready ([details](aspnetcore.md)):
 
 ```csharp
 app.MapHomeostatControl("operations");   // POST /homeostat/pause and /resume, ... (authorization policy)
@@ -126,12 +132,14 @@ await control.ResumeAsync();
 ```
 
 A timed pause is handy for a deployment script that might not reach its last step. A new call replaces the previous
-pause. `PauseReason` says why Homeostat is paused, for example `paused until 2026-11-02T10:30:00.0000000+00:00 by deploy`, or
-the name of a maintenance window. With the endpoints: `POST /homeostat/pause?for=00:30:00`.
+pause. `PauseReason` says why Homeostat is paused, for example
+`paused until 2026-11-02T10:30:00.0000000+00:00 by deploy`, or the name of a maintenance window. With the endpoints:
+`POST /homeostat/pause?for=00:30:00`.
 
 The pause is kept in the [store](persistence-and-clusters.md#shared-control-state): with a shared store it stops
 every instance within `ControlRefreshInterval` (5 seconds by default), and with the file or Redis store it survives
-restarts. `IsPaused` reads the instance's view of it and never waits.
+restarts. Pauses and resumes are written in the order they were decided, so a late write never undoes a newer decision.
+`IsPaused` reads the instance's view of the pause and never waits.
 
 While paused:
 
@@ -141,6 +149,7 @@ While paused:
 - a compensating action (`UndoWith`) of the step that just ran still runs: it reverts Homeostat's own change, and
   leaving it in place would keep the application degraded. The same holds during maintenance windows.
 
+> [!IMPORTANT]
 > The control endpoints require an authorization policy: they control what your application does to itself.
 
 ## Maintenance windows
@@ -155,13 +164,14 @@ Recurring periods during which Homeostat behaves as paused, without anybody havi
 ```
 
 Windows may cross midnight and follow daylight saving time in their time zone (UTC by default). During a window,
-`IsPaused` is `true` and `PauseReason` names the window; the status endpoint and the Homeostat health check show
-it too. Without `On(...)` the window opens every day; the duration must be more than zero and less than a week.
+`IsPaused` is `true` and `PauseReason` names the window; the status endpoint and the Homeostat health check show it
+too. Without `On(...)` the window opens every day; the duration must be more than zero and less than a week.
 `MaintenanceWindow.IsActive(now)` tells whether the window is open at a given time, and `Name`, `Start`, `Duration`,
-`Days` and `TimeZone` describe it.
+`Days` and `TimeZone` describe it. A window cannot change once registered.
 
-For a one-off deployment, prefer a timed pause (`PauseAsync(until)`, or `POST /homeostat/pause?for=...`): it ends by itself
-even if the deployment script never reaches its last step. See [Pause during deployments](recipes.md#pause-during-deployments).
+For a one-off deployment, prefer a timed pause (`PauseAsync(until)`, or `POST /homeostat/pause?for=...`): it ends by
+itself even if the deployment script never reaches its last step. See
+[Pause during deployments](recipes.md#pause-during-deployments).
 
 ## Approval
 
@@ -178,8 +188,8 @@ one broken dependency does not spend the budget on every component that depends 
 
 ## Stopping instead of looping
 
-Homeostat stops and logs it, instead of trying again immediately, when (a warning for an
-inconclusive verification, an error otherwise):
+Homeostat stops and logs it, instead of trying again immediately, in these cases (a warning for an inconclusive
+verification, an error otherwise):
 
 - verification is **inconclusive**;
 - every step of the plan has been tried without success;
@@ -213,7 +223,11 @@ see [Security](security.md).
 | `ClusterLeaseDuration` | 1 minute | Lease of `OncePerCluster()` plans, renewed while a run lasts |
 | `ControlRefreshInterval` | 5 seconds | How often the instance reads the pause, the application switches and the answers to approval requests from the [store](persistence-and-clusters.md#shared-control-state) |
 
-Options are validated when Homeostat starts: negative or zero values where a positive one is required,
-and timeouts or intervals above the .NET timer limit (about 49 days), fail fast with a descriptive message.
-Once Homeostat has started the options are frozen: setting a property throws `InvalidOperationException`, so code
-that resolved the options cannot lift a guardrail such as `DryRun` or the budget at runtime.
+Options are validated when Homeostat starts and fail fast with a descriptive message: negative or zero values where a
+positive one is required, timeouts or intervals above the .NET timer limit (about 49 days), a `DetectionInterval` below
+1 ms, a `ClusterLeaseDuration` below one second and an empty `InstanceId`. Once Homeostat has started, the options are
+frozen: setting a property throws `InvalidOperationException`, so code that resolved the options cannot lift a
+guardrail such as `DryRun` or the budget at runtime.
+
+See also: [Healing plans](healing-plans.md), [Persistence and clusters](persistence-and-clusters.md),
+[ASP.NET Core](aspnetcore.md), [Security](security.md).

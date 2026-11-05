@@ -1,6 +1,6 @@
 # Homeostat.MongoDB
 
-MongoDB for Homeostat, through MongoDB.Driver 3: ping latency, primary availability, connection pool timeouts and, optionally, replication lag as signals. Primary and pool signals come from the driver's own events, so a lost primary is reported at once.
+MongoDB for Homeostat, through MongoDB.Driver 3: ping latency, primary availability, connection pool timeouts and, optionally, replication lag as signals (`mongodb:{name}:ping`, `:primary`, `:pool`, `:replication-lag`). Primary and pool signals come from the driver's own events, so a lost primary is reported at once.
 
 ## Install
 
@@ -24,7 +24,8 @@ builder.Services.AddSingleton<IMongoClient>(sp =>
 });
 
 builder.Services.AddHomeostat(h => h
-    .AddMongoSignals("archive", o => o.Ping.DegradedLatency = TimeSpan.FromMilliseconds(100))
+    .AddMongoSignals("archive", o => o.Ping.DegradedLatency = TimeSpan.FromMilliseconds(100))   // mongodb:archive:ping
+    .AddPauseGate("ingest")                                                                     // awaited by the ingest loop
     .AddCondition("archive-no-primary", c => c
         .ForSource("mongodb:archive:primary")
         .SustainedFor(TimeSpan.FromSeconds(30))

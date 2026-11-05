@@ -1,13 +1,17 @@
 # Security Policy
 
+How to report a vulnerability in Homeostat, what happens after a report, and how to check that a package you
+downloaded was built from this repository. For hardening an application that uses Homeostat, see
+[Security](docs/security.md).
+
 ## Supported versions
 
 Only the latest released version receives security fixes. From 1.0 on, fixes go to the latest minor version of the
-current major version.
+current major version (see [Versioning](docs/versioning.md#support)).
 
 ## Reporting a vulnerability
 
-Please **do not** open a public issue. Use GitHub's
+Do **not** open a public issue. Use GitHub's
 [private vulnerability reporting](https://github.com/engineering87/Homeostat/security/advisories/new)
 for this repository. Include the affected package and version, a description of the
 vulnerability and, if possible, the steps or code to reproduce it.

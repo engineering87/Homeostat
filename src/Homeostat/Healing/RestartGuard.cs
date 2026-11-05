@@ -9,7 +9,8 @@ namespace Homeostat.Healing;
 /// <summary>Limits of actions that restart the application (its process, its pod).</summary>
 /// <param name="MinimumUptime">Least time since this instance started: a process that fails right after starting is not restarted again.</param>
 /// <param name="MaxRestarts">Most restarts of the application within <paramref name="Window"/>, counted in the store, across instances and processes.</param>
-/// <param name="Window">Window of <paramref name="MaxRestarts"/>: a fixed window that starts at the first restart counted in it.</param>
+/// <param name="Window">Window of <paramref name="MaxRestarts"/>: fixed windows of this length, aligned on UTC time; any period of this length
+/// lies within two consecutive windows, and the two together never allow more than <paramref name="MaxRestarts"/> restarts.</param>
 public sealed record RestartLimits(TimeSpan MinimumUptime, int MaxRestarts, TimeSpan Window)
 {
     /// <summary>10 minutes of uptime, at most 3 restarts per hour.</summary>

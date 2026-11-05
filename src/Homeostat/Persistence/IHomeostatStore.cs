@@ -131,7 +131,9 @@ public interface IHomeostatStore
     /// since, or off and not decided about at or after the claim. A switch a person turned on, or that another condition
     /// owns, is left as it is. A <b>renewal</b> (<see cref="SwitchState.RenewedAt"/> differs from
     /// <see cref="SwitchState.At"/>) only updates the claim it renews: still there, made by the same instance at the same
-    /// <see cref="SwitchState.At"/>; it records <see cref="SwitchState.RenewedAt"/> as the switch's latest decision.
+    /// <see cref="SwitchState.At"/>. A renewal is not a decision: it keeps the claim's decision time, so a person's change
+    /// decided after the claim still applies, and it records <see cref="SwitchState.RenewedAt"/>, so that a release decided
+    /// before the renewal is refused (see <see cref="TryReleaseSwitchAsync"/>).
     /// </summary>
     /// <param name="state">The switch, with <see cref="SwitchState.Condition"/> set.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
@@ -141,7 +143,7 @@ public interface IHomeostatStore
     /// <summary>
     /// Turns an application switch off <b>atomically</b>, in decision order, only if it is still owned by the condition
     /// (and, when <paramref name="instance"/> is given, was turned on by that instance): a switch a person took over, or
-    /// that the condition claimed again after <paramref name="decidedAt"/>, stays on.
+    /// that the condition claimed or renewed after <paramref name="decidedAt"/>, stays on.
     /// </summary>
     /// <param name="name">Name of the switch.</param>
     /// <param name="condition">The owning condition.</param>

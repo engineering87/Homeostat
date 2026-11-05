@@ -34,6 +34,8 @@ The CI publishes `tests/Homeostat.AotSmoke` with Native AOT and runs it. The pub
 warning, and the run checks, without reflection or runtime code generation:
 
 - a signal received by the alert endpoint, a condition, a healing plan and its verification;
+- a condition with a seasonal rule, call signals (`AddCallSignals`, `CallRecorder.TrackAsync`), HTTP client signals
+  (`AddHomeostatSignals`) and Homeostat's health check;
 - the file store, the audit log and signal recording;
 - the status, coverage, history, control and dashboard endpoints, including the problem details answers;
 - the webhook (with a `JsonNode` payload), Slack, Teams, PagerDuty and Opsgenie notifiers;
@@ -54,3 +56,5 @@ warning, and the run checks, without reflection or runtime code generation:
 | Integrations with client libraries (Redis, Kafka, RabbitMQ, Service Bus, Artemis, MongoDB, gRPC, FeatureManagement, OpenFeature, Polly) | Homeostat's own code is analyzed and annotated; whether the application can be published with Native AOT also depends on the client library. Check its documentation before turning on `PublishAot`. |
 
 The analyzers ship inside the `Homeostat` package and run in the compiler only.
+
+See also: [Platforms](platforms.md#trimming-and-native-aot) · [Packages](packages.md) · [Performance](performance.md)

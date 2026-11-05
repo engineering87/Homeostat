@@ -1,6 +1,6 @@
 # Homeostat.FeatureManagement
 
-Microsoft.FeatureManagement integration for Homeostat: a feature filter that turns a feature off while a Homeostat switch is on (or on, with `EnabledWhen: On`), so healing plans degrade gracefully through the feature flags your code already reads.
+Microsoft.FeatureManagement integration for Homeostat: a feature filter that turns a feature off while a Homeostat switch is on (or on, with `EnabledWhen: On`), so healing plans can turn features off through the feature flags your code already reads. Invalid filter parameters are logged once and never make a feature check throw.
 
 ## Install
 

@@ -1,6 +1,6 @@
 # Homeostat.AspNetCore
 
-ASP.NET Core endpoints for Homeostat: a status endpoint with conditions, approvals, budget and recent runs; condition history and coverage reports; control endpoints to pause, resume, approve or reject steps, release held plans and flip switches; an embedded dashboard with one-click approvals; approvals from Slack and Microsoft Teams; and alert ingestion from Prometheus Alertmanager, Grafana and Azure Monitor as signals. The status, control and dashboard endpoints require an authorization policy, the alert endpoints a policy or a token, and the Slack and Teams endpoints a valid signature; only local development can opt out explicitly.
+ASP.NET Core endpoints for Homeostat: a status endpoint with conditions, approvals, budget and recent runs; condition history and coverage reports; control endpoints to pause, resume, approve or reject steps, release held plans and flip switches; an embedded dashboard with one-click approvals; approvals from Slack and Microsoft Teams; and alert ingestion from Prometheus Alertmanager, Grafana and Azure Monitor as signals. The status, control and dashboard endpoints require an authorization policy, the alert endpoints a policy or a token, and the Slack and Teams endpoints a valid signature. Only an explicit `allowAnonymous: true`, meant for local development, maps them without protection.
 
 ## Install
 

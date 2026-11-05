@@ -1,7 +1,8 @@
 # ASP.NET Core endpoints
 
-`Homeostat.AspNetCore` exposes Homeostat over HTTP: a status endpoint for people and dashboards, and control
-endpoints to pause, resume, answer approval requests and flip switches.
+This page covers `Homeostat.AspNetCore`: the HTTP endpoints that show Homeostat's state to people and dashboards, the
+control endpoints to pause, resume, answer approval requests and flip switches, the operator dashboard, and the Slack
+and Teams approval endpoints. It also covers the Homeostat health check from `Homeostat.HealthChecks`.
 
 ```bash
 dotnet add package Homeostat.AspNetCore --prerelease
@@ -10,14 +11,14 @@ dotnet add package Homeostat.AspNetCore --prerelease
 ```csharp
 var app = builder.Build();
 
-app.MapHomeostatStatus("operations");     // GET  /homeostat/status
+app.MapHomeostatStatus("operations");     // GET  /homeostat/status, /coverage, /history
 app.MapHomeostatControl("operations");    // POST /homeostat/pause, /resume, ...
 ```
 
 `"operations"` is an [authorization policy](https://learn.microsoft.com/aspnet/core/security/authorization/policies)
 of your application, for example "members of the on-call group". **Both methods require one**: called without a
-policy, they throw at startup. Only for local demos and tests, `allowAnonymous: true` maps them without
-authorization. To build the policy inline instead of registering it by name, pass a lambda:
+policy, they throw an `ArgumentException` at startup. Only for local demos and tests, `allowAnonymous: true` maps
+them without authorization. To build the policy inline instead of registering it by name, pass a lambda:
 
 ```csharp
 app.MapHomeostatStatus(p => p.RequireRole("operations"));
@@ -25,7 +26,7 @@ app.MapHomeostatControl(p => p.RequireRole("operations"));
 app.MapHomeostatDashboard(p => p.RequireRole("operations"));
 ```
 
-Both take an optional route prefix (`"/homeostat"` by default) and return a `RouteGroupBuilder`, so the usual
+All three take an optional route prefix (`"/homeostat"` by default) and return a `RouteGroupBuilder`, so the usual
 endpoint conventions apply (rate limiting, OpenAPI tags, CORS). The JSON they return is the contract; the .NET types
 behind it are internal.
 
@@ -75,7 +76,8 @@ behind it are internal.
       "steps": [ { "name": "RenewFeedClientAction", "succeeded": true, "verification": "Healed", "error": null, "undoSucceeded": null } ],
       "instance": "weather-api-7d9f8"
     }
-  ]
+  ],
+  "storeError": null
 }
 ```
 
@@ -83,19 +85,22 @@ Enums are written as names (`"Unhealthy"`, `"Healed"`), never as numbers, and pr
 shape of this document, and of the history and coverage documents below, is part of the public contract: fields
 are added in minor versions, never renamed or removed before a major version (see [Versioning](versioning.md)).
 
-If the store cannot be read, the endpoint still answers: `budget` is `null`, `recentRuns` and `pendingApprovals` are
-empty and `storeError` says why. Times are those of the application's `TimeProvider`. Conditions are those of the
-instance that answers; `switches` lists the application switches and the switches of that instance. Budget, runs and
-pending approvals come from the [store](persistence-and-clusters.md), so with a shared store they cover
-every instance, and so do the pause and the application switches. The endpoint is read-only but reveals condition names,
-error messages and approval ids, which is why it needs a policy too.
+If the store cannot be read, the endpoint still answers: `storeError` says why, and each of `budget`,
+`recentRuns` and `pendingApprovals` that could not be read is `null` (budget) or empty (runs, approvals). Times are
+those of the application's `TimeProvider`. Conditions are those of the instance that answers; `switches` lists the
+application switches and the switches of that instance. Budget, runs and pending approvals come from the
+[store](persistence-and-clusters.md), so with a shared store they cover every instance, and so do the pause and the
+application switches. The endpoint is read-only but reveals condition names, error messages and approval ids, which is
+why it needs a policy too.
 
 ## Coverage and history
 
 `MapHomeostatStatus` also maps:
 
-- `GET /homeostat/coverage` (`?last=04:00:00` or `?since=...`, default the last 24 hours): which conditions activated,
-  which plans ran and which steps never ran. See [Learning and foresight](intelligence.md#coverage).
+- `GET /homeostat/coverage` (`?last=04:00:00` or `?since=2026-11-02T08:00:00Z`, default the last 24 hours, at most
+  365 days back): which conditions activated, which plans ran and which steps never ran. See
+  [Learning and foresight](intelligence.md#coverage). An invalid `last` or `since` answers `400`; a run history that
+  cannot be read answers `503`.
 - `GET /homeostat/history` (optionally `?condition=feed-down`): the latest activations and clears, newest first, with
   the instance and the signal that caused them. With the file and Redis stores the history survives restarts and, with
   a shared store, covers every instance; with the default in-memory store it covers this process. When the store
@@ -111,36 +116,39 @@ error messages and approval ids, which is why it needs a policy too.
 | Endpoint | Effect | Response |
 |---|---|---|
 | `POST /homeostat/pause` | Kill switch on: no new step starts, on every instance that shares the store | `204` |
-| `POST /homeostat/pause?for=00:30:00` | Paused for a duration (at most 30 days), then resumes by itself (for deployment scripts) | `204`, or `400` for an invalid duration |
+| `POST /homeostat/pause?for=00:30:00` | Paused for a duration (at most 30 days, `d.hh:mm:ss` format), then resumes by itself (for deployment scripts) | `204`, or `400` for an invalid duration |
 | `POST /homeostat/resume` | Kill switch off | `204` |
 | `POST /homeostat/approvals/{id}/approve` | Approves a pending step, on any instance | `204`, or `404` if the request does not exist (any more) |
 | `POST /homeostat/approvals/{id}/reject` | Rejects it: the run stops and the plan is held | `204` or `404` |
 | `POST /homeostat/conditions/{name}/release` | Lifts the hold of the condition's plan after a rejection ([details](healing-plans.md#releasing-a-hold)) | `204`, or `404` for an unknown condition or one without a plan |
-| `POST /homeostat/switches/{name}/on` | Turns an application switch on, for every instance | `204`, or `400` for names over 200 characters |
-| `POST /homeostat/switches/{name}/on?scope=instance` | Turns the switch on for the instance that answers only | `204`, or `400` for an invalid `scope` |
+| `POST /homeostat/switches/{name}/on` | Turns an application switch on, for every instance (`?scope=application` is the same) | `204` |
+| `POST /homeostat/switches/{name}/on?scope=instance` | Turns the switch on for the instance that answers only | `204`, or `400` for any other `scope` value |
 | `POST /homeostat/switches/{name}/off` | Turns a switch off, for the application and the instance that answers | `204` |
 
+Both switch endpoints answer `400` for a name that is longer than 200 characters or contains control characters.
+
 Pause, approvals and switches are kept in the [store](persistence-and-clusters.md#shared-control-state). When the
-store cannot be reached, a change that lets Homeostat act (resume, turn a switch on, answer an approval) answers `503`
-and is not made; a change in the safe direction (pause, turn a switch off) applies at once on the instance that
-answers, answers `204`, and is written to the store as soon as it answers, so an outage never keeps chaos, an
-isolated circuit or a paused consumer on. A request waits at most 15 seconds for the store; a change that is aborted by
-the client still applies. Changes reach the other instances within `ControlRefreshInterval` (5 seconds by default).
+store cannot be reached, a change that lets Homeostat act (resume, turn a switch on, answer an approval, release a
+hold) answers `503` and is not made. A change in the safe direction (pause, turn a switch off) applies at once on the
+instance that answers, answers `204`, and is written to the store as soon as the store takes it, so an outage never
+keeps chaos, an isolated circuit or a paused consumer on. A request waits at most 15 seconds for the store; a change
+that is aborted by the client still applies. Changes reach the other instances within `ControlRefreshInterval`
+(5 seconds by default).
 
 The name of the authenticated user (`User.Identity.Name`) is recorded as the approver in logs, events and the audit
 log, and with the pause and the switches it turns on: who paused appears in `pauseReason`.
 
-Security notes:
+> [!IMPORTANT]
+> The policy decides who can pause Homeostat or approve a failover. Make it specific (an operations role or group),
+> never "any authenticated user", especially in an application with end-user accounts. The application must also use
+> authentication and authorization (`app.UseAuthorization()`).
 
-- The policy decides who can pause Homeostat or approve a failover: make it specific (an operations role or
-  group), not "any authenticated user", especially in an application with end-user accounts.
-- The application must use authentication and authorization (`app.UseAuthorization()`).
-- Against cross-site request forgery, every control request must carry an `Authorization: Bearer` token or the
-  `X-Requested-With` header (any value), and requests that the browser marks as cross-site or same-site
-  (`Sec-Fetch-Site`) are refused with `403`. A page on another site cannot add those headers, so users signed in with cookies, Windows
-  authentication, Basic or client certificates are protected. The dashboard and the `homeostat` CLI send the header;
-  with curl, add `-H "X-Requested-With: curl"`.
-- The [security guide](security.md) collects these rules with the other hardening steps.
+Against cross-site request forgery, every control request must carry an `Authorization: Bearer` token or the
+`X-Requested-With` header (any value), and requests that the browser marks as cross-site or same-site
+(`Sec-Fetch-Site`) are refused with `403`. A page on another site cannot add those headers, so users signed in with
+cookies, Windows authentication, Basic or client certificates are protected. The dashboard and the `homeostat` CLI
+send the header; with curl, add `-H "X-Requested-With: curl"`. The [security guide](security.md) collects these rules
+with the other hardening steps.
 
 ## Dashboard
 
@@ -150,10 +158,11 @@ app.MapHomeostatControl("operations");
 app.MapHomeostatDashboard("operations");   // GET /homeostat/dashboard
 ```
 
-A page for operators: active conditions first, steps waiting for approval with **Approve** and **Reject** buttons,
-switches (turn them off, or on by name), the action budget, the recent runs with their steps, the condition history and
-the coverage of the last 24 hours (steps that always failed or never ran). It refreshes every 5 seconds (history and
-coverage every 30 seconds; nothing while the tab is hidden) and follows the system light or dark theme.
+The dashboard is a page for operators. It shows active conditions first, steps waiting for approval with **Approve**
+and **Reject** buttons, a **Pause** button (until resumed, or for 15 minutes, 1 hour or 4 hours) and **Resume**,
+switches (turn them off, or on by name), the action budget, the recent runs with their steps, the condition history
+and the coverage of the last 24 hours (steps that always failed or never ran). It refreshes every 5 seconds (history
+and coverage every 30 seconds; nothing while the tab is hidden) and follows the system light or dark theme.
 
 - It reads `{prefix}/status` and calls the control endpoints: map all three with the same prefix and policy. Without
   `MapHomeostatControl` it is read-only.
@@ -176,18 +185,25 @@ app.MapHomeostatSlackInteractions(o =>
 });                                           // POST /homeostat/slack/interactions
 ```
 
+`SigningSecret` is required, and so is at least one entry in `AllowedUserIds` unless `AllowAnyChannelMember` is
+`true`: without them, the call throws at startup.
+
 | Check | Behavior |
 |---|---|
-| Slack signature (`X-Slack-Signature`, HMAC-SHA256 of the body with the signing secret) | Required, constant-time comparison; otherwise `401` |
+| Slack signature (`X-Slack-Signature`, HMAC-SHA256 of the body with the signing secret) | Required, constant-time comparison; otherwise `401`. Bodies over 64 KB get `413` |
 | Request age (`X-Slack-Request-Timestamp`) | At most 5 minutes (`MaxRequestAge`), against replays |
 | User | Must be in `AllowedUserIds` unless `AllowAnyChannelMember`; others are told privately that they cannot approve |
-| Decision | Recorded with the approver `slack:{user name}`; the buttons in the message are replaced with the decision |
+| Decision | Recorded with the approver `slack:{user name} ({user id})`; the buttons in the message are replaced with the decision |
+
+Slack expects an answer within 3 seconds, so the endpoint waits at most 2 seconds for the store and answers Slack at
+once; the message is updated in the background, through the response URL of the click. When the store does not answer
+in time, the user is told privately that Homeostat cannot record the answer now and to try again.
 
 The endpoint authenticates Slack by its signature, so it is mapped without an authorization policy.
 
 ## Microsoft Teams approvals
 
-Teams has no buttons that call an application without a registered bot, but it has **outgoing webhooks**: a team owner
+Teams has no buttons that call an application without a registered bot, but it has outgoing webhooks. A team owner
 creates one (team settings, *Apps*, *Create an outgoing webhook*) with a name, for example `Homeostat`, and the URL of
 the endpoint below; Teams shows a security token. People then mention it in a channel of that team:
 
@@ -207,10 +223,13 @@ app.MapHomeostatTeamsCommands(o =>
 
 | Check | Behavior |
 |---|---|
-| Signature (`Authorization: HMAC ...`, HMAC-SHA256 of the body with the security token) | Required, constant-time comparison; otherwise `401` |
+| Signature (`Authorization: HMAC ...`, HMAC-SHA256 of the body with the security token) | Required, constant-time comparison; otherwise `401`. Bodies over 64 KB get `413` |
 | Message age (`timestamp` of the message) and id | Both required; at most 5 minutes old (`MaxRequestAge`); each message id is acted on once per instance (a request replayed to another instance within 5 minutes could be acted on again, but approving or rejecting twice has no further effect) |
 | User | `approve` and `reject` need the sender's Entra object ID in `AllowedUserIds`, unless `AllowAnyTeamMember`; `pending` is open to the team |
 | Decision | Recorded with the approver `teams:{name} ({object id})`; the reply appears in the thread |
+
+The endpoint waits at most 4 seconds for the store; when the store does not answer, the reply asks to send the
+command again.
 
 With `AddTeamsNotifications(o => o.ApprovalCommand = "Homeostat")`, approval request cards say what to type. Outgoing
 webhooks work in standard (public) channels of the team where they are created, not in private channels or chats, so
@@ -235,10 +254,17 @@ builder.Services.AddHealthChecks()
 | State | Status | Description |
 |---|---|---|
 | Nothing to report | Healthy | `No active condition.` |
-| Paused, budget exhausted, a step waiting for approval, or an active condition | Degraded (configurable) | The reasons, for example `paused; active: weather-feed-down` |
+| Paused, budget exhausted, a step waiting for approval, or an active condition | Degraded (configurable) | The reasons, for example `paused by alice; active: weather-feed-down` |
+| Store unavailable | Degraded (configurable) | `The Homeostat store is unavailable.` |
 
 The result data contains `paused`, `dry_run`, `active_conditions`, `budget_remaining` and `pending_approvals`.
 Use `attentionStatus: HealthStatus.Unhealthy` to make it stricter, and `tags` to select it in a dedicated
 endpoint. This check is never turned into a Homeostat signal, so it cannot trigger conditions about itself. It
-answers within one second even when the store does not. Keep it out of liveness probes: "a condition is active"
-means the application is being healed, not that it must be restarted; use it in readiness or monitoring endpoints.
+answers within one second even when the store does not.
+
+> [!WARNING]
+> Keep this check out of liveness probes. "A condition is active" means the application is being healed, not that it
+> must be restarted. Use it in readiness or monitoring endpoints.
+
+See also: [Notifications and audit](notifications.md), [Persistence and clusters](persistence-and-clusters.md),
+[Security](security.md).

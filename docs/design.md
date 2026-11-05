@@ -62,16 +62,18 @@ HealingRunner.TryStart(condition, triggering signal)
   OncePerCluster: coordinator lease                     (not acquired → the plan runs elsewhere)
   run (background task, at most MaxConcurrentHealings)
     Adaptive: order the steps by measured success, approval steps as barriers
+    dry-run? → log every step that would run, stop (outcome DryRun)
     for each step:
       paused / suppressed / condition cleared? → stop
-      dry-run? → log what would run, stop (outcome DryRun)
       approval required? → wait (slot released) → stop if rejected or expired
       budget (store) → action (own DI scope, timeout) → verifier
         Healed → stop
-        NotHealed → compensate (UndoWith: pause, maintenance windows, budget) → next step
-        action failed → next step
+        NotHealed → compensate (UndoWith; not blocked by pause, maintenance windows or budget) → next step
+        action timed out → compensate → next step
+        action threw → next step
         Inconclusive, or a verifier error → stop
       cluster lease lost? → stop before the next step (outcome Canceled)
+    no step left → outcome NotHealed
     store ← run record, plan state;  observers ← steps, run
     plan state not saved (cluster run)? → keep the lease for the cooldown
 ```
@@ -91,16 +93,20 @@ HealingRunner.TryStart(condition, triggering signal)
    gauges the current state.
 5. **Testable.** Time comes from `TimeProvider`; actions, verifiers, stores and coordinators are ordinary DI
    services; `Homeostat.Testing` runs the real engine on simulated time.
-6. **No reflection at run time.** The libraries are trimming and Native AOT compatible: JSON uses source generation,
-   and types registered by generic parameter keep their constructors through annotations.
+6. **Trimming and Native AOT compatible.** JSON uses source generation, and types registered by generic parameter
+   keep their constructors through annotations. The one reflection read left (the host's
+   `BackgroundServiceExceptionBehavior`, for `RestartHostedService` on a plain `BackgroundService`) falls back to the
+   safe answer when trimming removed it. See [Trimming and Native AOT](native-aot.md).
 
 ## Condition semantics
 
 - A signal is ignored unless the condition considers it *relevant* (source filter and/or custom filter).
 - A relevant triggering signal moves `Inactive → Pending`; once triggering signals have persisted for
   `SustainedFor`, the condition becomes `Active`. Activation needs a signal arriving after the sustain
-  window, so keep the signal period shorter than `SustainedFor`.
-- A relevant clearing signal returns the condition to `Inactive` (after `ClearAfter`, when set).
+  window, so keep the signal period shorter than `SustainedFor`. When the triggering signals stop for a while (twice
+  `SustainedFor`, at least five minutes), the next one starts the window again.
+- A relevant clearing signal returns the condition to `Inactive` (after `ClearAfter`, when set). Value, trend, anomaly
+  and seasonal rules need a value to decide: a signal without one neither triggers nor clears them.
 - While `Active`, each triggering signal gives the plan a chance to run again, subject to cooldown and budget.
 - The live state of conditions is not persisted: it is rebuilt from fresh signals after a restart. Their history
   (activations and clears) is persisted by stores that support it.
@@ -117,6 +123,11 @@ HealingRunner.TryStart(condition, triggering signal)
 | `IHomeostatEventSink` | `AddEventSink<T>()` | Audit log, webhook, PagerDuty, Opsgenie, Slack, Teams |
 | `IPausableConsumer` | `AddPausableConsumer(factory)`, `IHomeostatConsumers.Register` | `PauseGate`, Service Bus, RabbitMQ, Kafka adapters |
 
+A store shared by several instances applies the control state in decision order. `TrySetPauseAsync`,
+`TrySetSwitchAsync`, `TryClaimSwitchAsync` and `TryReleaseSwitchAsync` receive the time of the decision and refuse a
+write older than the latest decision already stored. The renewal of a switch claim by a cluster plan is not a new
+decision: a person's turn-off decided between the claim and its renewal still applies.
+
 See [Persistence and clusters](persistence-and-clusters.md) for writing a store or a coordinator.
 
 ## Threading
@@ -127,5 +138,10 @@ See [Persistence and clusters](persistence-and-clusters.md) for writing a store 
   waiting for approval gives its slot back.
 - Condition events reach observers on the engine loop, step and run events on the run's thread: observers must be
   thread-safe and fast. Sinks only enqueue there and write on their own background task.
-- Detectors run sequentially on the detector loop; probes run their calls concurrently, each with its own scope and
-  timeout, and never more than one call per probe at a time.
+- Detectors run sequentially on the detector loop. Each call is bounded (the detection interval, at least 30
+  seconds): a detector that does not complete in time is skipped until it does, and the others keep running. Probes
+  run their calls concurrently, each with its own scope and timeout, and never more than one call per probe at a
+  time.
+
+See also: [Concepts](concepts.md) · [Persistence and clusters](persistence-and-clusters.md) ·
+[Observability](observability.md)

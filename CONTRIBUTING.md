@@ -1,6 +1,7 @@
 # Contributing to Homeostat
 
-Thanks for your interest in contributing.
+Thanks for your interest in contributing. This page covers the development setup, the commit and API conventions,
+pull requests and, for maintainers, releases.
 
 ## Before you start
 
@@ -20,22 +21,22 @@ dotnet test Homeostat.slnx
 
 Tests that need a real server are skipped without one:
 
-- **Redis**: a local `redis-server` is started if installed; or set `HOMEOSTAT_TEST_REDIS` (for example
-  `localhost:6379`). The CI workflow runs them against a Redis container.
-- **Kubernetes** (`KubernetesClusterTests`): set the `HOMEOSTAT_TEST_KUBERNETES_*` variables. The `kubernetes` job of
-  the CI workflow shows how, on a kind cluster, with the Role documented in `docs/cloud.md`.
-- **Kafka, MongoDB, RabbitMQ, Artemis and the Service Bus emulator**: `tests/Homeostat.IntegrationTests`, a separate
-  project (not in `Homeostat.slnx`), with one variable per server: `HOMEOSTAT_TEST_KAFKA`, `HOMEOSTAT_TEST_MONGODB`,
-  `HOMEOSTAT_TEST_RABBITMQ`, `HOMEOSTAT_TEST_ARTEMIS`, `HOMEOSTAT_TEST_SERVICEBUS`. The `Integration` workflow starts
-  each server in a container, and every job must pass. To run one locally:
+| Server | Tests | How to run them |
+|---|---|---|
+| Redis | `tests/Homeostat.Tests` | A local `redis-server` is started if installed; or set `HOMEOSTAT_TEST_REDIS` (for example `localhost:6379`). The CI workflow runs them against a Redis container. |
+| Kubernetes | `KubernetesClusterTests` | Set the `HOMEOSTAT_TEST_KUBERNETES_*` variables. The `kubernetes` job of the CI workflow shows how, on a kind cluster, with the Role documented in [`docs/cloud.md`](docs/cloud.md#permissions). |
+| Kafka, MongoDB, RabbitMQ, Artemis, Service Bus emulator | `tests/Homeostat.IntegrationTests`, a separate project (not in `Homeostat.slnx`) | One variable per server: `HOMEOSTAT_TEST_KAFKA`, `HOMEOSTAT_TEST_MONGODB`, `HOMEOSTAT_TEST_RABBITMQ`, `HOMEOSTAT_TEST_ARTEMIS` (with `HOMEOSTAT_TEST_ARTEMIS_USER` and `HOMEOSTAT_TEST_ARTEMIS_PASSWORD`), `HOMEOSTAT_TEST_SERVICEBUS`. The `Integration` workflow starts each server in a container, and every job must pass. |
 
-  ```bash
-  docker run -d -p 9092:9092 apache/kafka:3.8.0
-  HOMEOSTAT_TEST_KAFKA=localhost:9092 dotnet test tests/Homeostat.IntegrationTests --filter "FullyQualifiedName~KafkaTests"
-  ```
+To run one of the integration tests locally:
 
-`DocumentationTests` checks that the limits and timeouts stated in `docs/` are the ones the code uses: when you change
-one of those constants, update the page it names.
+```bash
+docker run -d -p 9092:9092 apache/kafka:3.8.0
+HOMEOSTAT_TEST_KAFKA=localhost:9092 dotnet test tests/Homeostat.IntegrationTests --filter "FullyQualifiedName~KafkaTests"
+```
+
+`DocumentationTests` checks that the limits and timeouts stated in `docs/` are the ones the code uses, and that the
+stability of each package is the same in its project, `docs/packages.md`, `docs/versioning.md` and its NuGet readme.
+When you change one of those constants, update the page it names.
 
 ## Commit messages
 
@@ -54,18 +55,31 @@ Commits and pull request titles follow [Conventional Commits](https://www.conven
 | Type | `feat`, `fix`, `docs`, `test`, `refactor`, `perf`, `build`, `ci`, `chore`, `style`, `revert` |
 | Scope (optional) | `core`, `analyzers`, `artemis`, `aspire`, `aspnetcore`, `azure`, `caching`, `cli`, `data`, `efcore`, `featureflags`, `grpc`, `healthchecks`, `http`, `kafka`, `kubernetes`, `mongodb`, `polly`, `rabbitmq`, `redis`, `servicebus`, `templates`, `testing`, `samples`, `docs`, `deps`, `ci`, `release` |
 
+Most scopes are the name of a project in `src/` in lower case, without `Homeostat.` (`analyzers`, `http`, `servicebus`...).
+The others:
+
+| Scope | Covers |
+|---|---|
+| `core` | The `Homeostat` package |
+| `data` | The database probes, pool signals and `ClearConnectionPools<T>`, part of the core package (their option types are in the `Homeostat.Data` namespace) |
+| `efcore` | `Homeostat.EntityFrameworkCore` |
+| `aspire` | `Homeostat.Aspire.Hosting` |
+| `featureflags` | `Homeostat.FeatureManagement` and `Homeostat.OpenFeature` |
+| `samples`, `docs`, `deps`, `ci`, `release` | The samples, the documentation, dependency updates, the workflows, releases |
+
 Examples: `feat(core): add hysteresis to conditions`, `fix(http): dispose the response when IsFailure throws`,
 `docs: explain approvals`. A `!` after the type or scope (`feat(aspnetcore)!: ...`) marks a breaking change.
 The header can be up to 100 characters.
 
 The rules live in `commitlint.config.mjs` and are checked:
 
-- **locally**, by a `commit-msg` hook: run `npm install` once (Node.js 22.12 or later); it installs commitlint
-  and points git to the hooks in `.githooks`. Without Node.js the hook does nothing.
-- **in CI**, by the `Commit lint` workflow, on every commit of a pull request and on the pull request title,
-  which becomes the commit message when the pull request is squash-merged.
+- locally, by a `commit-msg` hook: run `npm install` once (Node.js 22.12 or later); it installs commitlint and points
+  git to the hooks in `.githooks`. Without Node.js the hook does nothing.
+- in CI, by the `Commit lint` workflow, on every commit of a pull request and on the pull request title, which becomes
+  the commit message when the pull request is squash-merged.
 
-Dependabot is configured to write compliant messages (`build(deps): ...`, `ci(deps): ...`).
+Dependabot is configured to write compliant messages (`build(deps): ...`, `ci(deps): ...`); commitlint accepts its
+capitalized `Bump ...` subjects as they are.
 
 ## Public API
 
@@ -80,17 +94,14 @@ then review the diff of `api/*.txt` and include it in the pull request: reviewer
 
 Conventions that new APIs follow:
 
-- **Durations** are `TimeSpan` (`Interval`, `Timeout`, `DegradedLatency`); a number is a count, a ratio or a value in
-  the unit of the signal it describes, and its name or documentation says the unit.
-- **Signal sources**: a source the caller must choose is a method parameter (`AddProbe(source, ...)`); a default that
-  Homeostat derives from a name or a type is a `string?` `Source` property (`null` means derived); a fixed default is a
-  `string` property with that default (`RedisSignalOptions.Source = "redis"`).
-- **Options callbacks** come last (`Action<TOptions>? configure = null`), and options are validated when they are
-  registered or at startup, never at first use.
-- **Who acted** is a `string? by` parameter, before the `CancellationToken`, which is always last.
-- **Results and events** are records with `required` and `init` properties, never positional records, so that adding
-  a property later is not a breaking change.
-- **Interfaces** that users implement get new members only with a default implementation after 1.0.
+| Topic | Convention |
+|---|---|
+| Durations | `TimeSpan` (`Interval`, `Timeout`, `DegradedLatency`). A number is a count, a ratio or a value in the unit of the signal it describes, and its name or documentation says the unit. |
+| Signal sources | A source the caller must choose is a method parameter (`AddProbe(source, ...)`). A default that Homeostat derives from a name or a type is a `string?` `Source` property (`null` means derived). A fixed default is a `string` property with that default (`RedisSignalOptions.Source = "redis"`). |
+| Options callbacks | They come last (`Action<TOptions>? configure = null`), and options are validated when they are registered or at startup, never at first use. |
+| Who acted | A `string? by` parameter, before the `CancellationToken`, which is always last. |
+| Results and events | Records with `required` and `init` properties, never positional records, so that adding a property later is not a breaking change. |
+| Interfaces that users implement | After 1.0, new members only with a default implementation. |
 
 From 1.0 on, removing or changing a public member is a breaking change and waits for a major version. To keep
 additions non-breaking:
@@ -111,8 +122,9 @@ coordinators, control queries). Every asynchronous public method takes a `Cancel
 
 ## Native AOT and performance
 
-The libraries are `IsAotCompatible`: trimming and AOT analyzer warnings are errors in CI. Serialize JSON with the
-source-generated contexts or `JsonNode`, never with reflection. The `native-aot` CI job publishes and runs
+The libraries are `IsAotCompatible`, except `Homeostat.EntityFrameworkCore` and `Homeostat.Aspire.Hosting`, whose
+dependencies are not (the "Native AOT" column of [docs/packages.md](docs/packages.md)). Trimming and AOT analyzer
+warnings are errors in CI. Serialize JSON with the source-generated contexts or `JsonNode`, never with reflection. The `native-aot` CI job publishes and runs
 `tests/Homeostat.AotSmoke`; extend it when a package gains a feature that must work in AOT applications.
 
 Code that runs for every signal (publishing, the engine loop, condition rules) must not allocate in steady state.

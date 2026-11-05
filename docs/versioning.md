@@ -1,5 +1,8 @@
 # Versioning
 
+What each version number promises, what counts as a breaking change and how long a version is supported. Read it
+before upgrading or before depending on Homeostat's JSON, routes or source names from other tools.
+
 Homeostat follows [Semantic Versioning 2.0](https://semver.org) from version 1.0.0. All packages are released
 together with the same version number, so `Homeostat.Redis 1.2.0` always goes with `Homeostat 1.2.0` (and
 `Homeostat.Grpc 1.2.0-preview`, see [Stable and preview packages](#stable-and-preview-packages)).
@@ -29,8 +32,9 @@ A preview package becomes stable in a minor version, once it has been used in pr
 then follows the rules below like the others. A stable package never goes back to preview. During a release candidate
 (`1.0.0-rc.1`) every package has the same prerelease version.
 
-In the build, a project is a preview with `<HomeostatPreview>true</HomeostatPreview>`; `Directory.Build.targets` adds
-the suffix, and the release workflow sets the version from the tag (`-p:HomeostatVersion=1.2.0`).
+In the build, a project is a preview with `<HomeostatPreview>true</HomeostatPreview>`. `Directory.Build.targets` adds
+the suffix when the version has none (a release candidate keeps its own), and the release workflow sets the version
+from the tag (`-p:HomeostatVersion=1.2.0`).
 
 ## What the version number promises
 
@@ -90,4 +94,5 @@ changes, so stay on the latest minor version.
 - New .NET versions are supported as they are released; targets for them are added in minor versions.
 - A .NET version is no longer targeted once it has reached its end of support, and only in a major version.
 
-See [Platforms](platforms.md) for operating systems and client library versions.
+See also: [Platforms](platforms.md) for operating systems and client library versions ·
+[Packages](packages.md) · [Changelog](../CHANGELOG.md)

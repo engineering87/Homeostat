@@ -1,9 +1,9 @@
 # Roadmap
 
-Homeostat aims to be the reference self-healing library for .NET. The roadmap is organized in waves. Everything
-checked below ships in 1.0.0, now available as a release candidate (`1.0.0-rc.1`); later waves arrive in minor
-versions under the compatibility rules of [Versioning](versioning.md). The roadmap is indicative and changes with
-feedback: open an issue to discuss priorities.
+What ships in Homeostat 1.0 and what is planned after it, organized in waves. Everything checked below ships in
+1.0.0, now available as a release candidate (`1.0.0-rc.1`); unchecked items arrive in minor versions under the
+compatibility rules of [Versioning](versioning.md). The roadmap is indicative and changes with feedback: open an issue
+to discuss priorities.
 
 ## Core (1.0)
 
@@ -84,6 +84,7 @@ feedback: open an issue to discuss priorities.
 - [x] Templates built in CI; Native AOT smoke test covering the Slack and Teams endpoints and the PagerDuty and Opsgenie notifiers
 - [x] Adoption: starter presets (`AddWebApiDefaults`, `AddWorkerDefaults`) with observe-only conditions for the usual problems
 - [x] Trusted publishing to nuget.org: short-lived keys from the release workflow's identity, no stored API key
+- [x] [Stable and preview packages](versioning.md#stable-and-preview-packages): gRPC, Entity Framework Core, caching, feature flag, Azure and Aspire packages ship with a `-preview` suffix until they are proven in production
 - [ ] Package validation baseline set to the first stable version, once it is published
 - [ ] .NET Foundation application
 

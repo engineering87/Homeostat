@@ -1,7 +1,7 @@
 # Analyzers
 
-The `Homeostat` package includes Roslyn analyzers: they run in every project that references it, in the IDE and in
-the build, and catch mistakes that compile but misbehave at runtime.
+The `Homeostat` package includes Roslyn analyzers. They run in every project that references it, in the IDE and in the
+build, and catch mistakes that compile but misbehave at runtime. Each rule below shows the code it reports and the fix.
 
 | Id | Severity | Finds |
 |---|---|---|
@@ -28,10 +28,10 @@ dotnet_diagnostic.HOMEO004.severity = warning
 .With("renew", async sp => await sp.GetRequiredService<FeedClient>().RenewAsync())   // fixed
 ```
 
-A lambda that returns a `ValueTask` (or a `Task`-derived type the compiler cannot convert) binds to the
-`Action<IServiceProvider>` overload: the step completes as soon as
-the call returns, verification starts while the work is still running, and its exceptions are lost. Writing
-`async sp => await ...` binds to the `Func<IServiceProvider, Task>` overload instead.
+A lambda that returns a `ValueTask` or `ValueTask<T>` (or a `Task`-derived type the compiler cannot convert) binds to
+the `Action<IServiceProvider>` overload: the step completes as soon as the call returns, verification starts while the
+work is still running, and its exceptions are lost. Writing `async sp => await ...` binds to the
+`Func<IServiceProvider, Task>` overload instead. The rule checks the lambdas passed to `With`, `Then` and `UndoWith`.
 
 ## HOMEO002
 
@@ -62,9 +62,9 @@ public async Task ExecuteAsync(HealingContext context, CancellationToken cancell
 
 The token is canceled at the action timeout and when the application stops. An action that awaits work without it
 keeps running after its timeout, holding a concurrency slot and delaying shutdown. If the work really cannot be
-canceled, name the parameter `_` (or `_cancellationToken`) to say so. The rule applies to `IHealingAction`
-implementations and to inline actions with a `(context, cancellationToken)` lambda, when the body awaits something or
-returns a task (`(ctx, ct) => client.RenewAsync()`).
+canceled, give the parameter a name that starts with `_` (`_` or `_cancellationToken`) to say so. The rule applies to `IHealingAction`
+implementations (their `ExecuteAsync`) and to inline actions with a `(context, cancellationToken)` lambda, when the body
+awaits something or returns a task (`(ctx, ct) => client.RenewAsync()`).
 
 ## HOMEO004
 
@@ -80,8 +80,9 @@ if (app.Environment.IsDevelopment())
 ```
 
 Anonymous status, control, dashboard and alert endpoints let anyone who can reach them see internals, pause Homeostat
-or approve steps. The rule is informational, and it ignores calls in the `then` branch of an `if (...IsDevelopment())`
-check (not the `else` branch, not negated or combined conditions).
+or approve steps. The rule is informational. It reports `allowAnonymous: true` written as a constant, and ignores calls
+in the `then` branch of an `if (...IsDevelopment())` check (not the `else` branch, not negated or combined
+conditions). Raise it to `warning` in `.editorconfig` if anonymous endpoints must never reach production.
 
 ## HOMEO005
 
@@ -95,5 +96,8 @@ public sealed class IngestWorker : RestartableBackgroundService { ... }        /
 Stopping a `BackgroundService` outside a shutdown makes the generic host treat it as failed and, by default, stop the
 application, so Homeostat refuses that restart at runtime. If your host sets
 `HostOptions.BackgroundServiceExceptionBehavior = BackgroundServiceExceptionBehavior.Ignore`, the restart is allowed:
-suppress the rule for that call (`#pragma warning disable HOMEO005`) or in `.editorconfig`. Derive the worker from `RestartableBackgroundService`,
-which restarts inside the service: see [Actions](actions.md#restarthostedservicet).
+suppress the rule for that call (`#pragma warning disable HOMEO005`) or in `.editorconfig`. Otherwise derive the
+worker from `RestartableBackgroundService`, which restarts inside the service: see
+[Actions](actions.md#restarthostedservicet).
+
+See also: [Security](security.md#authorization-policies), [Healing plans](healing-plans.md).

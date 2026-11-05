@@ -55,7 +55,7 @@ a million signals per source.
 | External alerts | 1,000 sources, 1,000 firing series per source and 10,000 in all |
 | Run and condition history | `RunHistorySize` (50) and `ConditionHistorySize` (200) |
 | Seasonal baselines | A few running sums per time slot, at most 2,016 slots (a week of 5-minute slots) per condition |
-| Actions abandoned at their timeout | One per step: an action still running is not started again |
+| Actions and verifiers abandoned at their timeout | One of each per step: a call still running is not started again |
 
 Everything else is sized by your configuration (conditions, plans, detectors, switches, consumers), not by the load.
 
@@ -71,3 +71,5 @@ Everything else is sized by your configuration (conditions, plans, detectors, sw
   `AddHomeostatSignals()`. The first client measured in a process is slower whichever it is, so one pass is discarded.
 
 Run the program on your own hardware for figures that apply to you, and compare runs on the same machine.
+
+See also: [Design notes](design.md) · [Trimming and Native AOT](native-aot.md)

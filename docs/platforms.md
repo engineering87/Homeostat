@@ -1,5 +1,8 @@
 # Platforms
 
+Where Homeostat runs: the .NET version it targets, the operating systems it is tested on, the minimum versions of the
+client libraries its integration packages depend on, and Native AOT support per package.
+
 ## .NET
 
 | | Supported |

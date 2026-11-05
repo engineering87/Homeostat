@@ -1,6 +1,7 @@
 # Recipes
 
-Ready-to-adapt solutions for common scenarios. Methods marked *(your code)* stand for your own logic.
+Short solutions for common scenarios, to copy and adapt. Each one states the problem, the configuration and what to
+watch for. Code marked *(your code)* stands for your own logic.
 
 - [Fail over to a backup provider](#fail-over-to-a-backup-provider)
 - [Ask before failing over](#ask-before-failing-over)
@@ -31,8 +32,9 @@ otherwise you want to switch to a secondary provider.
         .Then<SwitchToBackupProviderAction>()))
 ```
 
-Make the health check report `Degraded` while serving from the backup. With the default clear rule,
-`Degraded` clears a condition that triggers on `Unhealthy`, so the run ends as `Healed`.
+Make the health check report `Degraded` while serving from the backup. The default clear rule clears a condition
+on any signal that does not trigger it, so `Degraded` clears a condition that triggers on `Unhealthy` and the run ends
+as `Healed`.
 Full code: [`samples/Homeostat.Samples.WeatherFeed`](../samples/Homeostat.Samples.WeatherFeed).
 
 ---
@@ -96,7 +98,8 @@ its own plan.
     .Heal(p => p.With("renew-air-quality", sp => sp.GetRequiredService<AirQualityClient>().Renew())))
 ```
 
-While `network-down` is active, the two client conditions are reported as suppressed and their plans wait.
+While `network-down` is pending or active, the two client conditions are reported as suppressed and their plans
+wait.
 See [Causes and symptoms](conditions.md#causes-and-symptoms-suppressedby).
 
 ---
@@ -153,8 +156,8 @@ public sealed class IncreaseWorkerParallelismAction(ThumbnailWorkerSettings sett
 }
 ```
 
-A backlog drains slowly: give verification enough time and remember that the condition clears only
-when the queue drops below the threshold.
+A backlog drains slowly: give verification enough time. The condition clears only when the queue drops below the
+threshold.
 
 ---
 
@@ -167,7 +170,7 @@ reloading configuration fixes it.
 .Heal(p => p.ReloadConfiguration())
 ```
 
-A built-in action: it calls `IConfigurationRoot.Reload()`. Components that read options through
+A built-in action that calls `IConfigurationRoot.Reload()`. Components that read options through
 `IOptionsMonitor<T>` see the new values after the reload. See [Actions](actions.md#reloadconfiguration).
 
 ---
@@ -226,8 +229,8 @@ Keep a pause without an end time (`PauseAsync()`) for incidents that people hand
 
 **Problem:** you are not sure yet how to fix a problem, but you want to know how often it happens.
 
-Declare the condition **without** `Heal(...)`: it is tracked, logged and visible through
-`IHomeostatControl`, but it never acts.
+Declare the condition without `Heal(...)`: it is tracked, logged and visible through `IHomeostatControl` (and the
+status endpoint and dashboard), but it never acts.
 
 ```csharp
 .AddCondition("air-quality-slow", c => c
@@ -257,7 +260,7 @@ public async Task Renew_unsticks_the_client()
 }
 ```
 
-To test the whole loop (condition, plan, verification) use `HomeostatTestHost`: see [Testing](testing.md).
+To test the whole loop (condition, plan, verification), use `HomeostatTestHost`: see [Testing](testing.md).
 
 ---
 
