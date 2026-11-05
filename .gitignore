@@ -26,9 +26,13 @@ coverage*.xml
 .DS_Store
 Thumbs.db
 
-# Sample audit logs and state
-logs/
-data/
+# Sample audit logs and state, where the samples write them (repository root or the sample's folder). Anchored on
+# purpose: on Windows and macOS Git ignores case, so a bare "data/" would also hide source folders such as
+# src/Homeostat/Data/.
+/logs/
+/data/
+/samples/*/logs/
+/samples/*/data/
 
 # Repository tooling (commitlint)
 node_modules/
