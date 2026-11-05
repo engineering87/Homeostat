@@ -16,16 +16,19 @@ namespace Homeostat.Tests;
 /// </summary>
 public class FailureIsolationTests
 {
-    private static Task<HomeostatTestHost> StartInstanceAsync(string instance, IHomeostatStore store, Action<HomeostatBuilder>? configure = null)
-        => HomeostatTestHost.StartAsync(h =>
-        {
-            h.UseStore(_ => store).Configure(o =>
+    private static Task<HomeostatTestHost> StartInstanceAsync(
+        string instance, IHomeostatStore store, Action<HomeostatBuilder>? configure = null, HomeostatTestHostOptions? options = null)
+        => HomeostatTestHost.StartAsync(
+            h =>
             {
-                o.InstanceId = instance;
-                o.ControlRefreshInterval = TimeSpan.FromSeconds(5);
-            });
-            configure?.Invoke(h);
-        });
+                h.UseStore(_ => store).Configure(o =>
+                {
+                    o.InstanceId = instance;
+                    o.ControlRefreshInterval = TimeSpan.FromSeconds(5);
+                });
+                configure?.Invoke(h);
+            },
+            options: options);
 
     private static Task RefreshAsync(HomeostatTestHost host)
         => host.Services.GetRequiredService<Engine.SharedControl>().TryRefreshAsync(CancellationToken.None);
@@ -191,10 +194,13 @@ public class FailureIsolationTests
             .AddCondition("feed-down", c => c.ForSource("feed")
                 .Heal(p => p.TurnOnSwitch("serve-cached").VerifyWith<EngineTests.AlwaysHealedVerifier>().OncePerCluster()));
 
-        var b = await StartInstanceAsync("b", store, Plan);
+        // Each test host has its own simulated clock: they move only when the test moves them, so the two instances agree
+        // on the time, as synchronized clocks would (decisions about a switch are ordered by time).
+        var still = new HomeostatTestHostOptions { AutoAdvanceStep = null };
+        var b = await StartInstanceAsync("b", store, Plan, still);
         await using (b)
         {
-            await using (var a = await StartInstanceAsync("a", store, Plan))
+            await using (var a = await StartInstanceAsync("a", store, Plan, still))
             {
                 a.Publish("feed", SignalSeverity.Unhealthy);
                 await a.WaitForRunAsync("feed-down");

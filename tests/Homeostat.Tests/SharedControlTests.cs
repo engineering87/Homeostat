@@ -26,6 +26,16 @@ public class SharedControlTests
             configure?.Invoke(h);
         });
 
+    /// <summary>
+    /// Moves <paramref name="host"/>'s simulated clock past <paramref name="than"/>'s: each test host has its own clock,
+    /// and decisions about the pause and the switches are ordered by time, as with synchronized clocks in production.
+    /// </summary>
+    private static void Later(HomeostatTestHost host, HomeostatTestHost than)
+    {
+        var behind = than.Time.GetUtcNow() - host.Time.GetUtcNow();
+        host.Time.Advance((behind > TimeSpan.Zero ? behind : TimeSpan.Zero) + TimeSpan.FromSeconds(1));
+    }
+
     /// <summary>Lets the instance read the store (its refresh timer follows the host's simulated clock).</summary>
     private static async Task RefreshAsync(HomeostatTestHost host)
     {
@@ -47,6 +57,7 @@ public class SharedControlTests
         await RefreshAsync(b);
         Assert.True(b.Control.IsPaused);
 
+        Later(b, than: a);
         await b.Control.ResumeAsync();
         await RefreshAsync(a);
         Assert.False(a.Control.IsPaused);
@@ -109,6 +120,7 @@ public class SharedControlTests
         Assert.Equal([("serve-cached-forecast", true)], changes);
         Assert.Equal("on-call", Assert.Single((await store.GetControlStateAsync()).Switches).By);
 
+        Later(b, than: a);
         await b.Switches.TurnOffAsync("serve-cached-forecast");
         await RefreshAsync(a);
         Assert.False(a.Switches.IsOn("serve-cached-forecast"));
@@ -153,6 +165,7 @@ public class SharedControlTests
 
         await a.Switches.TurnOnAsync("serve-cached-forecast");
         Assert.False(b.Switches.IsOn("serve-cached-forecast"), "B has not refreshed yet");
+        Later(b, than: a);
         await b.Switches.TurnOffAsync("serve-cached-forecast");
 
         Assert.Empty((await store.GetControlStateAsync()).Switches);
