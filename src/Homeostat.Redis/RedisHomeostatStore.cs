@@ -362,21 +362,40 @@ internal sealed class RedisHomeostatStore : IHomeostatStore
     // claim's time. Sets the switch only if it is owned by the same condition and not claimed later since (by another
     // instance), or off and not decided about at or after the claim (a late claim, or a renewal of a switch released
     // meanwhile).
+    // ARGV[5] = '1' for a renewal (or an abandonment), which only updates a claim still held by ARGV[6] (the instance),
+    // and records ARGV[7] (the renewal's time, '' for an abandonment) as the latest decision.
     private const string ClaimSwitchScript = """
         local field = 'switch:' .. ARGV[1]
         local latest = tonumber(redis.call('HGET', KEYS[2], field) or '-1')
         local at = tonumber(ARGV[4])
+        local renewal = ARGV[5] == '1'
         local current = redis.call('HGET', KEYS[1], ARGV[1])
         if current then
           local ok, state = pcall(cjson.decode, current)
-          if not ok or type(state) ~= 'table' or state['condition'] ~= ARGV[3] or at < latest then
+          if not ok or type(state) ~= 'table' or state['condition'] ~= ARGV[3] then
             return 0
           end
-        elseif at <= latest then
+          if renewal then
+            -- The same claim only: the same instance, and the claim's own time (recorded when it was made).
+            if state['instance'] ~= ARGV[6] or redis.call('HGET', KEYS[2], 'claim:' .. ARGV[1]) ~= ARGV[4] then
+              return 0
+            end
+          elseif at < latest then
+            return 0
+          end
+        elseif renewal or at <= latest then
           return 0
         end
-        if at > latest then
-          redis.call('HSET', KEYS[2], field, ARGV[4])
+        -- Written as the caller's string: tostring() would round a Lua number of 16 digits.
+        local text = ARGV[4]
+        if renewal then
+          text = ARGV[7]
+        end
+        if text ~= '' and tonumber(text) > latest then
+          redis.call('HSET', KEYS[2], field, text)
+        end
+        if not renewal then
+          redis.call('HSET', KEYS[2], 'claim:' .. ARGV[1], ARGV[4])
         end
         redis.call('HSET', KEYS[1], ARGV[1], ARGV[2])
         return 1
@@ -431,10 +450,15 @@ internal sealed class RedisHomeostatStore : IHomeostatStore
     {
         ArgumentNullException.ThrowIfNull(state);
         ArgumentException.ThrowIfNullOrWhiteSpace(state.Condition);
+        var renewal = state.RenewedAt is { } renewed && renewed != state.At;
         var result = await Db.ScriptEvaluateAsync(
             ClaimSwitchScript,
             [ControlKey("switches"), ControlKey("decided")],
-            [state.Name, JsonSerializer.Serialize(state, RedisJsonContext.Default.SwitchState), state.Condition, Micros(state.At)]).ConfigureAwait(false);
+            [
+                state.Name, JsonSerializer.Serialize(state, RedisJsonContext.Default.SwitchState), state.Condition, Micros(state.At),
+                renewal ? "1" : "0", state.Instance ?? string.Empty,
+                renewal && state.RenewedAt > DateTimeOffset.UnixEpoch ? Micros(state.RenewedAt.Value).ToString(System.Globalization.CultureInfo.InvariantCulture) : string.Empty,
+            ]).ConfigureAwait(false);
         return (int)result == 1;
     }
 

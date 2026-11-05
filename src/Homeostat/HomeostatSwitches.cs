@@ -201,10 +201,11 @@ internal sealed class HomeostatSwitches : IHomeostatSwitches
     /// written at once, or applied here and written when the store answers. Never turns off a switch that a person or
     /// another plan has taken since.
     /// </summary>
-    private async Task ReleaseAsync(string name, string condition, string? instance, CancellationToken cancellationToken)
+    private async Task ReleaseAsync(string name, string condition, string? instance, CancellationToken cancellationToken, DateTimeOffset? decidedAt = null)
     {
-        // Decided now: written in that order even if it reaches the store late, so it never removes a newer claim.
-        var decidedAt = _timeProvider.GetUtcNow();
+        // Decided now (or as of the renewal the caller saw): written in that order even if it reaches the store late, so
+        // it never removes a newer claim, or a claim renewed since.
+        var at = decidedAt ?? _timeProvider.GetUtcNow();
         _claimed.TryRemove(new KeyValuePair<string, string>(name, condition));
         bool Owns(SwitchState s) => string.Equals(s.Name, name, StringComparison.Ordinal)
             && string.Equals(s.Condition, condition, StringComparison.Ordinal)
@@ -212,9 +213,11 @@ internal sealed class HomeostatSwitches : IHomeostatSwitches
 
         await _shared.ChangeOrDeferAsync(
             Key(name),
-            (store, ct) => store.TryReleaseSwitchAsync(name, condition, instance, decidedAt, ct),
+            (store, ct) => store.TryReleaseSwitchAsync(name, condition, instance, at, ct),
             s => s.Switches.Any(Owns) ? SharedControl.WithSwitch(s, name, null) : s,
-            s => !s.Switches.Any(Owns),
+            // Superseded only by a later decision about the switch (claimed again, or taken by a person), never because
+            // a view does not show it: this instance's own view already has the release applied.
+            s => s.Switches.Any(x => string.Equals(x.Name, name, StringComparison.Ordinal) && x.At > at),
             cancellationToken).ConfigureAwait(false);
     }
 
@@ -241,9 +244,17 @@ internal sealed class HomeostatSwitches : IHomeostatSwitches
                 {
                     if (now - renewed >= _renewEvery)
                     {
+                        // One renewal at a time per switch: while one abandoned at its timeout still runs (a store blocked
+                        // on I/O), the next refresh does not start another.
+                        if (_renewing.TryGetValue(current.Name, out var previous) && !previous.IsCompleted)
+                        {
+                            continue;
+                        }
+
                         var renewal = new SwitchState { Name = current.Name, Condition = condition, Instance = _instance, By = current.By, At = current.At, RenewedAt = now };
-                        await SharedControl.Bounded(() => _shared.Store.TryClaimSwitchAsync(renewal, cancellationToken), SharedControl.WriteTimeout, cancellationToken)
-                            .ConfigureAwait(false);
+                        var renewing = Task.Run(() => _shared.Store.TryClaimSwitchAsync(renewal, CancellationToken.None).AsTask(), CancellationToken.None);
+                        _renewing[current.Name] = renewing;
+                        await renewing.WaitAsync(SharedControl.WriteTimeout, cancellationToken).ConfigureAwait(false);
 
                         // A claim also creates a switch that is absent: if the condition released it meanwhile, the
                         // renewal turned it back on. Release it again.
@@ -258,7 +269,10 @@ internal sealed class HomeostatSwitches : IHomeostatSwitches
                     _logger.LogWarning(
                         "Application switch {Switch} was turned on by condition {Condition} on instance {Instance}, which no longer holds it, "
                         + "and the condition is not active here: turning it off.", current.Name, condition, current.Instance);
-                    await ReleaseAsync(current.Name, condition, current.Instance, cancellationToken).ConfigureAwait(false);
+                    // As of the renewal seen here: if its owner renewed it since (this view is a few seconds old), the
+                    // store keeps it. An abandoned switch (its owner stopped) is released as of now.
+                    var seen = current.RenewedAt is { } r && r > DateTimeOffset.UnixEpoch ? r : (DateTimeOffset?)null;
+                    await ReleaseAsync(current.Name, condition, current.Instance, cancellationToken, seen ?? now).ConfigureAwait(false);
                 }
             }
             catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
@@ -295,6 +309,8 @@ internal sealed class HomeostatSwitches : IHomeostatSwitches
         _claimed.Clear();
     }
 
+    private readonly ConcurrentDictionary<string, Task<bool>> _renewing = new(StringComparer.Ordinal);
+
     private static string Key(string name) => "switch:" + name;
 
     internal ValueTask TurnOnLocal(string name)
@@ -330,11 +346,30 @@ internal sealed class HomeostatSwitches : IHomeostatSwitches
         // A person or code turning on a switch makes it theirs, even one a plan owns: the condition clearing no longer
         // turns it off. Always written: this instance's view may be behind (the switch turned off elsewhere a moment ago).
         var state = new SwitchState { Name = name, By = by, At = _timeProvider.GetUtcNow() };
-        var applied = await _shared.ChangeAsync(
-            Key(name),
-            (store, ct) => store.TrySetSwitchAsync(name, state, state.At, ct),
-            s => SharedControl.WithSwitch(s, name, state),
-            cancellationToken).ConfigureAwait(false);
+        var wasOff = GetShared(name) is null;
+        bool applied;
+        try
+        {
+            applied = await _shared.ChangeAsync(
+                Key(name),
+                (store, ct) => store.TrySetSwitchAsync(name, state, state.At, ct),
+                s => SharedControl.WithSwitch(s, name, state),
+                cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is TimeoutException or OperationCanceledException && wasOff)
+        {
+            // The caller is told it failed, but the store may still run the write later: the switch is turned off
+            // again, decided after it, so it ends off, as the caller was told.
+            var off = _timeProvider.GetUtcNow();
+            await _shared.ChangeOrDeferAsync(
+                Key(name),
+                (store, ct) => store.TrySetSwitchAsync(name, null, off, ct),
+                s => SharedControl.WithSwitch(s, name, null),
+                s => s.Switches.Any(x => string.Equals(x.Name, name, StringComparison.Ordinal) && x.At > off),
+                CancellationToken.None).ConfigureAwait(false);
+            throw;
+        }
+
         if (!applied)
         {
             _logger.LogWarning("Switch {Switch} was not turned on: a later decision about it is in the store.", name.ReplaceLineEndings(" "));

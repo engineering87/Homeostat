@@ -59,10 +59,12 @@ public static class RestartGuard
                 "restarting now could loop. Escalate instead.");
         }
 
-        // One counter per application, shared by its instances through the store: LastRunEndedAt is the start of the
-        // window, ConsecutiveFailures the restarts in it. The restart is counted first, atomically, and allowed only if
-        // the count it got is within the limit: when every replica of a fleet tries at the same moment, at most
-        // MaxRestarts of them restart (a refused attempt also counts, which only makes the limit stricter).
+        // One counter per application and fixed window of the configured length, shared by the instances through the
+        // store (ConsecutiveFailures is the count). The restart is counted first, atomically, and allowed only if the count
+        // it got plus the previous window's stays within the limit: any period of one window length lies within two
+        // consecutive windows, so it never holds more than MaxRestarts restarts, and when every replica of a fleet tries
+        // at the same moment at most MaxRestarts of them restart. No counter is ever reset, so no reset can race with a
+        // count. A refused attempt also counts, which only makes the limit stricter.
         var store = services.GetRequiredService<IHomeostatStore>();
         if (store is InMemoryHomeostatStore)
         {
@@ -71,19 +73,13 @@ public static class RestartGuard
                 + "Use UseFileStore or UseRedis to count restarts across restarts and instances.");
         }
 
-        var key = $"restarts/{services.GetRequiredService<IOptions<HomeostatOptions>>().Value.ApplicationName}";
-        var state = await store.GetPlanStateAsync(key, cancellationToken).ConfigureAwait(false);
-        if (state.LastRunEndedAt is not { } windowStart || now - windowStart >= limits.Window)
-        {
-            // Only the first instance to see the expired window resets it: the precondition is the window it read.
-            await store.UpdatePlanStateAsync(
-                key,
-                new PlanStateUpdate { LastRunEndedAt = now, Failures = FailureCountChange.Reset, LastRunBy = now.ToUnixTimeMilliseconds().ToString(System.Globalization.CultureInfo.InvariantCulture), OnlyIfLastRunBy = state.LastRunBy },
-                cancellationToken).ConfigureAwait(false);
-        }
+        var application = services.GetRequiredService<IOptions<HomeostatOptions>>().Value.ApplicationName;
+        var window = now.UtcTicks / limits.Window.Ticks;
+        string Key(long index) => $"restarts/{application}/{index.ToString(System.Globalization.CultureInfo.InvariantCulture)}";
 
-        var counted = await store.UpdatePlanStateAsync(key, new PlanStateUpdate { Failures = FailureCountChange.Increment }, cancellationToken).ConfigureAwait(false);
-        if (counted.ConsecutiveFailures > limits.MaxRestarts)
+        var counted = await store.UpdatePlanStateAsync(Key(window), new PlanStateUpdate { Failures = FailureCountChange.Increment }, cancellationToken).ConfigureAwait(false);
+        var previous = await store.GetPlanStateAsync(Key(window - 1), cancellationToken).ConfigureAwait(false);
+        if (counted.ConsecutiveFailures + previous.ConsecutiveFailures > limits.MaxRestarts)
         {
             throw new InvalidOperationException(
                 $"The application already restarted {limits.MaxRestarts} times in the last {limits.Window.TotalMinutes:0.#} minutes " +

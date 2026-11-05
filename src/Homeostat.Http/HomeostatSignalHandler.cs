@@ -12,26 +12,53 @@ internal sealed class HomeostatSignalHandler : DelegatingHandler
         _timeProvider = timeProvider;
     }
 
-    protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+    protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
     {
         var start = _timeProvider.GetTimestamp();
+        Task<HttpResponseMessage> sending;
         try
         {
-            var response = await base.SendAsync(request, cancellationToken).ConfigureAwait(false);
+            sending = base.SendAsync(request, cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            // Rethrown from the async path below, so the caller sees exactly what an async handler would give it.
+            sending = Task.FromException<HttpResponseMessage>(ex);
+        }
 
-            // Measuring must never fail the application's call: a classifier that throws counts the response as a
-            // success, and the caller gets it as if Homeostat were not there.
-            bool failed;
-            try
-            {
-                failed = _window.Options.IsFailure(response);
-            }
-            catch
-            {
-                failed = false;
-            }
+        // Already answered (a cached or stubbed response): no state machine, nothing allocated.
+        if (sending.IsCompletedSuccessfully)
+        {
+            Completed(sending.Result, start);
+            return sending;
+        }
 
-            _window.Record(failed, _timeProvider.GetElapsedTime(start));
+        return AwaitAsync(sending, start, cancellationToken);
+    }
+
+    private void Completed(HttpResponseMessage response, long start)
+    {
+        // Measuring must never fail the application's call: a classifier that throws counts the response as a
+        // success, and the caller gets it as if Homeostat were not there.
+        bool failed;
+        try
+        {
+            failed = _window.Options.IsFailure(response);
+        }
+        catch
+        {
+            failed = false;
+        }
+
+        _window.Record(failed, _timeProvider.GetElapsedTime(start));
+    }
+
+    private async Task<HttpResponseMessage> AwaitAsync(Task<HttpResponseMessage> sending, long start, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var response = await sending.ConfigureAwait(false);
+            Completed(response, start);
             return response;
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)

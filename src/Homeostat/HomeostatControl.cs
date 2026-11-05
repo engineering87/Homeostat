@@ -104,11 +104,30 @@ internal sealed class HomeostatControl : IHomeostatControl
         // Resuming lets plans act again: it must reach the store, or it does not happen.
         // In decision order: a pause decided after this resume (on another instance, or written late) stands.
         var decidedAt = _timeProvider.GetUtcNow();
-        var applied = await _shared.ChangeAsync(
-            "pause",
-            (store, ct) => store.TrySetPauseAsync(null, decidedAt, ct),
-            s => Engine.SharedControl.WithPause(s, null),
-            cancellationToken).ConfigureAwait(false);
+        var before = _shared.Current.Pause;
+        bool applied;
+        try
+        {
+            applied = await _shared.ChangeAsync(
+                "pause",
+                (store, ct) => store.TrySetPauseAsync(null, decidedAt, ct),
+                s => Engine.SharedControl.WithPause(s, null),
+                cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is TimeoutException or OperationCanceledException && before is not null)
+        {
+            // The caller is told it failed, but the store may still run the write later: the pause is decided again,
+            // after it, so the store ends paused, as the caller was told.
+            var again = new PauseState { Until = before!.Until, By = before.By, At = _timeProvider.GetUtcNow() };
+            await _shared.ChangeOrDeferAsync(
+                "pause",
+                (store, ct) => store.TrySetPauseAsync(again, again.At, ct),
+                s => Engine.SharedControl.WithPause(s, again),
+                s => s.Pause is { } stored && stored.At > again.At,
+                CancellationToken.None).ConfigureAwait(false);
+            throw;
+        }
+
         if (!applied)
         {
             _logger.LogWarning("Homeostat was not resumed: a later pause is in the store.");
@@ -127,7 +146,8 @@ internal sealed class HomeostatControl : IHomeostatControl
         }
 
         var key = plan.Scope == Healing.PlanScope.Cluster ? plan.ConditionName : $"{_options.InstanceId}/{plan.ConditionName}";
-        await _store.UpdatePlanStateAsync(key, new PlanStateUpdate { Held = false, Failures = FailureCountChange.Reset }, cancellationToken).ConfigureAwait(false);
+        var update = new PlanStateUpdate { Held = false, Failures = FailureCountChange.Reset };
+        await Engine.SharedControl.Bounded(() => _store.UpdatePlanStateAsync(key, update, cancellationToken), Engine.SharedControl.WriteTimeout, cancellationToken).ConfigureAwait(false);
         _planStates.Forget(key);
         return true;
     }
@@ -136,11 +156,12 @@ internal sealed class HomeostatControl : IHomeostatControl
         => _conditions.Trackers.Select(_conditions.Snapshot).ToArray();
 
     public ValueTask<IReadOnlyList<HealingRunRecord>> GetRecentRunsAsync(CancellationToken cancellationToken = default)
-        => _store.GetRecentRunsAsync(_options.RunHistorySize, cancellationToken);
+        => new(Engine.SharedControl.Bounded(() => _store.GetRecentRunsAsync(_options.RunHistorySize, cancellationToken), Engine.SharedControl.ReadTimeout, cancellationToken));
 
     public async ValueTask<ActionBudgetStatus> GetBudgetAsync(CancellationToken cancellationToken = default)
     {
-        var used = await _store.GetBudgetUsedAsync(_timeProvider.GetUtcNow(), _options.ActionBudgetWindow, cancellationToken).ConfigureAwait(false);
+        var now = _timeProvider.GetUtcNow();
+        var used = await Engine.SharedControl.Bounded(() => _store.GetBudgetUsedAsync(now, _options.ActionBudgetWindow, cancellationToken), Engine.SharedControl.ReadTimeout, cancellationToken).ConfigureAwait(false);
         return new ActionBudgetStatus(used, _options.MaxActionsPerWindow, _options.ActionBudgetWindow);
     }
 

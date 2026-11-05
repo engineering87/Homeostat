@@ -283,21 +283,31 @@ internal class MemoryStore : IHomeostatStore
         ArgumentException.ThrowIfNullOrWhiteSpace(state.Condition);
         lock (_gate)
         {
+            // A renewal (or an abandonment) carries the claim's At and another RenewedAt: it only updates a claim that is
+            // still there, by the same instance. A new claim has RenewedAt equal to At, or none.
+            var renewal = state.RenewedAt is { } renewed && renewed != state.At;
             if (_switches.TryGetValue(state.Name, out var current))
             {
-                // Another owner, or a newer claim of the same condition (by another instance): left as it is.
-                if (!string.Equals(current.Condition, state.Condition, StringComparison.Ordinal) || state.At < current.At)
+                if (!string.Equals(current.Condition, state.Condition, StringComparison.Ordinal))
                 {
-                    return ValueTask.FromResult(false);
+                    return ValueTask.FromResult(false);   // another owner
+                }
+
+                if (renewal
+                    ? !string.Equals(current.Instance, state.Instance, StringComparison.Ordinal) || current.At != state.At
+                    : state.At < Decided(state.Name))
+                {
+                    return ValueTask.FromResult(false);   // claimed again since (by another instance, or a newer run)
                 }
             }
-            else if (!InOrder(state.At, Decided(state.Name), lessAction: false))
+            else if (renewal || !InOrder(state.At, Decided(state.Name), lessAction: false))
             {
-                // Off, and decided at or after this claim: a late claim, or a renewal of a switch released meanwhile.
+                // Off: a renewal of a switch released meanwhile, or a claim decided at or before the latest decision.
                 return ValueTask.FromResult(false);
             }
 
-            Decide(state.Name, state.At > Decided(state.Name) ? state.At : Decided(state.Name), () =>
+            var decision = renewal ? state.RenewedAt!.Value : state.At;
+            Decide(state.Name, decision > Decided(state.Name) ? decision : Decided(state.Name), () =>
             {
                 _switches[state.Name] = state;
                 OnChanged();

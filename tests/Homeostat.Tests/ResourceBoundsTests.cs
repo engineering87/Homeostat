@@ -1,5 +1,6 @@
 using Homeostat.AspNetCore;
 using Homeostat.Conditions;
+using Homeostat.Http;
 using Homeostat.Metrics;
 using Homeostat.Signals;
 using Homeostat.Testing;
@@ -110,6 +111,42 @@ public class ResourceBoundsTests
 
         var growth = after - before;
         Assert.True(growth < 16 * 1024 * 1024, $"retained memory grew by {growth / 1024} KB over a million signals per source");
+    }
+
+    [Fact]
+    public async Task The_http_handler_allocates_nothing_when_the_response_is_already_there()
+    {
+        var response = new System.Net.Http.HttpResponseMessage(System.Net.HttpStatusCode.OK);
+        var answered = Task.FromResult(response);
+        using var bare = new System.Net.Http.HttpMessageInvoker(new Answered(answered), disposeHandler: true);
+        using var measured = new System.Net.Http.HttpMessageInvoker(
+            new HomeostatSignalHandler(new HttpClientWindow("forecast", new HttpClientSignalOptions()), TimeProvider.System) { InnerHandler = new Answered(answered) },
+            disposeHandler: true);
+        using var request = new System.Net.Http.HttpRequestMessage(System.Net.Http.HttpMethod.Get, "http://forecast.test/");
+
+        static async Task<long> Allocated(System.Net.Http.HttpMessageInvoker invoker, System.Net.Http.HttpRequestMessage request)
+        {
+            for (var i = 0; i < 1_000; i++)
+            {
+                await invoker.SendAsync(request, CancellationToken.None);   // warm-up
+            }
+
+            var before = GC.GetAllocatedBytesForCurrentThread();
+            for (var i = 0; i < 10_000; i++)
+            {
+                await invoker.SendAsync(request, CancellationToken.None);
+            }
+
+            return GC.GetAllocatedBytesForCurrentThread() - before;
+        }
+
+        var extra = await Allocated(measured, request) - await Allocated(bare, request);
+        Assert.True(extra < 10_000 * 8, $"the handler allocated {extra / 10_000.0} bytes per request");
+    }
+
+    private sealed class Answered(Task<System.Net.Http.HttpResponseMessage> response) : System.Net.Http.HttpMessageHandler
+    {
+        protected override Task<System.Net.Http.HttpResponseMessage> SendAsync(System.Net.Http.HttpRequestMessage request, CancellationToken cancellationToken) => response;
     }
 
     private sealed class NullPublisher : ISignalPublisher

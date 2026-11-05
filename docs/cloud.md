@@ -35,8 +35,10 @@ Guards (`RestartLimits`, shared with `RestartPod`):
 - **Minimum uptime** (10 minutes by default): an instance that has just started is not restarted, so a process that
   fails right after starting does not loop.
 - **Restarts per window** (3 per hour by default), counted in the store for the whole application, across instances and
-  processes: after that the step fails and a person has to look. The window is fixed: it starts at the first restart
-  counted in it, and a new window starts at the first restart after it ends. Keep the store persistent (`UseFileStore` on a volume
+  processes: after that the step fails and a person has to look. Restarts are counted in fixed windows of that length
+  (aligned on UTC time), and a restart is allowed only while the current and the previous window together hold fewer
+  than the limit: so no period of one window length ever holds more, even when every replica restarts at the same
+  moment. Refused attempts count too, which can keep the limit reached for up to two windows. Keep the store persistent (`UseFileStore` on a volume
   that survives the restart, or `UseRedis`): the in-memory store starts empty in the new process, and so would the
   count, the cooldown and the history.
 - The step **ends the run**: put it last, steps after it never run. The run is recorded as canceled by the shutdown it

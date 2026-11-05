@@ -251,6 +251,10 @@ public class MessagingTests
 
         public override bool IsProcessing => _processing;
 
+        public bool Closed { get; set; }
+
+        public override bool IsClosed => Closed;
+
         public override Task StartProcessingAsync(CancellationToken cancellationToken = default)
         {
             Starts++;
@@ -278,6 +282,26 @@ public class MessagingTests
         await pausable.ResumeAsync(CancellationToken.None);
 
         Assert.Equal((1, 1), (processor.Stops, processor.Starts));
+    }
+
+    [Fact]
+    public async Task Service_Bus_resume_never_starts_a_processor_the_application_stopped_or_closed()
+    {
+        // Stopped by the application: a Homeostat pause finds it stopped, and its resume leaves it stopped.
+        var stoppedByApplication = new FakeProcessor();
+        await stoppedByApplication.StopProcessingAsync();
+        var pausable = new PausableServiceBusProcessor("ingest", stoppedByApplication);
+        await pausable.PauseAsync(CancellationToken.None);
+        await pausable.ResumeAsync(CancellationToken.None);
+        Assert.Equal(0, stoppedByApplication.Starts);
+
+        // Paused by Homeostat, then closed by the application (shutting down): not started again either.
+        var closed = new FakeProcessor();
+        var other = new PausableServiceBusProcessor("ingest", closed);
+        await other.PauseAsync(CancellationToken.None);
+        closed.Closed = true;
+        await other.ResumeAsync(CancellationToken.None);
+        Assert.Equal(0, closed.Starts);
     }
 
     // ---------------------------------------------------------------- RabbitMQ
@@ -466,6 +490,27 @@ public class MessagingTests
         Assert.Equal(2, ((IEnumerable<TopicPartition>)calls[0].Arguments[0]!).Count());
         Assert.Equal(3, ((IEnumerable<TopicPartition>)calls[1].Arguments[0]!).Count());
         Assert.Equal(3, ((IEnumerable<TopicPartition>)calls[2].Arguments[0]!).Count());
+    }
+
+    [Fact]
+    public async Task Kafka_resume_leaves_the_partitions_the_application_paused()
+    {
+        var assignment = new List<TopicPartition> { new("telemetry", 0), new("telemetry", 1) };
+        var (consumer, recorder) = Recorder<IConsumer<string, string>>.Create((method, _) => method.Name switch
+        {
+            "get_Assignment" => assignment.ToList(),
+            "Pause" or "Resume" => null,
+            _ => throw new NotSupportedException(method.Name),
+        });
+        var gate = new KafkaPauseGate("telemetry");
+
+        await gate.PauseAsync(CancellationToken.None);
+        gate.Apply(consumer);
+        await gate.ResumeAsync(CancellationToken.None);
+        gate.Apply(consumer, pausedByApplication: [new TopicPartition("telemetry", 1)]);   // backpressure on partition 1
+
+        var resume = recorder.Calls.Single(c => c.Method == "Resume");
+        Assert.Equal([new TopicPartition("telemetry", 0)], (IEnumerable<TopicPartition>)resume.Arguments[0]!);
     }
 
     // ---------------------------------------------------------------- Aspire

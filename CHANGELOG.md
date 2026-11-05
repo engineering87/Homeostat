@@ -14,6 +14,11 @@ Second release candidate. Failure isolation: Homeostat, or its store, failing mu
 it degraded, and what Homeostat keeps in memory does not grow with the load. The public API changes are additive
 (new members with default implementations, optional parameters).
 
+Upgrading from rc.1: recompile code that calls `ChaosEnabledBySwitch` (it gains an optional parameter, which changes its
+binary signature); custom stores keep compiling, and should implement the new ordered writes when several instances
+share them (see [Writing your own store](docs/persistence-and-clusters.md#writing-your-own-store)). Restart limits now
+count in fixed windows: the counts kept by rc.1 are not carried over.
+
 ### Added
 
 - `HoldAtMost(maximum)` after `TurnOnSwitch` (and the steps built on it, such as `PauseConsumer`), and the
@@ -76,6 +81,20 @@ it degraded, and what Homeostat keeps in memory does not grow with the load. The
 - A verifier abandoned at its timeout and still running is not started again.
 - `RestartHostedService` waits a bounded time for a stop that ignores its token, and does not start the service
   again while the application is stopping.
+- Restart limits are counted in fixed windows, the current one and the previous one together, with no counter ever
+  reset: when every replica restarted at the same moment, a reset racing with a count could let one restart too many.
+- An orphaned cluster switch is released only as of the renewal the sweeping instance saw: one renewed since by its
+  owner stays on. Renewals only update a claim still held by the same instance.
+- The services of a step are disposed only once an action or a verifier abandoned at its timeout has ended, also when
+  the application stops.
+- Shared control state, after a third review: a release deferred during an outage is no longer dropped by a failed
+  refresh; a pause made while a resume is being written stands (the same for turning a switch off while it is being
+  turned on); a resume or a turn-on that times out is decided again in the safe direction, so a write the store runs
+  late cannot undo what the caller was told; read-backs are coalesced, so a burst of changes on a slow store does not
+  hold the periodic refresh; one renewal at a time per switch; the Redis store renews only the claim it was made for.
+- Cluster leases: acquiring is bounded, and a lease that arrives after Homeostat stopped waiting is released at once;
+  releasing is bounded. `IHomeostatControl.ReleaseHoldAsync`, `GetRecentRunsAsync` and `GetBudgetAsync` are bounded too.
+- The HTTP handler of `AddHomeostatSignals` allocates nothing when the response is already there.
 - Shared control state, after a second review: a claim refused by the store no longer drops a pending switch-off; a
   change that lets Homeostat act shows at once on the instance and never flaps back while older reads complete, and its
   caller no longer waits behind a slow refresh; a person's turn-on is always written; a hold limit (`HoldAtMost`) only

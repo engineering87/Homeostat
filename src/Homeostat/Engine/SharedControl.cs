@@ -33,6 +33,35 @@ internal sealed class SharedControl
     // Guards replacing the view: never held across a store call, so a change made here applies at once.
     private readonly object _viewGate = new();
     private long _reads;
+    private readonly object _readBackGate = new();
+    private Task? _readBack;   // guarded by _readBackGate
+    private bool _readBackAgain;   // guarded by _readBackGate
+
+    private async Task ReadBackLoopAsync()
+    {
+        while (true)
+        {
+            try
+            {
+                await TryRefreshAsync(CancellationToken.None).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "Reading back the Homeostat control state failed.");
+            }
+
+            lock (_readBackGate)
+            {
+                if (!_readBackAgain)
+                {
+                    _readBack = null;   // a change made from now on starts a new read-back
+                    return;
+                }
+
+                _readBackAgain = false;
+            }
+        }
+    }
     private Task<ControlState>? _pendingRead;   // guarded by _refreshing
     private long _pendingReadNumber;
     private readonly ConcurrentQueue<(ControlState Previous, ControlState Next)> _changes = new();
@@ -264,8 +293,14 @@ internal sealed class SharedControl
 
         public Func<ControlState, bool> Superseded { get; } = superseded;
 
+        private long _writtenBefore;   // 0 until written; read and written across threads
+
         /// <summary>Set once written: reads numbered from this value on include it.</summary>
-        public long? WrittenBefore { get; set; }
+        public long? WrittenBefore
+        {
+            get => Volatile.Read(ref _writtenBefore) is var value and > 0 ? value : null;
+            set => Volatile.Write(ref _writtenBefore, value ?? 0);
+        }
 
         /// <summary>A newer decision about the same thing is being written: not written meanwhile.</summary>
         public volatile bool Withdrawn;
@@ -330,17 +365,23 @@ internal sealed class SharedControl
         var written = new Deferred((_, _) => ValueTask.FromResult(true), apply, static _ => false) { WrittenBefore = Volatile.Read(ref _reads) + 1 };
         lock (_viewGate)
         {
-            if (older is not null)
+            // A change in the safe direction made while this write ran (a pause during a resume) is the later decision:
+            // it stays pending and shown, and reaches the store after this one. Otherwise this change is shown.
+            _deferred.TryGetValue(key, out var pending);
+            if (pending is null || ReferenceEquals(pending, older))
             {
-                _deferred.TryRemove(new KeyValuePair<string, Deferred>(key, older));
-            }
+                if (older is not null)
+                {
+                    _deferred.TryRemove(new KeyValuePair<string, Deferred>(key, older));
+                }
 
-            _deferred[key] = written;
+                _deferred[key] = written;
 
-            // Never read yet: the rest of the state (a pause above all) is still unknown, so it stays unknown.
-            if (_view is not null)
-            {
-                Replace(apply(Current));
+                // Never read yet: the rest of the state (a pause above all) is still unknown, so it stays unknown.
+                if (_view is not null)
+                {
+                    Replace(apply(Current));
+                }
             }
         }
 
@@ -354,17 +395,21 @@ internal sealed class SharedControl
     // shown until it is, so the caller waits for that read, bounded.
     private async Task ReadBackAsync()
     {
-        var reading = Task.Run(async () =>
+        // Coalesced: one read-back at a time, and at most one more asked for meanwhile, however many changes are made, so
+        // a burst of changes on a slow store does not queue reads ahead of the periodic refresh.
+        Task reading;
+        lock (_readBackGate)
         {
-            try
+            if (_readBack is { } running)
             {
-                await TryRefreshAsync(CancellationToken.None).ConfigureAwait(false);
+                _readBackAgain = true;
+                reading = running;
             }
-            catch (Exception ex)
+            else
             {
-                _logger.LogDebug(ex, "Reading back the Homeostat control state failed.");
+                reading = _readBack = Task.Run(ReadBackLoopAsync, CancellationToken.None);
             }
-        }, CancellationToken.None);
+        }
 
         if (_view is null)
         {

@@ -25,7 +25,7 @@ competes with the measuring thread, so the absolute figures vary from run to run
 | Engine, 100 conditions, trend over 5 minutes | 490–530 ns per signal | 0 B |
 | Engine, 100 conditions, anomaly over 5 minutes | 280–370 ns per signal | 0 B |
 | `HttpClient.SendAsync` to a stub handler, without Homeostat | 1.1–1.3 µs | 1,544 B |
-| `HttpClient.SendAsync` to a stub handler, with `AddHomeostatSignals()` | 1.3–1.4 µs | 1,616 B |
+| `HttpClient.SendAsync` to a stub handler, with `AddHomeostatSignals()` | 1.1–1.4 µs | 1,544 B |
 
 How to read them:
 
@@ -35,8 +35,9 @@ How to read them:
   the number of conditions: a signal is offered only to the conditions that listen to its source (and to those with a
   custom filter only). Trend, projection and anomaly rules keep running sums over their window, so their cost does not
   grow with the number of points in it either. None of this allocates in steady state.
-- **The HTTP handler** adds about a tenth of a microsecond and 72 bytes to a request, against a stub that answers at
-  once; next to a real network call (hundreds of microseconds at least) it is not measurable.
+- **The HTTP handler** adds about a tenth of a microsecond to a request, and allocates nothing when the response is
+  already there (a stub, a cache). A call that completes asynchronously adds the handler's async state, small next to
+  what `HttpClient` allocates; next to a real network call (hundreds of microseconds at least) it is not measurable.
 
 ## Memory
 

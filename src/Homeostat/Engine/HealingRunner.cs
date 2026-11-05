@@ -242,7 +242,23 @@ internal sealed class HealingRunner
             {
                 try
                 {
-                    lease = await _coordinator.TryAcquireAsync($"plan:{name}", _options.ClusterLeaseDuration, cancellationToken).ConfigureAwait(false);
+                    // Bounded; a lease that arrives after Homeostat stopped waiting is released at once, or its renewal
+                    // would keep every other instance from running the plan.
+                    var acquiring = Task.Run(
+                        () => _coordinator.TryAcquireAsync($"plan:{name}", _options.ClusterLeaseDuration, cancellationToken).AsTask(),
+                        CancellationToken.None);
+                    try
+                    {
+                        lease = await acquiring.WaitAsync(SharedControl.WriteTimeout, cancellationToken).ConfigureAwait(false);
+                    }
+                    catch
+                    {
+                        _ = acquiring.ContinueWith(
+                            static t => t.IsCompletedSuccessfully && t.Result is { } late ? late.DisposeAsync().AsTask() : Task.CompletedTask,
+                            CancellationToken.None, TaskContinuationOptions.None, TaskScheduler.Default).Unwrap()
+                            .ContinueWith(static t => _ = t.Exception, CancellationToken.None, TaskContinuationOptions.OnlyOnFaulted, TaskScheduler.Default);
+                        throw;
+                    }
                 }
                 catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
                 {
@@ -318,7 +334,8 @@ internal sealed class HealingRunner
             {
                 try
                 {
-                    await lease.DisposeAsync().ConfigureAwait(false);
+                    var held = lease;
+                    await SharedControl.Bounded(() => held.DisposeAsync(), SharedControl.WriteTimeout, CancellationToken.None).ConfigureAwait(false);
                 }
                 catch (Exception ex)
                 {
@@ -610,7 +627,10 @@ internal sealed class HealingRunner
                 return (HealingRunOutcome.BudgetExhausted, false);
             }
 
-            await using var scope = _scopeFactory.CreateAsyncScope();
+            // Disposed when the step ends, or, if an action or a verifier was abandoned at its timeout and still runs,
+            // once it ends: its services must not be disposed under it.
+            await using var scope = new StepScope(_scopeFactory.CreateAsyncScope(), _logger);
+            CurrentStepScope.Value = scope;
             var context = new HealingContext(
                 name, trigger, i, step.Name, _timeProvider.GetUtcNow(), scope.ServiceProvider, tracker.Snapshot)
             {
@@ -708,6 +728,12 @@ internal sealed class HealingRunner
                 try
                 {
                     verification = await verifying.WaitAsync(verificationLimit.Token).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested && !verifying.IsCompleted)
+                {
+                    // Stopping (or the lease lost) while it still runs: its services stay until it ends.
+                    CurrentStepScope.Value?.Hold(verifying);
+                    throw;
                 }
                 catch (OperationCanceledException) when (verificationDeadline.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
                 {
@@ -1011,11 +1037,59 @@ internal sealed class HealingRunner
 
     private CancellationToken _hostStopping;
 
+    private static readonly AsyncLocal<StepScope?> CurrentStepScope = new();
+
+    /// <summary>The services of one step, kept until the calls it abandoned have ended.</summary>
+    private sealed class StepScope(AsyncServiceScope scope, ILogger logger) : IAsyncDisposable
+    {
+        private readonly List<Task> _held = [];
+
+        public IServiceProvider ServiceProvider => scope.ServiceProvider;
+
+        public void Hold(Task task)
+        {
+            lock (_held)
+            {
+                _held.Add(task);
+            }
+        }
+
+        public ValueTask DisposeAsync()
+        {
+            Task[] held;
+            lock (_held)
+            {
+                held = [.. _held];
+            }
+
+            if (held.All(t => t.IsCompleted))
+            {
+                return scope.DisposeAsync();
+            }
+
+            _ = Task.WhenAll(held).ContinueWith(
+                async _ =>
+                {
+                    try
+                    {
+                        await scope.DisposeAsync().ConfigureAwait(false);
+                    }
+                    catch (Exception ex)
+                    {
+                        logger.LogDebug(ex, "Disposing the services of an abandoned step failed.");
+                    }
+                },
+                CancellationToken.None, TaskContinuationOptions.None, TaskScheduler.Default).Unwrap();
+            return ValueTask.CompletedTask;
+        }
+    }
+
     // Claims of switches with HoldAtMost, numbered per condition and switch.
     private readonly ConcurrentDictionary<string, long> _holds = new(StringComparer.Ordinal);
 
     private void Abandon(Task task, string condition, string what)
     {
+        CurrentStepScope.Value?.Hold(task);
         // Observed, so its eventual failure is not an unobserved task exception.
         _ = task.ContinueWith(static t => _ = t.Exception, CancellationToken.None,
             TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);

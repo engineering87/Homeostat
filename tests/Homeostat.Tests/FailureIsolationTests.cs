@@ -65,6 +65,107 @@ public class FailureIsolationTests
     }
 
     [Fact]
+    public async Task A_release_deferred_during_an_outage_survives_the_failed_refreshes()
+    {
+        var store = new OutageStore();
+        await using var host = await StartInstanceAsync("a", store, h => h
+            .Configure(o => o.DryRun = false)
+            .AddCondition("feed-down", c => c.ForSource("feed")
+                .Heal(p => p.TurnOnSwitch("serve-cached").VerifyWith<EngineTests.AlwaysHealedVerifier>().OncePerCluster())));
+
+        host.Publish("feed", SignalSeverity.Unhealthy);
+        await host.WaitForRunAsync("feed-down");
+        Assert.True(host.Switches.IsOn("serve-cached"));
+
+        // The store goes down, then the condition clears: the release applies here and waits to be written.
+        store.Down = true;
+        host.Publish("feed", SignalSeverity.Healthy);
+        await PollyControlTests.WaitUntilAsync(() => !host.Switches.IsOn("serve-cached"));
+        await RefreshAsync(host);
+        await RefreshAsync(host);
+
+        store.Down = false;
+        await RefreshAsync(host);
+        Assert.False(host.Switches.IsOn("serve-cached"));
+        Assert.DoesNotContain((await store.GetControlStateAsync()).Switches, s => s.Name == "serve-cached");
+    }
+
+    [Fact]
+    public async Task A_pause_made_while_a_resume_is_being_written_stands()
+    {
+        var store = new SlowResumeStore();
+        await using var host = await StartInstanceAsync("a", store);
+        await host.Control.PauseAsync(by: "deploy");
+        host.Time.Advance(TimeSpan.FromSeconds(1));
+
+        // The resume reaches a slow store; meanwhile someone pauses again, later.
+        var resuming = host.Control.ResumeAsync().AsTask();
+        await PollyControlTests.WaitUntilAsync(() => store.ResumeWaiting);
+        host.Time.Advance(TimeSpan.FromSeconds(1));
+        await host.Control.PauseAsync(by: "on-call");
+        store.Resumes.Set();
+        await resuming;
+
+        Assert.True(host.Control.IsPaused);
+        await RefreshAsync(host);
+        Assert.True(host.Control.IsPaused);
+        Assert.Equal("on-call", (await store.GetControlStateAsync()).Pause?.By);
+    }
+
+    /// <summary>An in-memory store (with decision order) whose resumes wait until told to go on.</summary>
+    private sealed class SlowResumeStore : IHomeostatStore
+    {
+        private readonly InMemoryHomeostatStore _inner = new();
+
+        public ManualResetEventSlim Resumes { get; } = new(false);
+
+        public volatile bool ResumeWaiting;
+
+        public async ValueTask<bool> TrySetPauseAsync(PauseState? pause, DateTimeOffset decidedAt, CancellationToken cancellationToken = default)
+        {
+            if (pause is null)
+            {
+                ResumeWaiting = true;
+                await Task.Run(() => Resumes.Wait(TimeSpan.FromSeconds(20)), CancellationToken.None);
+            }
+
+            return await _inner.TrySetPauseAsync(pause, decidedAt, CancellationToken.None);
+        }
+
+        public ValueTask<bool> TrySetSwitchAsync(string name, SwitchState? state, DateTimeOffset decidedAt, CancellationToken cancellationToken = default) => _inner.TrySetSwitchAsync(name, state, decidedAt, cancellationToken);
+
+        public ValueTask<PlanState> GetPlanStateAsync(string key, CancellationToken cancellationToken = default) => _inner.GetPlanStateAsync(key, cancellationToken);
+
+        public ValueTask<PlanState> UpdatePlanStateAsync(string key, PlanStateUpdate update, CancellationToken cancellationToken = default) => _inner.UpdatePlanStateAsync(key, update, cancellationToken);
+
+        public ValueTask<bool> TryConsumeBudgetAsync(DateTimeOffset now, int limit, TimeSpan window, CancellationToken cancellationToken = default) => _inner.TryConsumeBudgetAsync(now, limit, window, cancellationToken);
+
+        public ValueTask<int> GetBudgetUsedAsync(DateTimeOffset now, TimeSpan window, CancellationToken cancellationToken = default) => _inner.GetBudgetUsedAsync(now, window, cancellationToken);
+
+        public ValueTask AppendRunAsync(HealingRunRecord run, int maxRuns, CancellationToken cancellationToken = default) => _inner.AppendRunAsync(run, maxRuns, cancellationToken);
+
+        public ValueTask<IReadOnlyList<HealingRunRecord>> GetRecentRunsAsync(int maxRuns, CancellationToken cancellationToken = default) => _inner.GetRecentRunsAsync(maxRuns, cancellationToken);
+
+        public ValueTask<ControlState> GetControlStateAsync(CancellationToken cancellationToken = default) => _inner.GetControlStateAsync(cancellationToken);
+
+        public ValueTask SetPauseAsync(PauseState? pause, CancellationToken cancellationToken = default) => _inner.SetPauseAsync(pause, cancellationToken);
+
+        public ValueTask SetSwitchAsync(string name, SwitchState? state, CancellationToken cancellationToken = default) => _inner.SetSwitchAsync(name, state, cancellationToken);
+
+        public ValueTask<bool> TryClaimSwitchAsync(SwitchState state, CancellationToken cancellationToken = default) => _inner.TryClaimSwitchAsync(state, cancellationToken);
+
+        public ValueTask<bool> TryReleaseSwitchAsync(string name, string condition, string? instance, CancellationToken cancellationToken = default) => _inner.TryReleaseSwitchAsync(name, condition, instance, cancellationToken);
+
+        public ValueTask<bool> TryReleaseSwitchAsync(string name, string condition, string? instance, DateTimeOffset decidedAt, CancellationToken cancellationToken = default) => _inner.TryReleaseSwitchAsync(name, condition, instance, decidedAt, cancellationToken);
+
+        public ValueTask AddApprovalAsync(ApprovalRecord approval, CancellationToken cancellationToken = default) => _inner.AddApprovalAsync(approval, cancellationToken);
+
+        public ValueTask<bool> TryResolveApprovalAsync(string id, ApprovalStatus status, string? resolvedBy, CancellationToken cancellationToken = default) => _inner.TryResolveApprovalAsync(id, status, resolvedBy, cancellationToken);
+
+        public ValueTask RemoveApprovalAsync(string id, CancellationToken cancellationToken = default) => _inner.RemoveApprovalAsync(id, cancellationToken);
+    }
+
+    [Fact]
     public async Task A_refused_claim_does_not_drop_a_pending_switch_off()
     {
         var store = new OutageStore();
