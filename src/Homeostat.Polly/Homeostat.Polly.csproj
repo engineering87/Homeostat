@@ -5,6 +5,7 @@
     <IsAotCompatible>true</IsAotCompatible>
     <PackageId>Homeostat.Polly</PackageId>
     <Description>Polly v8 integration for Homeostat: circuit breaker state as signals, manual circuit isolation as a healing action, and chaos strategies enabled by switches for game days.</Description>
+    <PackageTags>$(PackageTags);polly;circuit-breaker;chaos-engineering;game-day</PackageTags>
   </PropertyGroup>
 
   <ItemGroup>

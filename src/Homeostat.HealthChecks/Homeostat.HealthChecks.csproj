@@ -4,7 +4,8 @@
     <TargetFramework>net10.0</TargetFramework>
     <IsAotCompatible>true</IsAotCompatible>
     <PackageId>Homeostat.HealthChecks</PackageId>
-    <Description>Feeds ASP.NET Core / Microsoft.Extensions health check results into Homeostat as signals.</Description>
+    <Description>Health checks for Homeostat: ASP.NET Core and Microsoft.Extensions health check results become Homeostat signals, and Homeostat reports its own state (paused, budget, approvals, active conditions) as a health check.</Description>
+    <PackageTags>$(PackageTags);aspnetcore;healthchecks</PackageTags>
   </PropertyGroup>
 
   <ItemGroup>

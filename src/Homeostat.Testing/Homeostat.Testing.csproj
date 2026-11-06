@@ -5,6 +5,7 @@
     <IsAotCompatible>true</IsAotCompatible>
     <PackageId>Homeostat.Testing</PackageId>
     <Description>Test helpers for Homeostat: an in-memory host with simulated time, run results to assert on, a HealingContext factory and HTTP fault injection.</Description>
+    <PackageTags>$(PackageTags);testing;simulated-time;fault-injection;replay</PackageTags>
   </PropertyGroup>
 
   <ItemGroup>

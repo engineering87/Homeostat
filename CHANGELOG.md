@@ -431,6 +431,11 @@ Also, compared with earlier builds:
   - Documentation: a [Why Homeostat](docs/why-homeostat.md) page compares it with Polly, health checks and probes,
     platform auto-heal and incident automation; the README shows a run of the weather feed sample (a timeline, with a link to the recording); a
     documentation site with the API reference is built with docfx and published to GitHub Pages (`Docs` workflow).
+  - Checked as a new user would: the packages installed from a feed, the README quick start, the getting started
+    guide, the NuGet readme examples and both templates build and behave as documented (log lines included); the
+    tutorial gives a minimal `WeatherFeedClient`, and the Kubernetes and Azure examples use `OncePerCluster()` for
+    steps that act on the whole deployment. Package descriptions and tags are written for search, with a link to
+    these release notes.
   - Packaging: preview packages are numbered `X-preview.1` on a release and `X-preview.0.rc.N` on a release
     candidate, so the release sorts above the candidate; `Homeostat.Testing` depends on exactly its own Homeostat
     version.

@@ -29,7 +29,16 @@ the health check).
 ## 2. Have a health check
 
 Homeostat needs **signals** to know how your application is doing. The easiest source is a health check, which
-your application may already have:
+your application may already have. `WeatherFeedClient` stands for your own client; to follow along in a new project,
+a minimal one is enough:
+
+```csharp
+public sealed class WeatherFeedClient
+{
+    public bool IsStuck { get; set; }      // set it to true to simulate the fault
+    public void Renew() => IsStuck = false;
+}
+```
 
 ```csharp
 public sealed class WeatherFeedHealthCheck(WeatherFeedClient client) : IHealthCheck

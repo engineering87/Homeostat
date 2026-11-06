@@ -23,7 +23,8 @@
     <PackageProjectUrl>https://github.com/engineering87/Homeostat</PackageProjectUrl>
     <RepositoryUrl>https://github.com/engineering87/Homeostat</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
-    <PackageTags>self-healing;resilience;remediation;health-checks;autonomic;dotnet</PackageTags>
+    <PackageTags>self-healing;auto-remediation;auto-healing;resilience;remediation;health-checks;sre;autonomic;dotnet</PackageTags>
+    <PackageReleaseNotes>https://github.com/engineering87/Homeostat/blob/main/CHANGELOG.md</PackageReleaseNotes>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <PackageIcon>icon.png</PackageIcon>
     <IncludeSymbols>true</IncludeSymbols>

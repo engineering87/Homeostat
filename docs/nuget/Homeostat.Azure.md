@@ -24,8 +24,9 @@ builder.Services.AddHomeostat(h => h
         (await credential.GetTokenAsync(new TokenRequestContext(["https://management.azure.com/.default"]), ct)).Token)
     .AddCondition("api-down", c => c
         .ForSource("alert:WeatherApiDown")
-        .Heal(p => p.RestartAppService(
-            "/subscriptions/{subscription}/resourceGroups/weather-rg/providers/Microsoft.Web/sites/weather-api"))));
+        .Heal(p => p
+            .RestartAppService("/subscriptions/{subscription}/resourceGroups/weather-rg/providers/Microsoft.Web/sites/weather-api")
+            .OncePerCluster())));   // one instance restarts the app, not every instance
 ```
 
 Give the identity the narrowest role, scoped to the resource the action targets.

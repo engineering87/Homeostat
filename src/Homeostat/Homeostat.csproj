@@ -4,8 +4,8 @@
     <TargetFramework>net10.0</TargetFramework>
     <IsAotCompatible>true</IsAotCompatible>
     <PackageId>Homeostat</PackageId>
-    <Description>Lightweight self-healing for .NET applications: turn signals into conditions, run guarded remediation plans and verify that the system actually recovered.</Description>
-    <PackageTags>$(PackageTags);database;ado-net;sqlclient;npgsql;connection-pool</PackageTags>
+    <Description>Self-healing for .NET applications: turn health checks, metrics and probes into conditions, run guarded healing plans (escalation, human approval, compensation) and verify that the application actually recovered. Dry-run by default, with budgets, cooldowns, a kill switch and shared state across instances.</Description>
+    <PackageTags>$(PackageTags);database;ado-net;sqlclient;npgsql;connection-pool;probes;metrics</PackageTags>
   </PropertyGroup>
 
   <ItemGroup>
