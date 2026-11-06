@@ -53,7 +53,7 @@ execute renew-client.`) and changes nothing. When the decisions look right, add 
 
 ## See it work
 
-![The Homeostat dashboard: a condition activates, a first step does not heal it, a person approves the failover, and the run is verified as healed](https://raw.githubusercontent.com/engineering87/Homeostat/main/assets/demo.gif)
+![Timeline of a healing run: the feed goes down, the condition becomes active after 4 seconds, renewing the client does not heal it, failing over waits for approval, and the run is verified as healed](https://raw.githubusercontent.com/engineering87/Homeostat/main/assets/healing-run.png)
 
 ## Safe by default
 

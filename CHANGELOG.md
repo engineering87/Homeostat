@@ -429,7 +429,7 @@ Also, compared with earlier builds:
     `Since`, `Until`; a `MapHomeostat*` policy that looks like a route is refused. The naming rules are recorded in the
     [design decisions](docs/decisions.md) (P9).
   - Documentation: a [Why Homeostat](docs/why-homeostat.md) page compares it with Polly, health checks and probes,
-    platform auto-heal and incident automation; the README shows the weather feed sample healing with an approval; a
+    platform auto-heal and incident automation; the README shows a run of the weather feed sample (a timeline, with a link to the recording); a
     documentation site with the API reference is built with docfx and published to GitHub Pages (`Docs` workflow).
   - Packaging: preview packages are numbered `X-preview.1` on a release and `X-preview.0.rc.N` on a release
     candidate, so the release sorts above the candidate; `Homeostat.Testing` depends on exactly its own Homeostat

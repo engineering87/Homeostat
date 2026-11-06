@@ -8,7 +8,9 @@ Self-healing for .NET applications: your application notices when something stay
 the fix worked. Safe by default (dry-run, budgets, cooldowns, approvals), lightweight, and configured through
 dependency injection.
 
-![The Homeostat dashboard: a condition activates, a first step does not heal it, a person approves the failover, and the run is verified as healed](assets/demo.gif)
+![Timeline of a healing run: the feed goes down, the condition becomes active after 4 seconds, renewing the client does not heal it, failing over waits for approval, and the run is verified as healed](assets/healing-run-light.svg)
+
+A run of the weather feed sample with its primary provider down ([watch the recording](assets/demo.gif)).
 
 ```bash
 dotnet add package Homeostat --prerelease

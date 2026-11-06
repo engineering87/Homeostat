@@ -48,13 +48,13 @@ flowchart LR
 
 ## See it work
 
-The [weather feed sample](samples/Homeostat.Samples.WeatherFeed) with its primary provider down: the condition
-becomes active, renewing the client does not heal it, failing over waits for a person's approval on the dashboard,
-and the run is verified as healed once the condition clears (sped up 1.6 times).
+A run of the [weather feed sample](samples/Homeostat.Samples.WeatherFeed) with its primary provider down
+([watch the 30-second recording](assets/demo.gif)):
 
-<p align="center">
-  <img src="assets/demo.gif" alt="The Homeostat dashboard: a condition activates, a first step does not heal it, a person approves the failover, and the run is verified as healed" width="800">
-</p>
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="assets/healing-run-dark.svg">
+  <img src="assets/healing-run-light.svg" alt="Timeline of a healing run: the feed goes down, the condition becomes active after 4 seconds, renewing the client does not heal it, failing over waits for approval, and the run is verified as healed" width="900">
+</picture>
 
 ## Quick start
 
