@@ -27,7 +27,10 @@ public static class HomeostatDashboardExtensions
     /// <param name="policy">Authorization policy required to open the dashboard; use the same as the status and control endpoints.</param>
     /// <param name="prefix">Route prefix, the same as the status and control endpoints.</param>
     /// <param name="allowAnonymous"><c>true</c> maps the dashboard without authorization; only for local demos and tests.</param>
-    /// <exception cref="ArgumentException">Neither <paramref name="policy"/> nor <paramref name="allowAnonymous"/> was given.</exception>
+    /// <exception cref="ArgumentException">
+    /// Neither <paramref name="policy"/> nor <paramref name="allowAnonymous"/> was given, or <paramref name="policy"/>
+    /// starts with <c>/</c> (a route prefix passed by position).
+    /// </exception>
     /// <example>
     /// <code>
     /// app.MapHomeostatStatus("operations");
@@ -43,6 +46,7 @@ public static class HomeostatDashboardExtensions
     {
         ArgumentNullException.ThrowIfNull(endpoints);
         ArgumentException.ThrowIfNullOrWhiteSpace(prefix);
+        HomeostatEndpointRouteBuilderExtensions.RefuseRouteAsPolicy(policy, nameof(MapHomeostatDashboard));
         if (string.IsNullOrWhiteSpace(policy) && !allowAnonymous)
         {
             throw new ArgumentException(

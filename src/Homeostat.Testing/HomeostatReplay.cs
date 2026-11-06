@@ -179,7 +179,7 @@ public static class HomeostatReplay
         using var signals = ordered.GetEnumerator();
         if (!signals.MoveNext())
         {
-            return new ReplayReport { From = DateTimeOffset.MinValue, To = DateTimeOffset.MinValue, Signals = 0, Events = [], Conditions = [], Runs = [] };
+            return new ReplayReport { Since = DateTimeOffset.MinValue, Until = DateTimeOffset.MinValue, SignalCount = 0, Events = [], Conditions = [], Runs = [] };
         }
 
         var first = signals.Current;
@@ -280,7 +280,7 @@ public static class HomeostatReplay
             PlanSteps = plans.GetValueOrDefault(name) ?? [],
         }).ToList();
 
-        return new ReplayReport { From = first.Timestamp, To = last, Signals = count, Events = recorder.Events, Conditions = summaries, Runs = recorder.Runs };
+        return new ReplayReport { Since = first.Timestamp, Until = last, SignalCount = count, Events = recorder.Events, Conditions = summaries, Runs = recorder.Runs };
     }
 
     private sealed class ReplayRecorder(TimeProvider time) : IHealingObserver
@@ -396,14 +396,14 @@ public sealed record ReplayConditionSummary
 /// <summary>Result of <see cref="HomeostatReplay"/>.</summary>
 public sealed record ReplayReport
 {
-    /// <summary>First signal time.</summary>
-    public required DateTimeOffset From { get; init; }
+    /// <summary>First signal time (the start of the range, as <c>CoverageReport.Since</c>).</summary>
+    public required DateTimeOffset Since { get; init; }
 
-    /// <summary>Last signal time.</summary>
-    public required DateTimeOffset To { get; init; }
+    /// <summary>Last signal time (the end of the range, as <c>CoverageReport.Until</c>).</summary>
+    public required DateTimeOffset Until { get; init; }
 
-    /// <summary>Signals replayed.</summary>
-    public required int Signals { get; init; }
+    /// <summary>Number of signals replayed.</summary>
+    public required int SignalCount { get; init; }
 
     /// <summary>Activations, clears and runs, in order.</summary>
     public required IReadOnlyList<ReplayEvent> Events { get; init; }
@@ -418,7 +418,7 @@ public sealed record ReplayReport
     public string ToText()
     {
         var text = new StringBuilder();
-        text.AppendLine(CultureInfo.InvariantCulture, $"Replay of {Signals} signals from {From:u} to {To:u}");
+        text.AppendLine(CultureInfo.InvariantCulture, $"Replay of {SignalCount} signals from {Since:u} to {Until:u}");
         foreach (var c in Conditions)
         {
             text.AppendLine(CultureInfo.InvariantCulture,

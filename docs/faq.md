@@ -51,9 +51,8 @@ condition that is not registered, or a cycle between them.
 
 ### Is this a replacement for Polly?
 
-No. Polly and `Microsoft.Extensions.Resilience` protect **individual calls** (retry, timeout, circuit
-breaker). Homeostat reacts to problems that **persist** at application level and verifies recovery.
-Use both: `Homeostat.Polly` turns a circuit breaker that stays open into a signal.
+No, they work together. See [Why Homeostat](why-homeostat.md) for a comparison with Polly and other tools, and an
+example that combines them.
 
 ### Is it safe to use in production?
 

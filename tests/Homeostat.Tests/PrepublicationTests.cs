@@ -21,7 +21,7 @@ public class PrepublicationTests
             .AddPauseGate("telemetry-ingest")
             .AddCondition("archive-down", c => c.ForSource("archive-db").Heal(p => p
                 .PauseConsumer("telemetry-ingest")
-                .VerifyWith<BuiltInActionTests.AlwaysHealed>())));
+                .UseVerifier<BuiltInActionTests.AlwaysHealed>())));
         var gate = host.Services.GetRequiredKeyedService<PauseGate>("telemetry-ingest");
         Assert.Same(gate, host.Services.GetRequiredKeyedService<PauseGate>("telemetry-ingest"));
 

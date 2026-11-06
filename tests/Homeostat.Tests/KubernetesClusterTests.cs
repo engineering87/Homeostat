@@ -32,7 +32,7 @@ public class KubernetesClusterTests
                 o.PodName = pod;
                 o.NodeName = "unused";
             })
-            .AddCondition("weather-api-sick", c => c.ForSource("weather-api").Heal(p => plan(p.VerifyWith<CachingTests.NeverHealed>()))));
+            .AddCondition("weather-api-sick", c => c.ForSource("weather-api").Heal(p => plan(p.UseVerifier<CachingTests.NeverHealed>()))));
 
     private static readonly RestartLimits Limits = new(TimeSpan.Zero, 3, TimeSpan.FromHours(1));
 

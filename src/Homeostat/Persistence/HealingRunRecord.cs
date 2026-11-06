@@ -23,6 +23,12 @@ public sealed record HealingRunRecord
     /// <summary>Instance that ran it (<see cref="HomeostatOptions.InstanceId"/>).</summary>
     public string Instance { get; init; } = string.Empty;
 
+    /// <summary>
+    /// Identifier of the run (<see cref="HealingRunResult.RunId"/>), the one in <see cref="Notifications.HomeostatEvent.RunId"/> and
+    /// in the audit log; <c>null</c> for runs stored before it was recorded.
+    /// </summary>
+    public string? RunId { get; init; }
+
     /// <summary>Creates a record from a run result.</summary>
     /// <param name="run">The run.</param>
     /// <param name="instance">Instance that ran it.</param>
@@ -44,6 +50,7 @@ public sealed record HealingRunRecord
                 UndoSucceeded = s.UndoSucceeded,
             }).ToArray(),
             Instance = instance,
+            RunId = run.RunId,
         };
     }
 }

@@ -1,14 +1,17 @@
 # Homeostat documentation
 
 The map of Homeostat's documentation, for developers adding it to an application and for the people who operate
-it. If you are new to Homeostat, read the two pages under Learn first, then the reference pages you need.
+it. If you are new to Homeostat, read the pages under Learn first, then the reference pages you need. The same pages,
+with search and the API reference generated from the XML documentation, are published at
+<https://engineering87.github.io/Homeostat/>.
 
 ## Learn
 
 | Step | Page | You will learn |
 |---|---|---|
-| 1 | [Getting started](getting-started.md) | Install, write your first action, watch the dry-run, then let it act; start from a preset |
-| 2 | [Concepts](concepts.md) | The mental model and the vocabulary used everywhere else |
+| 1 | [Why Homeostat](why-homeostat.md) | The gap it fills, how it compares with Polly, health checks and probes, platform auto-heal and incident automation, and when not to use it |
+| 2 | [Getting started](getting-started.md) | Install, write your first action, watch the dry-run, then let it act; start from a preset |
+| 3 | [Concepts](concepts.md) | The mental model and the vocabulary used everywhere else |
 
 ## Reference
 
@@ -58,7 +61,7 @@ it. If you are new to Homeostat, read the two pages under Learn first, then the 
 | Page | Covers |
 |---|---|
 | [Recipes](recipes.md) | Fail over (with approval), cached mode, shared failures, chat notifications, backlogs, configuration, deployments, testing |
-| [FAQ & troubleshooting](faq.md) | Why it did or did not act, scaling out, comparison with Polly |
+| [FAQ & troubleshooting](faq.md) | Why it did or did not act, scaling out, failures of Homeostat itself |
 
 ## Project
 

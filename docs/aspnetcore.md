@@ -27,7 +27,9 @@ app.MapHomeostatDashboard(p => p.RequireRole("operations"));
 ```
 
 All three take an optional route prefix (`"/homeostat"` by default) and return a `RouteGroupBuilder`, so the usual
-endpoint conventions apply (rate limiting, OpenAPI tags, CORS). The JSON they return is the contract; the .NET types
+endpoint conventions apply (rate limiting, OpenAPI tags, CORS). The first argument is the policy, not a route: pass
+the prefix by name (`MapHomeostatControl("operations", prefix: "/ops")`). A policy that starts with `/` is refused at
+startup with an `ArgumentException`, as it is for `MapHomeostatAlerts`. The JSON they return is the contract; the .NET types
 behind it are internal.
 
 ## Status
@@ -270,8 +272,9 @@ builder.Services.AddHealthChecks()
 | Store unavailable | Degraded (always) | `The Homeostat store is unavailable.` |
 
 The result data contains `paused`, `dry_run`, `active_conditions`, `budget_remaining` and `pending_approvals`.
-Use `attentionStatus: HealthStatus.Unhealthy` to make it stricter, and `tags` to select it in a dedicated
-endpoint. A store outage is always reported as Degraded, whatever `attentionStatus`: the store is shared, so an
+Use `failureStatus: HealthStatus.Unhealthy` to make it stricter (`null`, the default, means Degraded), `tags` to
+select it in a dedicated endpoint, and `timeout` to bound it like any other check. A store outage, and a check that
+fails or exceeds its `timeout`, are always reported as Degraded, whatever `failureStatus`: the store is shared, so an
 Unhealthy result would take every replica out of rotation at once for a problem of Homeostat, not of the application
 (Degraded answers `200` by default). This check is never turned into a Homeostat signal, so it cannot trigger conditions about itself. It
 answers within one second even when the store does not.

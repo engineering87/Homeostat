@@ -161,7 +161,7 @@ public class ConsolidationTests
     {
         var error = await Assert.ThrowsAsync<OptionsValidationException>(() => HomeostatTestHost.StartAsync(h => h
             .AddThreadPoolStarvationDetector(o => o.UnhealthyLatency = TimeSpan.FromMilliseconds(-1))));
-        Assert.Contains("ThreadPoolDetectorOptions", error.Message);
+        Assert.Contains("ThreadPoolStarvationDetectorOptions", error.Message);
     }
 
     [Fact]
@@ -173,7 +173,7 @@ public class ConsolidationTests
             .AddCondition("feed-down", c => c
                 .ForSource("feed")
                 .Heal(p => p.With("switch-provider", _ => { }).UndoWith("switch-back", (_, _) => { Interlocked.Increment(ref undone); return Task.CompletedTask; })
-                    .VerifyWith<CachingTests.NeverHealed>())));
+                    .UseVerifier<CachingTests.NeverHealed>())));
 
         // The step used the only unit of the budget: its undo runs all the same.
         host.Publish("feed", SignalSeverity.Unhealthy);
@@ -254,7 +254,7 @@ public class ConsolidationTests
     {
         await using var host = await HomeostatTestHost.StartAsync(h => h
             .Configure(o => o.InstanceId = "web-7")
-            .AddCondition("feed-down", c => c.ForSource("feed").Heal(p => p.With("renew", _ => { }).VerifyWith<EngineTests.AlwaysHealedVerifier>())));
+            .AddCondition("feed-down", c => c.ForSource("feed").Heal(p => p.With("renew", _ => { }).UseVerifier<EngineTests.AlwaysHealedVerifier>())));
 
         host.Publish("feed", SignalSeverity.Unhealthy);
         var run = await host.WaitForRunAsync("feed-down");

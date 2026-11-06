@@ -96,7 +96,7 @@ public sealed class KubernetesTests : IAsyncDisposable
                 o.PodName = "weather-api-7d9";
                 o.NodeName = "node-1";
             })
-            .AddCondition("weather-api-sick", c => c.ForSource("weather-api").Heal(p => plan(p.VerifyWith<CachingTests.NeverHealed>()))));
+            .AddCondition("weather-api-sick", c => c.ForSource("weather-api").Heal(p => plan(p.UseVerifier<CachingTests.NeverHealed>()))));
 
     [Fact]
     public async Task Actions_call_the_api_server_with_the_service_account_token()

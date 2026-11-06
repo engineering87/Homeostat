@@ -79,9 +79,10 @@ internal static class Replay
 
     public static string ToJson(ReplayReport report) => JsonSerializer.Serialize(new
     {
-        report.From,
-        report.To,
-        report.Signals,
+        // The CLI's JSON keeps its own names (from, to, signals): scripts read them.
+        From = report.Since,
+        To = report.Until,
+        Signals = report.SignalCount,
         Conditions = report.Conditions.Select(c => new { c.Condition, c.Activations, c.WouldHeal, c.PlanSteps }),
         Events = report.Events.Select(e => new { e.At, e.Condition, Kind = e.Kind.ToString(), e.Detail }),
     }, Json);

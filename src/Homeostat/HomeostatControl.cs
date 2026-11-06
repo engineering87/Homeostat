@@ -169,7 +169,7 @@ internal sealed class HomeostatControl : IHomeostatControl
     {
         var now = _timeProvider.GetUtcNow();
         var used = await Engine.SharedControl.Bounded(() => _store.GetBudgetUsedAsync(now, _options.ActionBudgetWindow, cancellationToken), Engine.SharedControl.ReadTimeout, cancellationToken).ConfigureAwait(false);
-        return new ActionBudgetStatus(used, _options.MaxActionsPerWindow, _options.ActionBudgetWindow);
+        return new ActionBudgetStatus { Used = used, Limit = _options.MaxActionsPerWindow, Window = _options.ActionBudgetWindow };
     }
 
     public ValueTask<IReadOnlyList<ConditionEventRecord>> GetConditionHistoryAsync(CancellationToken cancellationToken = default)

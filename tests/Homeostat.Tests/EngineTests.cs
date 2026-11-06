@@ -20,7 +20,7 @@ public class EngineTests
     [Fact]
     public async Task Runs_the_plan_when_a_condition_activates()
     {
-        await using var host = await StartAsync(p => p.With<RecordingAction>().VerifyWith<AlwaysHealedVerifier>());
+        await using var host = await StartAsync(p => p.With<RecordingAction>().UseVerifier<AlwaysHealedVerifier>());
 
         host.Publish(Source, SignalSeverity.Unhealthy);
         var run = await host.WaitForRunAsync(Condition);
@@ -38,7 +38,7 @@ public class EngineTests
         await using var host = await StartAsync(p => p
             .With<FailingAction>()
             .Then<RecordingAction>()
-            .VerifyWith<AlwaysHealedVerifier>());
+            .UseVerifier<AlwaysHealedVerifier>());
 
         host.Publish(Source, SignalSeverity.Unhealthy);
         var run = await host.WaitForRunAsync(Condition);
@@ -56,7 +56,7 @@ public class EngineTests
         await using var host = await StartAsync(p => p
             .With("first", _ => { })
             .Then("second", _ => { })
-            .VerifyWith<HealedOnSecondStepVerifier>());
+            .UseVerifier<HealedOnSecondStepVerifier>());
 
         host.Publish(Source, SignalSeverity.Unhealthy);
         var run = await host.WaitForRunAsync(Condition);
@@ -114,7 +114,7 @@ public class EngineTests
     [Fact]
     public async Task Paused_host_does_not_start_runs()
     {
-        await using var host = await StartAsync(p => p.With<RecordingAction>().VerifyWith<AlwaysHealedVerifier>());
+        await using var host = await StartAsync(p => p.With<RecordingAction>().UseVerifier<AlwaysHealedVerifier>());
         host.Control.Pause();
 
         host.Publish(Source, SignalSeverity.Unhealthy);

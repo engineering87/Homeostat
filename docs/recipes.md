@@ -180,7 +180,7 @@ A built-in action that calls `IConfigurationRoot.Reload()`. Components that read
 **Problem:** your health checks run every minute, but you want to know within seconds whether the
 action worked.
 
-Implement `IHealingVerifier` with a direct check and attach it to the plan with `VerifyWith<T>()`.
+Implement `IHealingVerifier` with a direct check and attach it to the plan with `UseVerifier<T>()`.
 See [Custom verifiers](healing-plans.md#custom-verifiers) for a complete example.
 
 ---

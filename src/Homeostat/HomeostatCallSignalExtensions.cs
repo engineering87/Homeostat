@@ -1,3 +1,4 @@
+using System.ComponentModel;
 using Homeostat.Calls;
 using Homeostat.Detectors;
 using Microsoft.Extensions.DependencyInjection;
@@ -47,6 +48,12 @@ public static class HomeostatCallSignalExtensions
     /// <param name="origin">Value of the <c>origin</c> tag of the signals, naming the integration (for example <c>"grpc-client"</c>).</param>
     /// <param name="configure">Thresholds; optional.</param>
     /// <returns>The service collection.</returns>
+    /// <remarks>
+    /// For integration packages (Homeostat.Grpc, Homeostat.EntityFrameworkCore and the like), hidden from IntelliSense:
+    /// applications call <see cref="AddCallSignals(HomeostatBuilder, string, Action{CallSignalOptions}?)"/>. Public
+    /// rather than internal so the integration packages do not depend on the internals of an exact Homeostat version.
+    /// </remarks>
+    [EditorBrowsable(EditorBrowsableState.Never)]
     public static IServiceCollection AddCallSignals(this IServiceCollection services, string source, string origin, Action<CallSignalOptions>? configure = null)
     {
         ArgumentNullException.ThrowIfNull(services);

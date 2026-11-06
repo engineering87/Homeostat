@@ -363,6 +363,7 @@ Requirements:
   that is gone.
 - `GetPlanStateAsync` returns `PlanState.Empty` for unknown plans. `GetRecentRunsAsync` and `GetConditionEventsAsync`
   return the newest first; `AppendRunAsync` and `AppendConditionEventAsync` keep at most the given number of entries.
+- Store every property of `HealingRunRecord`, `RunId` included: it links a stored run to its events and audit lines.
 - Throw on failure: Homeostat handles it (fail closed).
 - Time out your own calls (the Redis store relies on the client's timeouts). Homeostat bounds every wait and starts
   every call off the caller's thread, but a call that never returns keeps a thread until it does.

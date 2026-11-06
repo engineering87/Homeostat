@@ -68,8 +68,8 @@ Assert.Collection(run.Steps,
 
 | Member | Purpose |
 |---|---|
-| `StartAsync(configure, services, options, cancellationToken)` | Build and start a host; all but `configure` are optional |
-| `Publish(source, severity, message)` | Publish a signal stamped with simulated time. For a value, use `Signals.TryPublish(source, severity, message, value)`, also stamped with simulated time; for tags, `Signals.TryPublish(new Signal(source, severity, Time.GetUtcNow()) { Tags = ... })` |
+| `StartAsync(configure, configureServices, options, cancellationToken)` | Build and start a host; all but `configure` are optional. `configureServices` registers your own services; `options` is a `HomeostatTestHostOptions` object, so several hosts of a test can share one |
+| `Publish(source, severity, message, value)` | Publish a signal stamped with simulated time; `message` and `value` are optional (`value` for value, trend, anomaly, projection and seasonal rules). For tags, use `Signals.TryPublish(new Signal(source, severity, Time.GetUtcNow()) { Tags = ... })` |
 | `WaitForRunAsync(condition, timeout, cancellationToken)` | Wait for the next completed run of a condition; each run is returned once |
 | `WaitForConditionAsync(condition, status, timeout, cancellationToken)` | Wait until a condition reaches a status |
 | `WaitForApprovalAsync(condition, timeout, cancellationToken)` | Wait until a step of the condition asks for approval; returns the request |
@@ -179,7 +179,7 @@ new threshold or plan.
 | `RunFilesAsync(paths, configure, cancellationToken)` | Recording files, merged in time order | Code |
 | `RunFilesAsync(paths, conditions, options, cancellationToken)` | Recording files | An `IConfiguration` section |
 
-All return a `ReplayReport` (`From`, `To`, `Signals`, `Events`, `Conditions`, `Runs`, and `ToText()`). The
+All return a `ReplayReport` (`Since`, `Until`, `SignalCount`, `Events`, `Conditions`, `Runs`, and `ToText()`). The
 [`homeostat replay`](tools.md#command-line-tool) command does the same from the command line.
 
 See also: [Learning and foresight](intelligence.md#recording-and-replay), [Recipes](recipes.md#unit-test-an-action),

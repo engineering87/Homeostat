@@ -117,7 +117,7 @@ public class AspNetCoreTests
     {
         var (app, client) = await StartAsync(h => h.AddCondition("feed-down", c => c
             .ForSource("feed")
-            .Heal(p => p.With("renew", _ => { }).RequireApproval().VerifyWith<EngineTests.AlwaysHealedVerifier>())));
+            .Heal(p => p.With("renew", _ => { }).RequireApproval().UseVerifier<EngineTests.AlwaysHealedVerifier>())));
         await using var _ = app;
         using var __ = client;
 

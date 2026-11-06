@@ -68,7 +68,7 @@ public class DataTests
             .AddCondition("db-stale", c => c.ForSource("reports-db").Heal(p => p
                 .ClearConnectionPools<FakeConnection>()
                 .ClearConnectionPools<AsyncPoolConnection>()
-                .VerifyWith<NotHealedOnce>())));
+                .UseVerifier<NotHealedOnce>())));
 
         host.Publish("reports-db", SignalSeverity.Unhealthy);
         var run = await host.WaitForRunAsync("db-stale");

@@ -80,7 +80,7 @@ public class FailureIsolationTests
         await using var host = await StartInstanceAsync("a", store, h => h
             .Configure(o => o.DryRun = false)
             .AddCondition("feed-down", c => c.ForSource("feed")
-                .Heal(p => p.TurnOnSwitch("serve-cached").VerifyWith<EngineTests.AlwaysHealedVerifier>().OncePerCluster())));
+                .Heal(p => p.TurnOnSwitch("serve-cached").UseVerifier<EngineTests.AlwaysHealedVerifier>().OncePerCluster())));
 
         host.Publish("feed", SignalSeverity.Unhealthy);
         await host.WaitForRunAsync("feed-down");
@@ -201,7 +201,7 @@ public class FailureIsolationTests
         static void Plan(HomeostatBuilder h) => h
             .Configure(o => o.DryRun = false)
             .AddCondition("feed-down", c => c.ForSource("feed")
-                .Heal(p => p.TurnOnSwitch("serve-cached").VerifyWith<EngineTests.AlwaysHealedVerifier>().OncePerCluster()));
+                .Heal(p => p.TurnOnSwitch("serve-cached").UseVerifier<EngineTests.AlwaysHealedVerifier>().OncePerCluster()));
 
         // Each test host has its own simulated clock: they move only when the test moves them, so the two instances agree
         // on the time, as synchronized clocks would (decisions about a switch are ordered by time).
@@ -242,7 +242,7 @@ public class FailureIsolationTests
         await using var host = await HomeostatTestHost.StartAsync(h => h
             .Configure(o => o.DryRun = false)
             .AddCondition("feed-down", c => c.ForSource("feed")
-                .Heal(p => p.TurnOnSwitch("shed-maps").HoldAtMost(TimeSpan.FromMinutes(10)).VerifyWith<EngineTests.AlwaysHealedVerifier>())));
+                .Heal(p => p.TurnOnSwitch("shed-maps").HoldAtMost(TimeSpan.FromMinutes(10)).UseVerifier<EngineTests.AlwaysHealedVerifier>())));
 
         host.Publish("feed", SignalSeverity.Unhealthy);
         await host.WaitForRunAsync("feed-down");

@@ -16,18 +16,18 @@ public abstract class ServerSignalOptions
 public sealed class ServerErrorRateSignalOptions() : ServerSignalOptions("http-server:errors")
 {
     /// <summary>Share of 5xx responses (0 to 1) from which the signal is Degraded. Defaults to 0.01.</summary>
-    public double DegradedAbove { get; set; } = 0.01;
+    public double DegradedErrorRatio { get; set; } = 0.01;
 
     /// <summary>Share of 5xx responses (0 to 1) from which the signal is Unhealthy. Defaults to 0.05.</summary>
-    public double UnhealthyAbove { get; set; } = 0.05;
+    public double UnhealthyErrorRatio { get; set; } = 0.05;
 }
 
 /// <summary>Settings of <c>AddServerLatencySignal</c>: source <c>http-server:latency</c>, value the p95 in seconds.</summary>
 public sealed class ServerLatencySignalOptions() : ServerSignalOptions("http-server:latency")
 {
     /// <summary>95th percentile from which the signal is Degraded. Defaults to 500 milliseconds.</summary>
-    public TimeSpan DegradedAbove { get; set; } = TimeSpan.FromMilliseconds(500);
+    public TimeSpan DegradedLatency { get; set; } = TimeSpan.FromMilliseconds(500);
 
     /// <summary>95th percentile from which the signal is Unhealthy. Defaults to 2 seconds.</summary>
-    public TimeSpan UnhealthyAbove { get; set; } = TimeSpan.FromSeconds(2);
+    public TimeSpan UnhealthyLatency { get; set; } = TimeSpan.FromSeconds(2);
 }

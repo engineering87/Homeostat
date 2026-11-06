@@ -449,15 +449,15 @@ Both read ASP.NET Core's `http.server.request.duration` and publish nothing in i
 `MinimumRequests` requests (20 by default). Change the source, the thresholds and the minimum with the options:
 
 ```csharp
-.AddServerErrorRateSignal(o => { o.DegradedAbove = 0.02; o.UnhealthyAbove = 0.1; })   // ServerErrorRateSignalOptions
-.AddServerLatencySignal(o => o.UnhealthyAbove = TimeSpan.FromSeconds(1))            // ServerLatencySignalOptions
+.AddServerErrorRateSignal(o => { o.DegradedErrorRatio = 0.02; o.UnhealthyErrorRatio = 0.1; })   // ServerErrorRateSignalOptions
+.AddServerLatencySignal(o => o.UnhealthyLatency = TimeSpan.FromSeconds(1))                       // ServerLatencySignalOptions
 ```
 
 | Option | Error rate default | Latency default | Meaning |
 |---|---|---|---|
 | `Source` | `http-server:errors` | `http-server:latency` | Signal source |
-| `DegradedAbove` | 0.01 | 500 ms | Share of 5xx responses, or p95 as a `TimeSpan`, from which the signal is `Degraded` |
-| `UnhealthyAbove` | 0.05 | 2 s | Same, for `Unhealthy` |
+| `DegradedErrorRatio`, `DegradedLatency` | 0.01 | 500 ms | Share of 5xx responses (error rate), or p95 as a `TimeSpan` (latency), from which the signal is `Degraded` |
+| `UnhealthyErrorRatio`, `UnhealthyLatency` | 0.05 | 2 s | Same, for `Unhealthy` |
 | `MinimumRequests` | 20 | 20 | Intervals with fewer requests publish no signal |
 
 Both types are in the `Homeostat.Metrics` namespace. The latency signal still publishes the p95 in seconds.

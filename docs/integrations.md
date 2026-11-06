@@ -326,7 +326,7 @@ builder.Services.AddHomeostat(h => h
 |---|---|---|
 | `Client` | the registered `IMongoClient` | Returns the client the probes use |
 | `Source` | `mongodb:{name}` | Prefix of the `:ping`, `:primary`, `:pool` and `:replication-lag` sources |
-| `Interval` | 30 seconds | How often the probes run and the event-based signals are published |
+| `Interval` | 30 seconds | How often the probes run and the event-based signals are published; an `Interval` set on `Ping` or `Lag` wins over it for that probe |
 | `Ping` | no thresholds | Settings of the ping (`DegradedLatency`, `UnhealthyLatency`, `Timeout`, ...) |
 | `PoolTimeoutsUnhealthyAbove` | 0 | Checkout timeouts per interval above which `pool` is Unhealthy |
 | `ReplicationLag` | `false` | Publishes `replication-lag` (needs `replSetGetStatus`, for example the `clusterMonitor` role) |

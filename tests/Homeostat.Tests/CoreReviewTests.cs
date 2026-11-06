@@ -372,7 +372,7 @@ public class CoreReviewTests
     public async Task A_verifier_whose_constructor_throws_makes_the_step_inconclusive_and_keeps_its_result()
     {
         await using var host = await HomeostatTestHost.StartAsync(h => h
-            .AddCondition("feed-down", c => c.ForSource("feed").Heal(p => p.With("renew", _ => { }).VerifyWith<UnbuildableVerifier>())));
+            .AddCondition("feed-down", c => c.ForSource("feed").Heal(p => p.With("renew", _ => { }).UseVerifier<UnbuildableVerifier>())));
 
         host.Publish("feed", SignalSeverity.Unhealthy);
         var run = await host.WaitForRunAsync("feed-down");
@@ -398,7 +398,7 @@ public class CoreReviewTests
         await using var host = await HomeostatTestHost.StartAsync(
             h => h.AddCondition("feed-down", c => c.ForSource("feed").Heal(p => p
                 .With("renew", sp => sp.GetRequiredService<FailingDisposal>())
-                .VerifyWith<HealedVerifier>())),
+                .UseVerifier<HealedVerifier>())),
             services => services.AddScoped<FailingDisposal>());
 
         host.Publish("feed", SignalSeverity.Unhealthy);

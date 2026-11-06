@@ -151,8 +151,8 @@ public sealed class HomeostatBuilder
     /// Publishes signals about thread pool starvation (source <c>"threadpool"</c> by default),
     /// measured as the time a work item waits before running.
     /// </summary>
-    public HomeostatBuilder AddThreadPoolStarvationDetector(Action<ThreadPoolDetectorOptions>? configure = null)
-        => AddBuiltInDetector<ThreadPoolStarvationDetector, ThreadPoolDetectorOptions>(
+    public HomeostatBuilder AddThreadPoolStarvationDetector(Action<ThreadPoolStarvationDetectorOptions>? configure = null)
+        => AddBuiltInDetector<ThreadPoolStarvationDetector, ThreadPoolStarvationDetectorOptions>(
             configure,
             o => !string.IsNullOrWhiteSpace(o.Source) && o.DegradedLatency > TimeSpan.Zero && o.UnhealthyLatency >= o.DegradedLatency
                 && Guardrails.TimerLimits.IsValid(o.UnhealthyLatency),

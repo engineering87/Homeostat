@@ -166,7 +166,7 @@ public class AdvancedConditionTests
                 .AddCondition("cache-down", c => c.ForSource("cache"))
                 .AddCondition("platform-degraded", c => c
                     .WhenAllActive("db-slow", "cache-down")
-                    .Heal(p => p.With<EngineTests.RecordingAction>().VerifyWith<EngineTests.AlwaysHealedVerifier>()))
+                    .Heal(p => p.With<EngineTests.RecordingAction>().UseVerifier<EngineTests.AlwaysHealedVerifier>()))
                 .AddCondition("anything-down", c => c.WhenAnyActive("db-slow", "cache-down")),
             services => services.AddSingleton<EngineTests.Recorder>());
 

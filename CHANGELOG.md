@@ -80,7 +80,7 @@ expected to stay stable through 1.0.0.
   instance switch.
 - Step settings: `ActionTimeout`, `VerificationTimeout`, `RequireApproval` and `UndoWith` apply to the step added just
   before them (in configuration, `ActionTimeout` and `VerificationTimeout` are keys of each step); `Cooldown`,
-  `CooldownBackoff`, `VerifyWith`, `OncePerCluster` and `Adaptive` apply to the plan.
+  `CooldownBackoff`, `UseVerifier`, `OncePerCluster` and `Adaptive` apply to the plan.
 - `RestartableBackgroundService`, restarted inside the service, and `AddBackgroundServiceSignals` (sources
   `hosted-service:{type name}`, `SourcePrefix` option).
 - `RestartApplication()` (approval by default): graceful stop with an exit code for the orchestrator to restart;
@@ -413,12 +413,24 @@ Also, compared with earlier builds:
     neither cuts a change short nor logs an unhandled error; `GET /status` reports the type of a store error, not its
     message; `%2F` in switch and condition names is decoded; release names are validated; Teams keeps a timed-out
     command marked as handled. The Homeostat health check reports a store outage as `Degraded`, whatever
-    `attentionStatus`.
+    `failureStatus`.
   - Integrations: a Service Bus processor paused before it starts is stopped as soon as the application starts it;
     `DisableFrontDoorOrigin` reads the origin group again and enables its origin again if none is left; a circuit
     breaker source reports the worst state of every pipeline tracked for it (at most 32); the `Homeostat.Switch` feature
     filter warns once per feature; metric thresholds must be finite and ordered; `RolloutRestart`, `ScaleDeployment`
     and the Azure steps are documented as needing `OncePerCluster()`.
+  - Public API, reviewed for consistency before the API freezes: `VerifyWith<T>()` is `UseVerifier<T>()` (it applies
+    to the whole plan); `ThreadPoolDetectorOptions` is `ThreadPoolStarvationDetectorOptions`; server signals name their
+    thresholds by quantity (`DegradedLatency`/`UnhealthyLatency`, `DegradedErrorRatio`/`UnhealthyErrorRatio`);
+    `AddHomeostatCheck(name, failureStatus, tags, timeout)` follows the health check conventions (`null` means
+    `Degraded`); `ActionBudgetStatus` is a nominal record; the `ConditionClearedVerifier` constructor is internal (resolve
+    it from the services); `HealingRunRecord.RunId` links stored runs to events and the audit log;
+    `HomeostatTestHost.Publish(..., value)` and `StartAsync(configureServices: ...)`; `ReplayReport.SignalCount`,
+    `Since`, `Until`; a `MapHomeostat*` policy that looks like a route is refused. The naming rules are recorded in the
+    [design decisions](docs/decisions.md) (P9).
+  - Documentation: a [Why Homeostat](docs/why-homeostat.md) page compares it with Polly, health checks and probes,
+    platform auto-heal and incident automation; the README shows the weather feed sample healing with an approval; a
+    documentation site with the API reference is built with docfx and published to GitHub Pages (`Docs` workflow).
   - Packaging: preview packages are numbered `X-preview.1` on a release and `X-preview.0.rc.N` on a release
     candidate, so the release sorts above the candidate; `Homeostat.Testing` depends on exactly its own Homeostat
     version.

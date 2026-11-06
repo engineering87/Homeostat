@@ -112,7 +112,7 @@ public class CachingTests
                 .RemoveHybridCacheKeys("regions")
                 .RemoveDistributedCacheKeys("reference:regions", "reference:units")
                 .CompactMemoryCache(0.5)
-                .VerifyWith<NeverHealed>())),
+                .UseVerifier<NeverHealed>())),
             s => s.AddSingleton<HybridCache>(hybrid).AddSingleton<IDistributedCache>(distributed).AddSingleton<IMemoryCache>(memory));
 
         host.Publish("reference", SignalSeverity.Unhealthy);

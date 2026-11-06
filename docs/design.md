@@ -118,7 +118,7 @@ HealingRunner.TryStart(condition, triggering signal)
 | `IHomeostatStore` | `UseStore<T>()`, `UseStore(factory)`, `UseFileStore(path)` | In memory, file, Redis (`Homeostat.Redis`) |
 | `IHomeostatCoordinator` | `UseCoordinator<T>()`, `UseCoordinator(factory)` | In process, Redis |
 | `ISignalDetector` | `AddDetector<T>()`, `services.AddHomeostatDetector<T>()` | Runtime, metrics, probes, integrations |
-| `IHealingAction`, `IHealingVerifier` | `With<T>()`, `Then<T>()`, `VerifyWith<T>()`, `AddAction<T>(name)` | Built-in actions, `ConditionClearedVerifier` |
+| `IHealingAction`, `IHealingVerifier` | `With<T>()`, `Then<T>()`, `UseVerifier<T>()`, `AddAction<T>(name)` | Built-in actions, `ConditionClearedVerifier` |
 | `IHealingObserver` | `AddObserver<T>()` | Event sinks (below) |
 | `IHomeostatEventSink` | `AddEventSink<T>()` | Audit log, webhook, PagerDuty, Opsgenie, Slack, Teams |
 | `IPausableConsumer` | `AddPausableConsumer(factory)`, `IHomeostatConsumers.Register` | `PauseGate`, Service Bus, RabbitMQ, Kafka adapters |

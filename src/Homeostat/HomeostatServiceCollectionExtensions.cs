@@ -10,6 +10,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 
 namespace Homeostat;
 
@@ -87,7 +88,9 @@ public static class HomeostatServiceCollectionExtensions
         services.TryAddSingleton<HealingRunner>();
         services.TryAddSingleton<Healing.Actions.ApplicationClock>();
         services.TryAddSingleton<Diagnostics.ActivationLog>();
-        services.TryAddTransient<ConditionClearedVerifier>();
+        // A factory, since the constructor is internal (activation needs a public one).
+        services.TryAddTransient(sp => new ConditionClearedVerifier(
+            sp.GetRequiredService<TimeProvider>(), sp.GetRequiredService<IOptions<HomeostatOptions>>()));
         services.TryAddSingleton<Diagnostics.ConditionHistory>();
         services.TryAddSingleton<Conditions.SeasonalBaselineKeeper>();
 

@@ -41,6 +41,9 @@ public sealed class MongoSignalOptions
     /// </summary>
     public int PoolTimeoutsUnhealthyAbove { get; set; }
 
-    /// <summary>How often the probes run and the event-based signals are published; defaults to 30 seconds.</summary>
+    /// <summary>
+    /// How often the probes run and the event-based signals are published; defaults to 30 seconds. An <c>Interval</c>
+    /// set on <see cref="Ping"/> or <see cref="Lag"/> wins over this one for that probe.
+    /// </summary>
     public TimeSpan Interval { get; set; } = TimeSpan.FromSeconds(30);
 }

@@ -17,7 +17,7 @@ public class CustomSinkTests
             h => h
                 .AddCondition("feed-down", c => c
                     .ForSource("feed")
-                    .Heal(p => p.With("renew", _ => { }).VerifyWith<EngineTests.AlwaysHealedVerifier>()))
+                    .Heal(p => p.With("renew", _ => { }).UseVerifier<EngineTests.AlwaysHealedVerifier>()))
                 .AddEventSink<IncidentSink>()
                 .AddEventSink<IncidentSink>(),
             services => services.AddSingleton(store)))

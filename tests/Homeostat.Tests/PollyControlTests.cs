@@ -57,7 +57,7 @@ public class PollyControlTests
             .AddCircuitBreakerSignals()
             .AddCondition("forecast-provider-down", c => c.ForSource("forecast-provider").Heal(p => p
                 .IsolateCircuit("forecast")
-                .VerifyWith<BuiltInActionTests.AlwaysHealed>())));
+                .UseVerifier<BuiltInActionTests.AlwaysHealed>())));
 
         host.Publish("forecast-provider", SignalSeverity.Unhealthy);
         var run = await host.WaitForRunAsync("forecast-provider-down");

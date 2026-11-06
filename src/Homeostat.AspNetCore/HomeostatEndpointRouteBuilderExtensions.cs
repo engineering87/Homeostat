@@ -26,7 +26,10 @@ public static class HomeostatEndpointRouteBuilderExtensions
     /// <param name="policy">Authorization policy required to call the endpoint, for example <c>"operations"</c>.</param>
     /// <param name="prefix">Route prefix.</param>
     /// <param name="allowAnonymous"><c>true</c> maps the endpoint without authorization; only for local demos and tests.</param>
-    /// <exception cref="ArgumentException">Neither <paramref name="policy"/> nor <paramref name="allowAnonymous"/> was given.</exception>
+    /// <exception cref="ArgumentException">
+    /// Neither <paramref name="policy"/> nor <paramref name="allowAnonymous"/> was given, or <paramref name="policy"/>
+    /// starts with <c>/</c> (a route prefix passed by position).
+    /// </exception>
     /// <example><code>app.MapHomeostatStatus("operations");</code></example>
     public static RouteGroupBuilder MapHomeostatStatus(
         this IEndpointRouteBuilder endpoints,
@@ -60,7 +63,10 @@ public static class HomeostatEndpointRouteBuilderExtensions
     /// <c>true</c> maps the endpoints without any authorization requirement. Only for local demos and tests:
     /// anyone who can reach them can pause Homeostat or approve steps.
     /// </param>
-    /// <exception cref="ArgumentException">Neither <paramref name="policy"/> nor <paramref name="allowAnonymous"/> was given.</exception>
+    /// <exception cref="ArgumentException">
+    /// Neither <paramref name="policy"/> nor <paramref name="allowAnonymous"/> was given, or <paramref name="policy"/>
+    /// starts with <c>/</c> (a route prefix passed by position).
+    /// </exception>
     /// <example><code>app.MapHomeostatControl("operations");</code></example>
     public static RouteGroupBuilder MapHomeostatControl(
         this IEndpointRouteBuilder endpoints,
@@ -214,10 +220,11 @@ public static class HomeostatEndpointRouteBuilderExtensions
         return group;
     }
 
-    private static RouteGroupBuilder CreateGroup(IEndpointRouteBuilder endpoints, string? policy, string prefix, bool allowAnonymous)
+    private static RouteGroupBuilder CreateGroup(IEndpointRouteBuilder endpoints, string? policy, string prefix, bool allowAnonymous, [System.Runtime.CompilerServices.CallerMemberName] string method = "")
     {
         ArgumentNullException.ThrowIfNull(endpoints);
         ArgumentException.ThrowIfNullOrWhiteSpace(prefix);
+        RefuseRouteAsPolicy(policy, method);
 
         if (string.IsNullOrWhiteSpace(policy) && !allowAnonymous)
         {
@@ -234,6 +241,21 @@ public static class HomeostatEndpointRouteBuilderExtensions
         }
 
         return group;
+    }
+
+    /// <summary>
+    /// Refuses a policy name that starts with <c>/</c>: ASP.NET Core's <c>Map*(pattern)</c> habit makes
+    /// <c>MapHomeostatControl("/ops")</c> likely, which would otherwise map under the default prefix and require a policy
+    /// named "/ops" (decided at map time, decision I2).
+    /// </summary>
+    internal static void RefuseRouteAsPolicy(string? policy, string method)
+    {
+        if (policy is not null && policy.StartsWith('/'))
+        {
+            throw new ArgumentException(
+                $"The policy \"{policy}\" looks like a route prefix: pass it as prefix: {method}(\"<policy>\", prefix: \"{policy}\").",
+                nameof(policy));
+        }
     }
 
     /// <summary>A change kept in the store: <c>204</c>, or <c>503</c> when the store cannot be reached.</summary>

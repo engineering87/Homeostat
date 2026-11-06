@@ -88,7 +88,7 @@ public class SharedControlTests
         var executed = 0;
         await using var a = await StartInstanceAsync("a", store, h => h.AddCondition("feed-down", c => c
             .ForSource("feed")
-            .Heal(p => p.With("renew", _ => Interlocked.Increment(ref executed)).RequireApproval().VerifyWith<EngineTests.AlwaysHealedVerifier>())));
+            .Heal(p => p.With("renew", _ => Interlocked.Increment(ref executed)).RequireApproval().UseVerifier<EngineTests.AlwaysHealedVerifier>())));
         await using var b = await StartInstanceAsync("b", store);
 
         a.Publish("feed", SignalSeverity.Unhealthy);
@@ -140,7 +140,7 @@ public class SharedControlTests
         var store = new InMemoryHomeostatStore();
         void Configure(HomeostatBuilder h) => h.UseCoordinator(_ => Coordinator).AddCondition("feed-down", c => c
             .ForSource("feed")
-            .Heal(p => p.TurnOnSwitch("serve-cached-forecast").OncePerCluster().VerifyWith<EngineTests.AlwaysHealedVerifier>()));
+            .Heal(p => p.TurnOnSwitch("serve-cached-forecast").OncePerCluster().UseVerifier<EngineTests.AlwaysHealedVerifier>()));
         await using var a = await StartInstanceAsync("a", store, Configure);
         await using var b = await StartInstanceAsync("b", store, Configure);
 
@@ -185,7 +185,7 @@ public class SharedControlTests
         var store = new InMemoryHomeostatStore();
         await using var host = await StartInstanceAsync("a", store, h => h.AddCondition("feed-down", c => c
             .ForSource("feed")
-            .Heal(p => p.TurnOnSwitch("serve-cached-forecast").VerifyWith<EngineTests.AlwaysHealedVerifier>())));
+            .Heal(p => p.TurnOnSwitch("serve-cached-forecast").UseVerifier<EngineTests.AlwaysHealedVerifier>())));
 
         await host.Switches.TurnOnAsync("serve-cached-forecast", by: "on-call");
         host.Publish("feed", SignalSeverity.Unhealthy);
@@ -241,7 +241,7 @@ public class SharedControlTests
         var store = new InMemoryHomeostatStore();
         await using var host = await StartInstanceAsync("a", store, h => h.UseCoordinator(_ => new Coordination.InMemoryCoordinator()).AddCondition("feed-down", c => c
             .ForSource("feed")
-            .Heal(p => p.TurnOnSwitch("serve-cached-forecast").OncePerCluster().VerifyWith<EngineTests.AlwaysHealedVerifier>())));
+            .Heal(p => p.TurnOnSwitch("serve-cached-forecast").OncePerCluster().UseVerifier<EngineTests.AlwaysHealedVerifier>())));
 
         await host.Switches.TurnOnAsync("serve-cached-forecast", by: "on-call");
         host.Publish("feed", SignalSeverity.Unhealthy);
@@ -260,7 +260,7 @@ public class SharedControlTests
         var executed = 0;
         await using var host = await HomeostatTestHost.StartAsync(h => h.AddCondition("feed-down", c => c
             .ForSource("feed")
-            .Heal(p => p.With("renew", _ => Interlocked.Increment(ref executed)).RequireApproval().VerifyWith<EngineTests.AlwaysHealedVerifier>().Cooldown(TimeSpan.Zero))));
+            .Heal(p => p.With("renew", _ => Interlocked.Increment(ref executed)).RequireApproval().UseVerifier<EngineTests.AlwaysHealedVerifier>().Cooldown(TimeSpan.Zero))));
 
         host.Publish("feed", SignalSeverity.Unhealthy);
         await host.Approvals.RejectAsync((await host.WaitForApprovalAsync("feed-down")).Id, "on-call");
@@ -322,7 +322,7 @@ public class SharedControlTests
             .Heal(p => p
                 .With("switch-provider", _ => { })
                 .UndoWith("switch-back", (_, _) => { Interlocked.Increment(ref undone); return Task.CompletedTask; })
-                .VerifyWith<PausingVerifier>())));
+                .UseVerifier<PausingVerifier>())));
 
         host.Publish("feed", SignalSeverity.Unhealthy);
         var run = await host.WaitForRunAsync("feed-down");
@@ -410,7 +410,7 @@ public class ApiRuleTests
     {
         var received = new System.Collections.Concurrent.ConcurrentBag<Homeostat.Notifications.HomeostatEventKind>();
         await using (var host = await HomeostatTestHost.StartAsync(
-            h => h.AddCondition("feed-down", c => c.ForSource("feed").Heal(p => p.With("renew", _ => { }).VerifyWith<EngineTests.AlwaysHealedVerifier>()))
+            h => h.AddCondition("feed-down", c => c.ForSource("feed").Heal(p => p.With("renew", _ => { }).UseVerifier<EngineTests.AlwaysHealedVerifier>()))
                 .AddEventSink<EverythingSink>(),
             services => services.AddSingleton(received)))
         {

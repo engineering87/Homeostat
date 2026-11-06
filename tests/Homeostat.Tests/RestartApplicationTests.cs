@@ -10,7 +10,7 @@ public class RestartApplicationTests
 {
     private static Task<HomeostatTestHost> StartAsync(FakeLifetime lifetime, Action<HealingPlanBuilder> plan)
         => HomeostatTestHost.StartAsync(
-            h => h.AddCondition("leak", c => c.ForSource("memory").Heal(p => plan(p.VerifyWith<BuiltInActionTests.AlwaysHealed>()))),
+            h => h.AddCondition("leak", c => c.ForSource("memory").Heal(p => plan(p.UseVerifier<BuiltInActionTests.AlwaysHealed>()))),
             s => s.AddSingleton<IHostApplicationLifetime>(lifetime));
 
     [Fact]
@@ -68,7 +68,7 @@ public class RestartApplicationTests
                         .AddCondition("leak", c => c.ForSource("memory").Heal(p => p
                             .RestartApplication(requireApproval: false, limits: limits)
                             .Cooldown(TimeSpan.Zero)                     // the shared store also carries the cooldown: isolate the limit
-                            .VerifyWith<BuiltInActionTests.AlwaysHealed>())),
+                            .UseVerifier<BuiltInActionTests.AlwaysHealed>())),
                     s => s.AddSingleton<IHostApplicationLifetime>(lifetime),
                     // Each process starts later than the previous one ended, as a restarted process does.
                     new HomeostatTestHostOptions { StartTime = new DateTimeOffset(2030, 1, 1, 0, 0, 0, TimeSpan.Zero).AddMinutes(10 * process) });

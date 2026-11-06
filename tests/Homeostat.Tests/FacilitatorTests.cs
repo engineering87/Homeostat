@@ -36,7 +36,7 @@ public class FacilitatorTests
         {
             d.MemoryPressure.Enabled = false;
             d.ExceptionRate.SustainedFor = TimeSpan.Zero;
-            d.ExceptionRate.Heal(p => p.With("recycle", _ => Interlocked.Increment(ref renewed)).VerifyWith<BuiltInActionTests.AlwaysHealed>());
+            d.ExceptionRate.Heal(p => p.With("recycle", _ => Interlocked.Increment(ref renewed)).UseVerifier<BuiltInActionTests.AlwaysHealed>());
         }));
 
         var names = host.Control.GetConditions().Select(c => c.Name).Order(StringComparer.Ordinal);

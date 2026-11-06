@@ -75,7 +75,7 @@ public static class HomeostatMetricExtensions
     /// </summary>
     /// <param name="builder">The Homeostat builder.</param>
     /// <param name="configure">Source, thresholds and minimum requests; optional.</param>
-    /// <example><code>h.AddServerErrorRateSignal(o => o.UnhealthyAbove = 0.02)</code></example>
+    /// <example><code>h.AddServerErrorRateSignal(o => o.UnhealthyErrorRatio = 0.02)</code></example>
     public static HomeostatBuilder AddServerErrorRateSignal(this HomeostatBuilder builder, Action<ServerErrorRateSignalOptions>? configure = null)
     {
         var options = new ServerErrorRateSignalOptions();
@@ -84,8 +84,8 @@ public static class HomeostatMetricExtensions
             .FromMeter("Microsoft.AspNetCore.Hosting")
             .Source(options.Source)
             .RatioOf((_, tags) => tags.TryGetValue("http.response.status_code", out var status) && IsServerError(status))
-            .DegradedAbove(options.DegradedAbove)
-            .UnhealthyAbove(options.UnhealthyAbove)
+            .DegradedAbove(options.DegradedErrorRatio)
+            .UnhealthyAbove(options.UnhealthyErrorRatio)
             .MinimumCount(options.MinimumRequests));
     }
 
@@ -95,7 +95,7 @@ public static class HomeostatMetricExtensions
     /// </summary>
     /// <param name="builder">The Homeostat builder.</param>
     /// <param name="configure">Source, thresholds and minimum requests; optional.</param>
-    /// <example><code>h.AddServerLatencySignal(o => o.UnhealthyAbove = TimeSpan.FromSeconds(1))</code></example>
+    /// <example><code>h.AddServerLatencySignal(o => o.UnhealthyLatency = TimeSpan.FromSeconds(1))</code></example>
     public static HomeostatBuilder AddServerLatencySignal(this HomeostatBuilder builder, Action<ServerLatencySignalOptions>? configure = null)
     {
         var options = new ServerLatencySignalOptions();
@@ -104,8 +104,8 @@ public static class HomeostatMetricExtensions
             .FromMeter("Microsoft.AspNetCore.Hosting")
             .Source(options.Source)
             .Statistic(MetricStatistic.P95)
-            .DegradedAbove(options.DegradedAbove.TotalSeconds)
-            .UnhealthyAbove(options.UnhealthyAbove.TotalSeconds)
+            .DegradedAbove(options.DegradedLatency.TotalSeconds)
+            .UnhealthyAbove(options.UnhealthyLatency.TotalSeconds)
             .MinimumCount(options.MinimumRequests));
     }
 

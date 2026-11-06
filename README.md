@@ -22,10 +22,12 @@
 <p align="center">
   <a href="docs/getting-started.md">Getting started</a> ·
   <a href="docs/concepts.md">Concepts</a> ·
+  <a href="docs/why-homeostat.md">Why Homeostat</a> ·
   <a href="docs/packages.md">Packages</a> ·
   <a href="docs/recipes.md">Recipes</a> ·
   <a href="docs/faq.md">FAQ</a> ·
-  <a href="docs/README.md">All docs</a>
+  <a href="docs/README.md">All docs</a> ·
+  <a href="https://engineering87.github.io/Homeostat/">Docs site and API reference</a>
 </p>
 
 ---
@@ -43,6 +45,16 @@ flowchart LR
     V -- "not healed" --> P
     V -- "inconclusive" --> H(["Stop and leave it to a person"])
 ```
+
+## See it work
+
+The [weather feed sample](samples/Homeostat.Samples.WeatherFeed) with its primary provider down: the condition
+becomes active, renewing the client does not heal it, failing over waits for a person's approval on the dashboard,
+and the run is verified as healed once the condition clears (sped up 1.6 times).
+
+<p align="center">
+  <img src="assets/demo.gif" alt="The Homeostat dashboard: a condition activates, a first step does not heal it, a person approves the failover, and the run is verified as healed" width="800">
+</p>
 
 ## Quick start
 

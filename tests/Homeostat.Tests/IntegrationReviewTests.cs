@@ -136,7 +136,7 @@ public class IntegrationReviewTests
                 .UseAzure(o => o.AccessToken = (_, _) => ValueTask.FromResult("arm-token"))
                 .AddCondition("api-down", c => c.ForSource("api").Heal(p => p
                     .DisableFrontDoorOrigin(Origin, requireApproval: false)
-                    .VerifyWith<CachingTests.NeverHealed>())),
+                    .UseVerifier<CachingTests.NeverHealed>())),
             s => s.AddHttpClient("Homeostat.Azure").ConfigurePrimaryHttpMessageHandler(() => arm));
 
         host.Publish("api", SignalSeverity.Unhealthy);
@@ -464,12 +464,12 @@ public class IntegrationReviewTests
     // ---------------------------------------------------------------- health check
 
     [Fact]
-    public async Task A_store_outage_is_reported_as_degraded_even_with_an_unhealthy_attention_status()
+    public async Task A_store_outage_is_reported_as_degraded_even_with_an_unhealthy_failure_status()
     {
         var store = new ScriptedStore { Fail = new InvalidOperationException("store down") };
         await using var host = await HomeostatTestHost.StartAsync(
             h => h.UseStore(_ => store),
-            services => services.AddHealthChecks().AddHomeostatCheck(attentionStatus: HealthStatus.Unhealthy));
+            services => services.AddHealthChecks().AddHomeostatCheck(failureStatus: HealthStatus.Unhealthy));
 
         var report = await host.Services.GetRequiredService<HealthCheckService>().CheckHealthAsync();
 

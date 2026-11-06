@@ -24,11 +24,11 @@ public class AzureTests
                     plan(p);
                     if (heals)
                     {
-                        p.VerifyWith<BuiltInActionTests.AlwaysHealed>();
+                        p.UseVerifier<BuiltInActionTests.AlwaysHealed>();
                     }
                     else
                     {
-                        p.VerifyWith<CachingTests.NeverHealed>();
+                        p.UseVerifier<CachingTests.NeverHealed>();
                     }
                 })),
             s => s.AddHttpClient("Homeostat.Azure").ConfigurePrimaryHttpMessageHandler(() => arm));

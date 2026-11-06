@@ -20,11 +20,11 @@ public class IncidentTests
                     p.With("renew", _ => { });
                     if (heals)
                     {
-                        p.VerifyWith<EngineTests.AlwaysHealedVerifier>();
+                        p.UseVerifier<EngineTests.AlwaysHealedVerifier>();
                     }
                     else
                     {
-                        p.VerifyWith<CachingTests.NeverHealed>();
+                        p.UseVerifier<CachingTests.NeverHealed>();
                     }
                 }));
                 notifier(h);

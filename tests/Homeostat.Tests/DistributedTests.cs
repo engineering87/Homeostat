@@ -99,7 +99,7 @@ public class DistributedTests
             .ForSource("feed")
             .Heal(p => p
                 .With("renew", _ => { })
-                .VerifyWith<NeverHealedVerifier>()
+                .UseVerifier<NeverHealedVerifier>()
                 .Cooldown(TimeSpan.FromMinutes(1))
                 .CooldownBackoff(2, TimeSpan.FromMinutes(3)))));
 
@@ -128,7 +128,7 @@ public class DistributedTests
                 .With("switch-to-backup", _ => { })
                 .UndoWith("switch-to-primary", (_, _) => { Interlocked.Increment(ref undone); return Task.CompletedTask; })
                 .Then("renew", _ => { })
-                .VerifyWith<EngineTests.HealedOnSecondStepVerifier>())));
+                .UseVerifier<EngineTests.HealedOnSecondStepVerifier>())));
 
         host.Publish("feed", SignalSeverity.Unhealthy);
         var run = await host.WaitForRunAsync("feed-down");
@@ -282,7 +282,7 @@ public class DistributedTests
                         await Task.Delay(5);
                         Interlocked.Decrement(ref active);
                     })
-                    .VerifyWith<EngineTests.AlwaysHealedVerifier>())));
+                    .UseVerifier<EngineTests.AlwaysHealedVerifier>())));
 
         // Keep triggering signals coming while runs start and end.
         var until = DateTime.UtcNow.AddMilliseconds(800);
@@ -409,7 +409,7 @@ public class DistributedTests
                     .ForSource("feed")
                     .Heal(p =>
                     {
-                        p.With<EngineTests.RecordingAction>().VerifyWith<EngineTests.AlwaysHealedVerifier>();
+                        p.With<EngineTests.RecordingAction>().UseVerifier<EngineTests.AlwaysHealedVerifier>();
                         if (cluster)
                         {
                             p.OncePerCluster();

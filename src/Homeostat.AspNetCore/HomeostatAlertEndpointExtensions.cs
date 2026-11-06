@@ -39,7 +39,10 @@ public static class HomeostatAlertEndpointExtensions
     /// <param name="prefix">Route prefix.</param>
     /// <param name="allowAnonymous"><c>true</c> maps the endpoints without a policy or token; only for local demos and tests.</param>
     /// <param name="configure">Changes the token, source and severity mapping, and limits.</param>
-    /// <exception cref="ArgumentException">None of <paramref name="policy"/>, a token or <paramref name="allowAnonymous"/> was given.</exception>
+    /// <exception cref="ArgumentException">
+    /// None of <paramref name="policy"/>, a token or <paramref name="allowAnonymous"/> was given, or
+    /// <paramref name="policy"/> starts with <c>/</c> (a route prefix passed by position).
+    /// </exception>
     /// <example>
     /// <code>
     /// app.MapHomeostatAlerts(configure: o => o.Token = builder.Configuration["Homeostat:AlertToken"]);
@@ -55,7 +58,10 @@ public static class HomeostatAlertEndpointExtensions
         string prefix = "/homeostat/alerts",
         bool allowAnonymous = false,
         Action<AlertIngestionOptions>? configure = null)
-        => MapAlerts(endpoints, prefix, configure, string.IsNullOrWhiteSpace(policy) ? null : g => g.RequireAuthorization(policy), allowAnonymous);
+    {
+        HomeostatEndpointRouteBuilderExtensions.RefuseRouteAsPolicy(policy, nameof(MapHomeostatAlerts));
+        return MapAlerts(endpoints, prefix, configure, string.IsNullOrWhiteSpace(policy) ? null : g => g.RequireAuthorization(policy), allowAnonymous);
+    }
 
     /// <summary>
     /// Same as <see cref="MapHomeostatAlerts(IEndpointRouteBuilder, string?, string, bool, Action{AlertIngestionOptions}?)"/>,

@@ -14,7 +14,7 @@ and the plan settings.
 ```
 
 `ActionTimeout`, `VerificationTimeout`, `RequireApproval`, `UndoWith` and `HoldAtMost` apply to the step added just
-before them. `Cooldown`, `CooldownBackoff`, `VerifyWith`, `OncePerCluster` and `Adaptive` apply to the whole plan.
+before them. `Cooldown`, `CooldownBackoff`, `UseVerifier`, `OncePerCluster` and `Adaptive` apply to the whole plan.
 `With` and `Then` both append a step; use `With` for the first one and `Then` for the next ones so the plan reads
 naturally.
 
@@ -195,6 +195,9 @@ Unless you configure otherwise, Homeostat uses `ConditionClearedVerifier`. After
 Give the verification timeout enough time for your signals to arrive. With health checks every 30 seconds, a
 10-second timeout often ends up `Inconclusive`.
 
+`ConditionClearedVerifier` is created by dependency injection only (its constructor is internal). To build on it,
+take it as a constructor parameter of your own verifier and call it from there.
+
 ### Custom verifiers
 
 When a direct check is better than waiting, implement `IHealingVerifier`:
@@ -224,7 +227,7 @@ public sealed class FeedProbeVerifier(WeatherFeedClient client) : IHealingVerifi
 ```csharp
 .Heal(p => p
     .With<RenewFeedClientAction>()
-    .VerifyWith<FeedProbeVerifier>())
+    .UseVerifier<FeedProbeVerifier>())
 ```
 
 The verifier applies to every step of the plan and is resolved from the same scope as the action (registered as
@@ -317,7 +320,7 @@ Called before any step, these methods throw `InvalidOperationException`. Setting
 |---|---|---|
 | `Cooldown(t)` | `DefaultCooldown` = 5 min | Minimum time between the end of a run and the next run of this plan |
 | `CooldownBackoff(multiplier, max)` | no backoff | Grows the cooldown after runs that do not heal |
-| `VerifyWith<T>()` | `ConditionClearedVerifier` | [Verifier](#custom-verifiers) used after every step of the plan |
+| `UseVerifier<T>()` | `ConditionClearedVerifier` | [Verifier](#custom-verifiers) used after every step of the plan |
 | `Adaptive(minimumAttempts)` | declared order; `minimumAttempts` = 5 | Orders steps by measured success before each run ([Adaptive plans](intelligence.md#adaptive-plans)) |
 | `OncePerCluster()` | every instance | One instance at a time, shared cooldown |
 

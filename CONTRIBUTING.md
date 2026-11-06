@@ -36,7 +36,17 @@ HOMEOSTAT_TEST_KAFKA=localhost:9092 dotnet test tests/Homeostat.IntegrationTests
 
 `DocumentationTests` checks that the limits and timeouts stated in `docs/` are the ones the code uses, and that the
 stability of each package is the same in its project, `docs/packages.md`, `docs/versioning.md` and its NuGet readme.
-When you change one of those constants, update the page it names.
+When you change one of those constants, update the page it names. It also checks that every page of `docs/` is in
+`docs/toc.yml`, the table of contents of the documentation site.
+
+The documentation site (`site/`) is built with [docfx](https://dotnet.github.io/docfx/) from `docs/` and from the XML
+documentation of the packages (the API reference), by the `Docs` workflow, and published to GitHub Pages from `main`.
+To preview it locally:
+
+```bash
+dotnet tool install --global docfx --version 2.81.0
+docfx site/docfx.json --serve    # http://localhost:8080
+```
 
 ## Commit messages
 

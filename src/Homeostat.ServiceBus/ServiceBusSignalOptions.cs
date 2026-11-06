@@ -12,7 +12,10 @@ public sealed class ServiceBusSignalOptions
     /// </summary>
     public string? Source { get; set; }
 
-    /// <summary>How often the counts are read; defaults to 30 seconds (Service Bus updates them about that often).</summary>
+    /// <summary>
+    /// How often the counts are read; defaults to 30 seconds (Service Bus updates them about that often). An
+    /// <c>Interval</c> set on <see cref="Messages"/> or <see cref="DeadLetter"/> wins over this one for that signal.
+    /// </summary>
     public TimeSpan Interval { get; set; } = TimeSpan.FromSeconds(30);
 
     /// <summary>Thresholds of the active message count (the backlog), for example <c>UnhealthyAbove = 10_000</c>.</summary>

@@ -52,7 +52,10 @@ public interface IHomeostatSwitches
 }
 
 /// <summary>Where a switch is on.</summary>
-/// <remarks>Numbered from 1: the default value, 0, is none of them.</remarks>
+/// <remarks>
+/// Numbered from 1 on purpose: 0 (<c>default</c>) is deliberately not a member, so a value never set is caught as
+/// undefined instead of reading as one of the scopes.
+/// </remarks>
 public enum SwitchScope
 {
     /// <summary>For the whole application: kept in the store, shared by every instance with a shared store.</summary>

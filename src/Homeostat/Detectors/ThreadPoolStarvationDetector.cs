@@ -6,7 +6,7 @@ using Microsoft.Extensions.Options;
 namespace Homeostat.Detectors;
 
 /// <summary>Settings for the thread pool starvation detector.</summary>
-public sealed class ThreadPoolDetectorOptions
+public sealed class ThreadPoolStarvationDetectorOptions
 {
     /// <summary>Signal source name. Defaults to <c>"threadpool"</c>.</summary>
     public string Source { get; set; } = "threadpool";
@@ -28,10 +28,10 @@ public sealed class ThreadPoolDetectorOptions
 /// </remarks>
 internal sealed class ThreadPoolStarvationDetector : ISignalDetector
 {
-    private readonly ThreadPoolDetectorOptions _options;
+    private readonly ThreadPoolStarvationDetectorOptions _options;
     private readonly TimeProvider _timeProvider;
 
-    public ThreadPoolStarvationDetector(IOptions<ThreadPoolDetectorOptions> options, TimeProvider timeProvider)
+    public ThreadPoolStarvationDetector(IOptions<ThreadPoolStarvationDetectorOptions> options, TimeProvider timeProvider)
     {
         _options = options.Value;
         _timeProvider = timeProvider;

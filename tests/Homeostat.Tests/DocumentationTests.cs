@@ -120,6 +120,18 @@ public class DocumentationTests
         Assert.True(problems.Count == 0, string.Join(Environment.NewLine, problems));
     }
 
+    [Fact]
+    public void Every_documentation_page_is_in_the_table_of_contents_of_the_site()
+    {
+        var root = RepositoryRoot();
+        var toc = File.ReadAllText(Path.Combine(root, "docs", "toc.yml"));
+        var missing = Directory.GetFiles(Path.Combine(root, "docs"), "*.md")
+            .Select(Path.GetFileName)
+            .Where(name => name != "README.md" && !toc.Contains($"href: {name}", StringComparison.Ordinal))
+            .ToList();
+        Assert.True(missing.Count == 0, "docs/toc.yml misses: " + string.Join(", ", missing));
+    }
+
     private static string RepositoryRoot()
     {
         for (var directory = new DirectoryInfo(AppContext.BaseDirectory); directory is not null; directory = directory.Parent)

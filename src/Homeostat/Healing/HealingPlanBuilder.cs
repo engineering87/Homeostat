@@ -261,12 +261,13 @@ public sealed class HealingPlanBuilder
     // ---------------------------------------------------------------- verification and pacing
 
     /// <summary>
-    /// Verifies the steps with a custom <see cref="IHealingVerifier"/> instead of waiting for the condition to clear,
-    /// for example a direct check of the dependency. A verifier that throws or returns an undefined value counts as
-    /// <see cref="VerificationOutcome.Inconclusive"/>.
+    /// Verifies every step of the plan with a custom <see cref="IHealingVerifier"/> instead of waiting for the condition
+    /// to clear, for example a direct check of the dependency. A verifier that throws or returns an undefined value
+    /// counts as <see cref="VerificationOutcome.Inconclusive"/>. Unlike <see cref="VerificationTimeout"/>, this applies
+    /// to the whole plan, wherever it is called, and replaces the default implementation like the other <c>Use*</c> methods.
     /// </summary>
     /// <typeparam name="TVerifier">The verifier, resolved from the services (registered as transient if needed).</typeparam>
-    public HealingPlanBuilder VerifyWith<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] TVerifier>()
+    public HealingPlanBuilder UseVerifier<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] TVerifier>()
         where TVerifier : class, IHealingVerifier
     {
         _services.TryAddTransient<TVerifier>();

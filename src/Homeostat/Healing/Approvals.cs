@@ -28,7 +28,10 @@ public sealed record PendingApproval
 }
 
 /// <summary>How an approval request ended.</summary>
-/// <remarks>Numbered from 1: the default value, 0, is none of them, so an unset value never reads as a success.</remarks>
+/// <remarks>
+/// Numbered from 1 on purpose: 0 (<c>default</c>) is deliberately not a member, so a value never set is caught as
+/// undefined and never reads as a success.
+/// </remarks>
 public enum ApprovalStatus
 {
     /// <summary>A person approved the step.</summary>

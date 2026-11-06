@@ -445,7 +445,7 @@ public class HistoryAndSeasonalityTests
             .Configure(o => o.DryRun = false)
             .AddCondition("feed-down", c => c.ForSource("feed").Heal(p => p
                 .With("failover", _ => { }).RequireApproval(TimeSpan.FromMinutes(5))
-                .VerifyWith<BuiltInActionTests.AlwaysHealed>())));
+                .UseVerifier<BuiltInActionTests.AlwaysHealed>())));
         var app = builder.Build();
         app.MapHomeostatTeamsCommands(o =>
         {
@@ -684,7 +684,7 @@ public class HistoryAndSeasonalityTests
             var report = await HomeostatReplay.RunFilesAsync(Directory.GetFiles(directory), h => h
                 .AddCondition("feed-down", c => c.ForSource("feed").SustainedFor(TimeSpan.FromSeconds(30))));
 
-            Assert.Equal(start, report.From);
+            Assert.Equal(start, report.Since);
             Assert.Equal(start.AddSeconds(30), Assert.Single(report.Events).At);
         }
         finally

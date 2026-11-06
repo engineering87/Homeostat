@@ -144,7 +144,7 @@ sequenceDiagram
 | **Run** | One execution of a healing plan, from the first step to its outcome |
 | **Step** | One action within a plan |
 | **Escalation** | Moving to the next step after a `NotHealed` outcome or a failed action |
-| **Verifier** | What judges a step: `ConditionClearedVerifier` by default, or your own with `VerifyWith<T>()` |
+| **Verifier** | What judges a step: `ConditionClearedVerifier` by default, or your own with `UseVerifier<T>()` |
 | **Guardrail** | A limit around the loop: dry-run, budget, cooldown, concurrency, timeouts, kill switch |
 | **Hysteresis** | Requiring recovery to last (`ClearAfter`) before a condition clears |
 | **Suppression** | Not healing a symptom while its cause (`SuppressedBy`) is active |

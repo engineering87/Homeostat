@@ -204,7 +204,7 @@ public class IntelligenceTests
                 .With("renew", _ => { })
                 .Then("reset-pool", _ => { })
                 .Adaptive()
-                .VerifyWith<BuiltInActionTests.AlwaysHealed>())));
+                .UseVerifier<BuiltInActionTests.AlwaysHealed>())));
 
         host.Publish("feed", SignalSeverity.Unhealthy);
         var run = await host.WaitForRunAsync("feed-down");
@@ -340,7 +340,7 @@ public class IntelligenceTests
 
             Assert.False(acted);
             Assert.False(File.Exists(audit));
-            Assert.Equal(16, report.Signals);
+            Assert.Equal(16, report.SignalCount);
             var summary = Assert.Single(report.Conditions);
             Assert.Equal(1, summary.Activations);                       // the blip was too short
             Assert.Equal(1, summary.WouldHeal);
@@ -366,7 +366,7 @@ public class IntelligenceTests
             .AddCondition("feed-down", c => c.ForSource("feed").Heal(p => p
                 .With("renew", _ => { })
                 .Then("failover", _ => { })
-                .VerifyWith<BuiltInActionTests.AlwaysHealed>()))
+                .UseVerifier<BuiltInActionTests.AlwaysHealed>()))
             .AddCondition("disk-full", c => c.ForSource("disk").Heal(p => p.With("prune", _ => { })))
             .AddCondition("observed", c => c.ForSource("threadpool")));
         var since = host.Time.GetUtcNow();
@@ -396,7 +396,7 @@ public class IntelligenceTests
                 .With("renew", _ => throw new InvalidOperationException("no"))
                 .Then("failover", _ => { })
                 .Cooldown(TimeSpan.Zero)
-                .VerifyWith<BuiltInActionTests.AlwaysHealed>())));
+                .UseVerifier<BuiltInActionTests.AlwaysHealed>())));
         var since = host.Time.GetUtcNow();
 
         host.Publish("feed", SignalSeverity.Unhealthy);
@@ -423,7 +423,7 @@ public class IntelligenceTests
         builder.Services.AddHomeostat(h => h
             .Configure(o => o.DryRun = false)
             .AddCondition("feed-down", c => c.ForSource("feed").Heal(p => p
-                .With("renew", _ => { }).Then("failover", _ => { }).VerifyWith<BuiltInActionTests.AlwaysHealed>())));
+                .With("renew", _ => { }).Then("failover", _ => { }).UseVerifier<BuiltInActionTests.AlwaysHealed>())));
         var app = builder.Build();
         app.MapHomeostatStatus(allowAnonymous: true);
         await app.StartAsync();

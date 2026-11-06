@@ -60,7 +60,7 @@ public class MessagingTests
             .AddPausableConsumer(_ => consumer)
             .AddCondition("archive-down", c => c.ForSource("archive-db").Heal(p => p
                 .PauseConsumer("ingest")
-                .VerifyWith<BuiltInActionTests.AlwaysHealed>())));
+                .UseVerifier<BuiltInActionTests.AlwaysHealed>())));
         var consumers = host.Services.GetRequiredService<IHomeostatConsumers>();
 
         host.Publish("archive-db", SignalSeverity.Unhealthy);
@@ -148,7 +148,7 @@ public class MessagingTests
             .AddPausableConsumer(_ => consumer)
             .AddCondition("archive-down", c => c.ForSource("archive-db").Heal(p => p
                 .PauseConsumer("ingest")
-                .VerifyWith<BuiltInActionTests.AlwaysHealed>())));
+                .UseVerifier<BuiltInActionTests.AlwaysHealed>())));
         var switches = host.Services.GetRequiredService<IHomeostatSwitches>();
 
         switches.TurnOn(ConsumerSwitches.Paused("ingest"));                // maintenance, from the dashboard

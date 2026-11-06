@@ -51,6 +51,10 @@ public sealed class WeatherFeedClient
 Homeostat starts in **dry-run**: it logs what it would do (`[dry-run] Condition weather-feed-down: step 1/2 would
 execute renew-client.`) and changes nothing. When the decisions look right, add `.Configure(o => o.DryRun = false)`.
 
+## See it work
+
+![The Homeostat dashboard: a condition activates, a first step does not heal it, a person approves the failover, and the run is verified as healed](https://raw.githubusercontent.com/engineering87/Homeostat/main/assets/demo.gif)
+
 ## Safe by default
 
 - Dry-run is on until you set `DryRun = false`: Homeostat only logs what it would do.

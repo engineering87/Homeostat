@@ -180,7 +180,7 @@ public class ReliabilityGapTests
             h => h
                 .Configure(o => o.DefaultCooldown = TimeSpan.FromSeconds(1))
                 .AddCondition("feed-down", c => c.ForSource("feed")
-                    .Heal(p => p.With("renew", _ => { }).VerificationTimeout(TimeSpan.FromSeconds(5)).VerifyWith<CountingSilentVerifier>())),
+                    .Heal(p => p.With("renew", _ => { }).VerificationTimeout(TimeSpan.FromSeconds(5)).UseVerifier<CountingSilentVerifier>())),
             services => services.AddSingleton(verifier));
 
         host.Publish("feed", SignalSeverity.Unhealthy);

@@ -64,12 +64,15 @@ public sealed class HomeostatTestHost : IAsyncDisposable
 
     /// <summary>Creates and starts a host.</summary>
     /// <param name="configure">Homeostat configuration: conditions, plans, detectors, options.</param>
-    /// <param name="services">Your own services, such as the components your actions use.</param>
-    /// <param name="options">Host settings.</param>
+    /// <param name="configureServices">Registers your own services, such as the components your actions use.</param>
+    /// <param name="options">
+    /// Host settings. An object rather than a delegate on purpose: tests often share one instance (a start time, the
+    /// clock steps) across several hosts.
+    /// </param>
     /// <param name="cancellationToken">Cancels the start.</param>
     public static async Task<HomeostatTestHost> StartAsync(
         Action<HomeostatBuilder> configure,
-        Action<IServiceCollection>? services = null,
+        Action<IServiceCollection>? configureServices = null,
         HomeostatTestHostOptions? options = null,
         CancellationToken cancellationToken = default)
     {
@@ -82,7 +85,7 @@ public sealed class HomeostatTestHost : IAsyncDisposable
         var collection = new ServiceCollection();
         collection.AddLogging();
         collection.AddSingleton<TimeProvider>(time);
-        services?.Invoke(collection);
+        configureServices?.Invoke(collection);
         collection.AddHomeostat(h =>
         {
             h.Configure(o => o.DryRun = options.DryRun);
@@ -125,8 +128,12 @@ public sealed class HomeostatTestHost : IAsyncDisposable
     }
 
     /// <summary>Publishes a signal stamped with the simulated time.</summary>
-    public bool Publish(string source, SignalSeverity severity, string? message = null)
-        => Signals.TryPublish(source, severity, message);
+    /// <param name="source">Signal source.</param>
+    /// <param name="severity">Signal severity.</param>
+    /// <param name="message">Optional message.</param>
+    /// <param name="value">Optional measured value, for value, trend, anomaly, projection and seasonal rules.</param>
+    public bool Publish(string source, SignalSeverity severity, string? message = null, double? value = null)
+        => Signals.TryPublish(source, severity, message, value);
 
     /// <summary>
     /// Waits for a run of <paramref name="conditionName"/> to complete and returns its result.

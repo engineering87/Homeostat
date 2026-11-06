@@ -70,7 +70,7 @@ public class ReliabilityTests
             .AddCondition("feed-down", c => c.ForSource("feed")
                 .Heal(p => p.With("stuck", (_, _) => new TaskCompletionSource().Task).ActionTimeout(TimeSpan.FromSeconds(30))))
             .AddCondition("disk-full", c => c.ForSource("disk")
-                .Heal(p => p.With("prune", _ => { }).VerifyWith<EngineTests.AlwaysHealedVerifier>())));
+                .Heal(p => p.With("prune", _ => { }).UseVerifier<EngineTests.AlwaysHealedVerifier>())));
 
         host.Publish("feed", SignalSeverity.Unhealthy);
         var stuck = await host.WaitForRunAsync("feed-down");
@@ -86,7 +86,7 @@ public class ReliabilityTests
     {
         await using var host = await HomeostatTestHost.StartAsync(h => h
             .AddCondition("feed-down", c => c.ForSource("feed")
-                .Heal(p => p.With("renew", _ => { }).VerificationTimeout(TimeSpan.FromSeconds(30)).VerifyWith<SilentVerifier>())));
+                .Heal(p => p.With("renew", _ => { }).VerificationTimeout(TimeSpan.FromSeconds(30)).UseVerifier<SilentVerifier>())));
 
         host.Publish("feed", SignalSeverity.Unhealthy);
         var run = await host.WaitForRunAsync("feed-down");

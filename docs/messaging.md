@@ -99,7 +99,7 @@ builder.Services.AddHomeostat(h => h
 | `ServiceBusSignalOptions` | Default | Meaning |
 |---|---|---|
 | `Source` | `servicebus:{queue}` or `servicebus:{topic}:{subscription}` | Prefix of the `:messages` and `:dead-letter` sources |
-| `Interval` | 30 seconds | How often the counts are read |
+| `Interval` | 30 seconds | How often the counts are read; an `Interval` set on `Messages` or `DeadLetter` wins over it for that signal |
 | `Messages` | no thresholds | Thresholds of the active message count (the backlog) |
 | `DeadLetter` | no thresholds | Thresholds of the dead-letter count |
 | `Client` | the registered `ServiceBusAdministrationClient` | Returns the administration client, for example one per namespace: `o.Client = sp => sp.GetRequiredKeyedService<ServiceBusAdministrationClient>("ingest-ns")` |
@@ -163,7 +163,7 @@ public sealed class ThumbnailWorker(IConnection connection, IHomeostatConsumers 
 | `RabbitMqQueueSignalOptions` | Default | Meaning |
 |---|---|---|
 | `Source` | `rabbitmq:{queue}` | Prefix of the `:messages`, `:consumers` and `:dead-letter` sources |
-| `Interval` | 30 seconds | How often the queue is read |
+| `Interval` | 30 seconds | How often the queue is read; an `Interval` set on `Messages`, `Consumers` or `DeadLetter` wins over it for that signal |
 | `Messages` | no thresholds | Thresholds of the ready message count (the backlog) |
 | `Consumers` | `UnhealthyBelow = 1` | Thresholds of the consumer count |
 | `DeadLetterQueue` | none | A dead-letter queue to watch as well |
@@ -311,7 +311,7 @@ builder.Services.AddHomeostat(h => h
 | `Source` | `artemis:{queue}` | Prefix of the `:messages`, `:consumers` and `:dead-letter` sources |
 | `Address` | the queue name | Address the queue is bound to |
 | `RoutingType` | `anycast` | `anycast` or `multicast` |
-| `Interval` | 30 seconds | How often the queue is read |
+| `Interval` | 30 seconds | How often the queue is read; an `Interval` set on `Messages`, `Consumers` or `DeadLetter` wins over it for that signal |
 | `Messages`, `Consumers`, `DeadLetter` | `Consumers.UnhealthyBelow = 1` | Thresholds of each count; `Messages` includes messages being delivered |
 | `DeadLetterQueue`, `DeadLetterAddress` | none, `DLQ` | The dead-letter queue to watch and its address |
 

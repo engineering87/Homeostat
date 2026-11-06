@@ -47,33 +47,40 @@ public static class HomeostatHealthChecksExtensions
     }
 
     /// <summary>
-    /// Adds a health check that reports Homeostat itself: <paramref name="attentionStatus"/> (Degraded by default)
-    /// while it is paused, its action budget is exhausted, a step waits for approval or a condition is active;
+    /// Adds a health check that reports Homeostat itself: <paramref name="failureStatus"/> (Degraded when null, the
+    /// default) while it is paused, its action budget is exhausted, a step waits for approval or a condition is active;
     /// Healthy otherwise. The details are in the result data. This check is never turned into a signal. A store that
-    /// cannot be read is always reported as Degraded, whatever <paramref name="attentionStatus"/>: the store is shared,
-    /// and an Unhealthy result would take every replica out of rotation at once.
+    /// cannot be read, and a check that fails or exceeds <paramref name="timeout"/>, are always reported as Degraded,
+    /// whatever <paramref name="failureStatus"/>: the store is shared, and an Unhealthy result would take every replica
+    /// out of rotation at once.
     /// </summary>
     /// <param name="builder">The health checks builder.</param>
     /// <param name="name">Name of the check.</param>
-    /// <param name="attentionStatus">Status reported when Homeostat needs attention.</param>
+    /// <param name="failureStatus">Status reported when Homeostat needs attention; null means Degraded.</param>
     /// <param name="tags">Additional tags, for example to select the check in a health endpoint.</param>
+    /// <param name="timeout">Time allowed for the check; null means none (the check bounds its own store reads).</param>
     /// <example><code>builder.Services.AddHealthChecks().AddHomeostatCheck();</code></example>
     public static IHealthChecksBuilder AddHomeostatCheck(
         this IHealthChecksBuilder builder,
         string name = "homeostat",
-        HealthStatus attentionStatus = HealthStatus.Degraded,
-        IEnumerable<string>? tags = null)
+        HealthStatus? failureStatus = null,
+        IEnumerable<string>? tags = null,
+        TimeSpan? timeout = null)
     {
         ArgumentNullException.ThrowIfNull(builder);
         ArgumentException.ThrowIfNullOrWhiteSpace(name);
 
+        var attentionStatus = failureStatus ?? HealthStatus.Degraded;
+        // The registration's own failure status (used when the check throws or times out) stays Degraded, like a store
+        // outage (decision I6): these are problems of Homeostat, not of the application.
         return builder.Add(new HealthCheckRegistration(
             name,
             sp => new HomeostatHealthCheck(
                 sp.GetRequiredService<IHomeostatControl>(),
                 sp.GetRequiredService<IHomeostatApprovals>(),
                 attentionStatus),
-            failureStatus: null,
-            tags: (tags ?? []).Append(HomeostatHealthCheck.Tag)));
+            HealthStatus.Degraded,
+            (tags ?? []).Append(HomeostatHealthCheck.Tag),
+            timeout));
     }
 }

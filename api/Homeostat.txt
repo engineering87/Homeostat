@@ -13,7 +13,7 @@ namespace Homeostat
     public Homeostat.HomeostatBuilder AddMaintenanceWindow(string name, System.Action<Homeostat.Guardrails.MaintenanceWindow> configure)
     public Homeostat.HomeostatBuilder AddMemoryPressureDetector(System.Action<Homeostat.Detectors.MemoryPressureDetectorOptions>? configure = null)
     public Homeostat.HomeostatBuilder AddObserver<TObserver>() where TObserver : class, Homeostat.IHealingObserver
-    public Homeostat.HomeostatBuilder AddThreadPoolStarvationDetector(System.Action<Homeostat.Detectors.ThreadPoolDetectorOptions>? configure = null)
+    public Homeostat.HomeostatBuilder AddThreadPoolStarvationDetector(System.Action<Homeostat.Detectors.ThreadPoolStarvationDetectorOptions>? configure = null)
     public Homeostat.HomeostatBuilder Configure(System.Action<Homeostat.HomeostatOptions> configure)
     public Homeostat.HomeostatBuilder UseCoordinator(System.Func<System.IServiceProvider, Homeostat.Coordination.IHomeostatCoordinator> factory)
     public Homeostat.HomeostatBuilder UseCoordinator<TCoordinator>() where TCoordinator : class, Homeostat.Coordination.IHomeostatCoordinator
@@ -240,8 +240,8 @@ namespace Homeostat.Detectors
     public double DegradedLoad { get; set; }
     public string Source { get; set; }
     public double UnhealthyLoad { get; set; }
-  public sealed class ThreadPoolDetectorOptions
-    public ThreadPoolDetectorOptions()
+  public sealed class ThreadPoolStarvationDetectorOptions
+    public ThreadPoolStarvationDetectorOptions()
     public System.TimeSpan DegradedLatency { get; set; }
     public string Source { get; set; }
     public System.TimeSpan UnhealthyLatency { get; set; }
@@ -282,13 +282,12 @@ namespace Homeostat.Diagnostics
     public const string Name = "Homeostat"
 namespace Homeostat.Guardrails
   public sealed record ActionBudgetStatus
-    public ActionBudgetStatus(int Used, int Limit, System.TimeSpan Window)
+    public ActionBudgetStatus()
     public bool IsExhausted { get; }
     public int Limit { get; init; }
     public int Remaining { get; }
     public int Used { get; init; }
     public System.TimeSpan Window { get; init; }
-    public void Deconstruct(out int Used, out int Limit, out System.TimeSpan Window)
     public bool Equals(Homeostat.Guardrails.ActionBudgetStatus? other)
     public override bool Equals(object? obj)
     public override int GetHashCode()
@@ -324,7 +323,6 @@ namespace Homeostat.Healing
     Expired = 3
     Canceled = 4
   public sealed class ConditionClearedVerifier : Homeostat.Healing.IHealingVerifier
-    public ConditionClearedVerifier(System.TimeProvider timeProvider, Microsoft.Extensions.Options.IOptions<Homeostat.HomeostatOptions> options)
     public System.Threading.Tasks.Task<Homeostat.Healing.VerificationOutcome> VerifyAsync(Homeostat.Healing.HealingContext context, System.TimeSpan timeout, System.Threading.CancellationToken cancellationToken)
   public sealed class HealingContext
     public System.DateTimeOffset? ActionCompletedAt { get; }
@@ -353,8 +351,8 @@ namespace Homeostat.Healing
     public Homeostat.Healing.HealingPlanBuilder TurnOnSwitch(string switchName, bool turnOffWhenCleared = true)
     public Homeostat.Healing.HealingPlanBuilder UndoWith(string name, System.Func<Homeostat.Healing.HealingContext, System.Threading.CancellationToken, System.Threading.Tasks.Task> action)
     public Homeostat.Healing.HealingPlanBuilder UndoWith<TAction>() where TAction : class, Homeostat.Healing.IHealingAction
+    public Homeostat.Healing.HealingPlanBuilder UseVerifier<TVerifier>() where TVerifier : class, Homeostat.Healing.IHealingVerifier
     public Homeostat.Healing.HealingPlanBuilder VerificationTimeout(System.TimeSpan timeout)
-    public Homeostat.Healing.HealingPlanBuilder VerifyWith<TVerifier>() where TVerifier : class, Homeostat.Healing.IHealingVerifier
     public Homeostat.Healing.HealingPlanBuilder With(string name, System.Action<System.IServiceProvider> action)
     public Homeostat.Healing.HealingPlanBuilder With(string name, System.Func<Homeostat.Healing.HealingContext, System.Threading.CancellationToken, System.Threading.Tasks.Task> action)
     public Homeostat.Healing.HealingPlanBuilder With(string name, System.Func<System.IServiceProvider, System.Threading.Tasks.Task> action)
@@ -479,12 +477,12 @@ namespace Homeostat.Metrics
     Ratio = 12
   public sealed class ServerErrorRateSignalOptions : Homeostat.Metrics.ServerSignalOptions
     public ServerErrorRateSignalOptions()
-    public double DegradedAbove { get; set; }
-    public double UnhealthyAbove { get; set; }
+    public double DegradedErrorRatio { get; set; }
+    public double UnhealthyErrorRatio { get; set; }
   public sealed class ServerLatencySignalOptions : Homeostat.Metrics.ServerSignalOptions
     public ServerLatencySignalOptions()
-    public System.TimeSpan DegradedAbove { get; set; }
-    public System.TimeSpan UnhealthyAbove { get; set; }
+    public System.TimeSpan DegradedLatency { get; set; }
+    public System.TimeSpan UnhealthyLatency { get; set; }
   public abstract class ServerSignalOptions
     public int MinimumRequests { get; set; }
     public string Source { get; set; }
@@ -594,6 +592,7 @@ namespace Homeostat.Persistence
     public string ConditionName { get; init; }
     public string Instance { get; init; }
     public Homeostat.Healing.HealingRunOutcome Outcome { get; init; }
+    public string? RunId { get; init; }
     public System.DateTimeOffset StartedAt { get; init; }
     public System.Collections.Generic.IReadOnlyList<Homeostat.Persistence.HealingStepRecord> Steps { get; init; }
     public bool Equals(Homeostat.Persistence.HealingRunRecord? other)
