@@ -164,8 +164,12 @@ and run the same checks (`CI`, `CodeQL`, `Commit lint`) on every pull request an
 Maintainers only.
 
 1. Move the `[Unreleased]` entries of `CHANGELOG.md` under a new version heading.
-2. Merge `develop` into `main` with a pull request, then tag `main` with the version:
-   `git tag v1.0.0 origin/main && git push origin v1.0.0`. The `Release` workflow refuses a tag that is not on `main`.
+2. Merge `develop` into `main` with a pull request (squash merge, so `main` gets one commit named by the pull
+   request title; the commit lint checks the title, and the commits were checked when they reached `develop`), then
+   tag `main` with the version: `git tag v1.0.0 origin/main && git push origin v1.0.0`. The `Release` workflow refuses
+   a tag that is not on `main`. Afterwards merge `main` back into `develop`
+   (`git checkout develop && git merge origin/main && git push`), so the next release pull request shows only the new
+   changes.
 3. The `Release` workflow builds, tests, packs (with symbols and SourceLink), signs the packages when a certificate is
    configured, produces an SBOM and a build provenance attestation, pushes the packages to NuGet and creates a GitHub
    release with the packages and the SBOM. Versions with a suffix (`-rc.1`) are marked as pre-releases. The version

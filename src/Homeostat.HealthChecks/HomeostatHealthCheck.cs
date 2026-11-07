@@ -42,14 +42,14 @@ internal sealed class HomeostatHealthCheck : IHealthCheck
             var reads = Volatile.Read(ref box.Value);
             if (reads is null || reads.IsCompleted)
             {
-                // Concurrent probes: only the first one's read is started, the others share it.
-                var start = new Task<Task<(Guardrails.ActionBudgetStatus, int)>>(ReadStoreAsync);
-                var candidate = start.Unwrap();
-                var current = Interlocked.CompareExchange(ref box.Value, candidate, reads);
+                // Concurrent probes: only the first one's read is started, the others share it. The slot is taken with
+                // a completion source first, so a probe that loses the race starts nothing.
+                var read = new TaskCompletionSource<(Guardrails.ActionBudgetStatus, int)>(TaskCreationOptions.RunContinuationsAsynchronously);
+                var current = Interlocked.CompareExchange(ref box.Value, read.Task, reads);
                 if (current == reads)
                 {
-                    start.Start(TaskScheduler.Default);   // off the request thread: a store may block before returning its task
-                    reads = candidate;
+                    _ = ReadIntoAsync(read);
+                    reads = read.Task;
                 }
                 else
                 {
@@ -101,6 +101,19 @@ internal sealed class HomeostatHealthCheck : IHealthCheck
             ? HealthCheckResult.Healthy("No active condition.", data)
             : new HealthCheckResult(_attentionStatus, string.Join("; ", reasons), data: data);
         return result;
+    }
+
+    // Off the request thread (a store may block before returning its task); never throws: the outcome goes to the probes.
+    private async Task ReadIntoAsync(TaskCompletionSource<(Guardrails.ActionBudgetStatus, int)> read)
+    {
+        try
+        {
+            read.TrySetResult(await Task.Run(ReadStoreAsync, CancellationToken.None).ConfigureAwait(false));
+        }
+        catch (Exception ex)
+        {
+            read.TrySetException(ex);
+        }
     }
 
     private async Task<(Guardrails.ActionBudgetStatus, int)> ReadStoreAsync()

@@ -73,12 +73,10 @@ internal sealed class ConditionSet
                 return name;
             }
 
-            if (status == ConditionStatus.Pending && cause.LastTriggeredAt is { } last)
+            if (status == ConditionStatus.Pending && cause.LastTriggeredAt is { } last
+                && _timeProvider.GetUtcNow() - last < ConditionTracker.StaleAfter(cause.Definition))
             {
-                if (_timeProvider.GetUtcNow() - last < ConditionTracker.StaleAfter(cause.Definition))
-                {
-                    return name;
-                }
+                return name;
             }
         }
 
