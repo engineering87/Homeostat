@@ -20,6 +20,7 @@ public sealed class KubernetesTests : IAsyncDisposable
     private readonly string _directory = Directory.CreateTempSubdirectory("homeostat-k8s-").FullName;
     private readonly List<(string Method, string Path, string? ContentType, string? Authorization, string Body)> _requests = [];
     private WebApplication? _server;
+    private int _scaleConflicts;
 
     public async ValueTask DisposeAsync()
     {
@@ -54,6 +55,15 @@ public sealed class KubernetesTests : IAsyncDisposable
                     context.Request.Headers.Authorization.ToString(), body));
             }
 
+            var conflict = context.Request.Method == "PATCH" && context.Request.Path.Value!.EndsWith("/scale", StringComparison.Ordinal)
+                && Interlocked.Decrement(ref _scaleConflicts) >= 0;
+            if (conflict)
+            {
+                context.Response.StatusCode = (int)HttpStatusCode.Conflict;
+                await context.Response.WriteAsync("""{"kind":"Status","message":"the object has been modified","reason":"Conflict","code":409}""");
+                return;
+            }
+
             context.Response.StatusCode = (int)status;
             context.Response.ContentType = "application/json";
             var path = context.Request.Path.Value!;
@@ -75,6 +85,8 @@ public sealed class KubernetesTests : IAsyncDisposable
 
     private Task<HomeostatTestHost> StartHostAsync(Uri server, string caPath, Action<HealingPlanBuilder> plan)
         => HomeostatTestHost.StartAsync(h => h
+            // Real HTTPS calls inside the actions: simulated time races ahead of them, so their timeout is long.
+            .Configure(o => o.DefaultActionTimeout = TimeSpan.FromDays(1))
             .UseKubernetes(o =>
             {
                 o.ApiServer = server;
@@ -84,7 +96,7 @@ public sealed class KubernetesTests : IAsyncDisposable
                 o.PodName = "weather-api-7d9";
                 o.NodeName = "node-1";
             })
-            .AddCondition("weather-api-sick", c => c.ForSource("weather-api").Heal(p => plan(p.VerifyWith<CachingTests.NeverHealed>()))));
+            .AddCondition("weather-api-sick", c => c.ForSource("weather-api").Heal(p => plan(p.UseVerifier<CachingTests.NeverHealed>()))));
 
     [Fact]
     public async Task Actions_call_the_api_server_with_the_service_account_token()
@@ -94,7 +106,7 @@ public sealed class KubernetesTests : IAsyncDisposable
             .RolloutRestart("weather-api", requireApproval: false)
             .ScaleDeployment("weather-api", by: 2, maximum: 3, requireApproval: false)
             .CordonNode(requireApproval: false)
-            .RestartPod(gracePeriodSeconds: 15, requireApproval: false, limits: new RestartLimits(TimeSpan.Zero, 3, TimeSpan.FromHours(1))));
+            .RestartPod(gracePeriod: TimeSpan.FromSeconds(15), requireApproval: false, limits: new RestartLimits(TimeSpan.Zero, 3, TimeSpan.FromHours(1))));
 
         host.Publish("weather-api", SignalSeverity.Unhealthy);
         var run = await host.WaitForRunAsync("weather-api-sick");
@@ -119,8 +131,10 @@ public sealed class KubernetesTests : IAsyncDisposable
         Assert.True(JsonDocument.Parse(requests[4].Body).RootElement.GetProperty("spec").GetProperty("unschedulable").GetBoolean());
 
         Assert.Equal(("GET", "/api/v1/namespaces/weather/pods/weather-api-7d9"), (requests[5].Method, requests[5].Path));
-        Assert.Equal(("DELETE", "/api/v1/namespaces/weather/pods/weather-api-7d9"), (requests[6].Method, requests[6].Path));
-        Assert.Equal(15, JsonDocument.Parse(requests[6].Body).RootElement.GetProperty("gracePeriodSeconds").GetInt32());
+        Assert.Equal(("POST", "/api/v1/namespaces/weather/pods/weather-api-7d9/eviction"), (requests[6].Method, requests[6].Path));
+        var eviction = JsonDocument.Parse(requests[6].Body).RootElement;
+        Assert.Equal("Eviction", eviction.GetProperty("kind").GetString());
+        Assert.Equal(15, eviction.GetProperty("deleteOptions").GetProperty("gracePeriodSeconds").GetInt32());
     }
 
     [Fact]
@@ -180,6 +194,20 @@ public sealed class KubernetesTests : IAsyncDisposable
             Assert.Throws<ArgumentException>(() => p.ScaleDeployment(name, by: 1, maximum: 3));
             p.With("ok", _ => { });
         })));
+    }
+
+    [Fact]
+    public async Task Scaling_reads_again_when_the_deployment_changed_meanwhile()
+    {
+        _scaleConflicts = 2;   // a rollout in progress: two conditional updates in a row lose the race
+        var (server, caPath) = await StartApiServerAsync();
+        await using var host = await StartHostAsync(server, caPath, p => p.ScaleDeployment("weather-api", by: 1, maximum: 3, requireApproval: false));
+
+        host.Publish("weather-api", SignalSeverity.Unhealthy);
+        var run = await host.WaitForRunAsync("weather-api-sick");
+
+        Assert.True(run.Steps.Single().Succeeded, run.Steps.Single().Error?.ToString());
+        Assert.Equal(["GET", "PATCH", "GET", "PATCH", "GET", "PATCH"], _requests.Select(r => r.Method));
     }
 
     [Fact]

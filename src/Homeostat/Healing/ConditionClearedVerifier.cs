@@ -18,10 +18,9 @@ public sealed class ConditionClearedVerifier : IHealingVerifier
     private readonly TimeProvider _timeProvider;
     private readonly TimeSpan _pollInterval;
 
-    /// <summary>Created by dependency injection.</summary>
-    /// <param name="timeProvider">Clock used for polling and timeouts.</param>
-    /// <param name="options">Provides <see cref="HomeostatOptions.VerificationPollInterval"/>.</param>
-    public ConditionClearedVerifier(TimeProvider timeProvider, IOptions<HomeostatOptions> options)
+    // Internal so a later dependency (a logger, the control) is not a breaking change: dependency injection creates it
+    // through a factory (AddHomeostat), and users who decorate it resolve it from the services.
+    internal ConditionClearedVerifier(TimeProvider timeProvider, IOptions<HomeostatOptions> options)
     {
         _timeProvider = timeProvider;
         _pollInterval = options.Value.VerificationPollInterval;
@@ -35,8 +34,10 @@ public sealed class ConditionClearedVerifier : IHealingVerifier
 
         while (true)
         {
+            // An active condition only stops being active by clearing: Pending means it cleared and a new signal has
+            // already started counting again, which is a new episode, not this one going on.
             var state = context.GetConditionState();
-            if (state.Status == ConditionStatus.Inactive)
+            if (state.Status != ConditionStatus.Active)
             {
                 return VerificationOutcome.Healed;
             }

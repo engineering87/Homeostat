@@ -24,7 +24,7 @@ public class CoordinationTests
     {
         await using var host = await StartAsync(h => h.AddCondition("feed-down", c => c
             .ForSource("feed")
-            .Heal(p => p.With<EngineTests.RecordingAction>().RequireApproval().VerifyWith<EngineTests.AlwaysHealedVerifier>())));
+            .Heal(p => p.With<EngineTests.RecordingAction>().RequireApproval().UseVerifier<EngineTests.AlwaysHealedVerifier>())));
 
         host.Publish("feed", SignalSeverity.Unhealthy);
         var request = await host.WaitForApprovalAsync("feed-down");
@@ -83,7 +83,7 @@ public class CoordinationTests
             h => h
                 .AddCondition("feed-down", c => c
                     .ForSource("feed")
-                    .Heal(p => p.With("act", _ => { }).RequireApproval().VerifyWith<EngineTests.AlwaysHealedVerifier>()))
+                    .Heal(p => p.With("act", _ => { }).RequireApproval().UseVerifier<EngineTests.AlwaysHealedVerifier>()))
                 .AddObserver<ApprovalObserver>(),
             services => services.AddSingleton(observer));
 
@@ -116,7 +116,7 @@ public class CoordinationTests
             .AddCondition("feed-down", c => c
                 .ForSource("feed")
                 .SuppressedBy("network-down")
-                .Heal(p => p.With<EngineTests.RecordingAction>().VerifyWith<EngineTests.AlwaysHealedVerifier>())));
+                .Heal(p => p.With<EngineTests.RecordingAction>().UseVerifier<EngineTests.AlwaysHealedVerifier>())));
 
         host.Publish("network", SignalSeverity.Unhealthy);
         await host.WaitForConditionAsync("network-down", ConditionStatus.Active);
@@ -186,7 +186,7 @@ public class CoordinationTests
     {
         await using var host = await StartAsync(h => h.AddCondition("feed-down", c => c
             .ForSource("feed")
-            .Heal(p => p.TurnOnSwitch("serve-cached", turnOffWhenCleared).VerifyWith<EngineTests.AlwaysHealedVerifier>())));
+            .Heal(p => p.TurnOnSwitch("serve-cached", turnOffWhenCleared).UseVerifier<EngineTests.AlwaysHealedVerifier>())));
 
         host.Publish("feed", SignalSeverity.Unhealthy);
         await host.WaitForRunAsync("feed-down");
@@ -224,9 +224,9 @@ public class CoordinationTests
     {
         await using var host = await StartAsync(h => h
             .AddCondition("a", c => c.ForSource("a")
-                .Heal(p => p.TurnOnSwitch("serve-cached", turnOffWhenCleared: true).VerifyWith<EngineTests.AlwaysHealedVerifier>()))
+                .Heal(p => p.TurnOnSwitch("serve-cached", turnOffWhenCleared: true).UseVerifier<EngineTests.AlwaysHealedVerifier>()))
             .AddCondition("b", c => c.ForSource("b")
-                .Heal(p => p.TurnOnSwitch("serve-cached", turnOffWhenCleared: true).VerifyWith<EngineTests.AlwaysHealedVerifier>())));
+                .Heal(p => p.TurnOnSwitch("serve-cached", turnOffWhenCleared: true).UseVerifier<EngineTests.AlwaysHealedVerifier>())));
 
         host.Publish("a", SignalSeverity.Unhealthy);
         await host.WaitForRunAsync("a");
@@ -268,7 +268,7 @@ public class CoordinationTests
         await using var host = await StartAsync(h => h
             .AddCondition("risky", c => c.ForSource("risky").Heal(p => p.With("failover", _ => { }).RequireApproval()))
             .AddCondition("simple", c => c.ForSource("simple")
-                .Heal(p => p.With<EngineTests.RecordingAction>().VerifyWith<EngineTests.AlwaysHealedVerifier>())));
+                .Heal(p => p.With<EngineTests.RecordingAction>().UseVerifier<EngineTests.AlwaysHealedVerifier>())));
 
         host.Publish("risky", SignalSeverity.Unhealthy);
         await host.WaitForApprovalAsync("risky");
@@ -378,7 +378,7 @@ public class CoordinationTests
             .Configure(o => o.MaxActionsPerWindow = 3)
             .AddCondition("feed-down", c => c
                 .ForSource("feed")
-                .Heal(p => p.With<EngineTests.RecordingAction>().VerifyWith<EngineTests.AlwaysHealedVerifier>())));
+                .Heal(p => p.With<EngineTests.RecordingAction>().UseVerifier<EngineTests.AlwaysHealedVerifier>())));
 
         Assert.Empty(await host.Control.GetRecentRunsAsync());
         Assert.False(host.Control.IsDryRun);
@@ -402,7 +402,7 @@ public class CoordinationTests
     {
         await using var host = await StartAsync(h => h.AddCondition("feed-down", c => c
             .ForSource("feed")
-            .Heal(p => p.With("first", _ => { }).Then("second", _ => { }).VerifyWith<ThrowingVerifier>())));
+            .Heal(p => p.With("first", _ => { }).Then("second", _ => { }).UseVerifier<ThrowingVerifier>())));
 
         host.Publish("feed", SignalSeverity.Unhealthy);
         var run = await host.WaitForRunAsync("feed-down");

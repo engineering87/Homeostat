@@ -1,3 +1,4 @@
+using Homeostat.Polly;
 using Homeostat.Signals;
 using Homeostat.Testing;
 using Microsoft.Extensions.DependencyInjection;
@@ -56,7 +57,7 @@ public class PollyControlTests
             .AddCircuitBreakerSignals()
             .AddCondition("forecast-provider-down", c => c.ForSource("forecast-provider").Heal(p => p
                 .IsolateCircuit("forecast")
-                .VerifyWith<BuiltInActionTests.AlwaysHealed>())));
+                .UseVerifier<BuiltInActionTests.AlwaysHealed>())));
 
         host.Publish("forecast-provider", SignalSeverity.Unhealthy);
         var run = await host.WaitForRunAsync("forecast-provider-down");
@@ -87,6 +88,50 @@ public class PollyControlTests
         Assert.Throws<TimeoutException>(() => pipeline.Execute(() => 1));
         switches.TurnOff("chaos:forecast");
         Assert.Equal(1, pipeline.Execute(() => 1));
+    }
+
+    [Fact]
+    public async Task Chaos_stops_by_itself_after_its_maximum_duration()
+    {
+        var time = new Microsoft.Extensions.Time.Testing.FakeTimeProvider(DateTimeOffset.Parse("2026-11-04T10:00:00Z"));
+        var collection = new ServiceCollection().AddLogging().AddSingleton<TimeProvider>(time);
+        collection.AddHomeostat(h => h.AddCircuitBreakerSignals());
+        await using var services = collection.BuildServiceProvider();
+        var switches = services.GetRequiredService<IHomeostatSwitches>();
+        ResiliencePipeline Pipeline() => new ResiliencePipelineBuilder()
+            .AddChaosFault(new ChaosFaultStrategyOptions
+            {
+                InjectionRate = 1,
+                FaultGenerator = static _ => ValueTask.FromResult<Exception?>(new TimeoutException("chaos")),
+                EnabledGenerator = services.ChaosEnabledBySwitch("chaos:geocoder", TimeSpan.FromMinutes(20)),
+            })
+            .Build();
+
+        var pipeline = Pipeline();
+        switches.TurnOn("chaos:geocoder");
+        Assert.Throws<TimeoutException>(() => pipeline.Execute(() => 1));
+        time.Advance(TimeSpan.FromMinutes(19));
+        Assert.Throws<TimeoutException>(() => Pipeline().Execute(() => 1));   // a pipeline built again keeps the clock
+
+        // Nobody ended the game day: chaos stops, though the switch is still on.
+        time.Advance(TimeSpan.FromMinutes(2));
+        Assert.Equal(1, pipeline.Execute(() => 1));
+        Assert.True(switches.IsOn("chaos:geocoder"));
+
+        // Off and on again: another round.
+        switches.TurnOff("chaos:geocoder");
+        Assert.Equal(1, pipeline.Execute(() => 1));
+        time.Advance(TimeSpan.FromSeconds(1));   // decisions are ordered by time: a turn-on does not win a tie
+        switches.TurnOn("chaos:geocoder");
+        Assert.Throws<TimeoutException>(() => pipeline.Execute(() => 1));
+
+        // Off and on again with no call in between: still another round.
+        time.Advance(TimeSpan.FromMinutes(21));
+        Assert.Equal(1, pipeline.Execute(() => 1));
+        switches.TurnOff("chaos:geocoder");
+        time.Advance(TimeSpan.FromSeconds(1));
+        switches.TurnOn("chaos:geocoder");
+        Assert.Throws<TimeoutException>(() => pipeline.Execute(() => 1));
     }
 
     [Fact]

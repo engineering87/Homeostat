@@ -1,7 +1,10 @@
 namespace Homeostat.Healing;
 
 /// <summary>Result of checking whether an action actually healed the condition.</summary>
-/// <remarks>Numbered from 1: the default value, 0, is none of them, so an unset value never reads as a success.</remarks>
+/// <remarks>
+/// Numbered from 1 on purpose: 0 (<c>default</c>) is deliberately not a member, so a value never set is caught as
+/// undefined and never reads as a success.
+/// </remarks>
 public enum VerificationOutcome
 {
     /// <summary>There is evidence that the condition cleared. The run stops successfully.</summary>

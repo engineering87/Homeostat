@@ -11,7 +11,7 @@ public static class HomeostatResourceBuilderExtensions
     /// <summary>
     /// Shows Homeostat on a resource of the Aspire dashboard: a <b>Homeostat</b> link to the application's Homeostat
     /// dashboard, and the commands <b>Pause healing</b> and <b>Resume healing</b>, for example while debugging a failure
-    /// that Homeostat would otherwise heal. The commands are enabled when the resource is running and healthy.
+    /// that Homeostat would otherwise heal. The commands are enabled while the resource is running, healthy or not.
     /// </summary>
     /// <typeparam name="T">Resource type.</typeparam>
     /// <param name="builder">The resource builder, for example of <c>AddProject</c>.</param>
@@ -66,6 +66,7 @@ public static class HomeostatResourceBuilderExtensions
                 IconName = "Pause",
                 IconVariant = IconVariant.Regular,
                 PrepareRequest = context => PrepareAsync(context, options, pauseQuery),
+                UpdateState = WhileRunning,
             });
             builder.WithHttpCommand($"{prefix}/resume", "Resume healing", options.EndpointName, "homeostat-resume", new HttpCommandOptions
             {
@@ -73,11 +74,17 @@ public static class HomeostatResourceBuilderExtensions
                 IconName = "Play",
                 IconVariant = IconVariant.Regular,
                 PrepareRequest = context => PrepareAsync(context, options, query: null),
+                UpdateState = WhileRunning,
             });
         }
 
         return builder;
     }
+
+    // Enabled while the resource runs, healthy or not: pausing matters most while it is failing (Aspire's default
+    // enables HTTP commands only for a healthy resource).
+    private static ResourceCommandState WhileRunning(UpdateCommandStateContext context)
+        => context.ResourceSnapshot.State?.Text == KnownResourceStates.Running ? ResourceCommandState.Enabled : ResourceCommandState.Disabled;
 
     internal static string NormalizePrefix(string prefix)
     {

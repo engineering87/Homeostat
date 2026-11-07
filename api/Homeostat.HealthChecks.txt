@@ -1,4 +1,8 @@
 namespace Homeostat
   public static class HomeostatHealthChecksExtensions
-    public static Homeostat.HomeostatBuilder AddHealthCheckSignals(this Homeostat.HomeostatBuilder builder, System.TimeSpan? period = null)
-    public static Microsoft.Extensions.DependencyInjection.IHealthChecksBuilder AddHomeostatCheck(this Microsoft.Extensions.DependencyInjection.IHealthChecksBuilder builder, string name = "homeostat", Microsoft.Extensions.Diagnostics.HealthChecks.HealthStatus attentionStatus = 1, System.Collections.Generic.IEnumerable<string>? tags = null)
+    public static Homeostat.HomeostatBuilder AddHealthCheckSignals(this Homeostat.HomeostatBuilder builder, System.Action<Homeostat.HealthChecks.HealthCheckSignalOptions>? configure = null)
+    public static Microsoft.Extensions.DependencyInjection.IHealthChecksBuilder AddHomeostatCheck(this Microsoft.Extensions.DependencyInjection.IHealthChecksBuilder builder, string name = "homeostat", Microsoft.Extensions.Diagnostics.HealthChecks.HealthStatus? failureStatus = null, System.Collections.Generic.IEnumerable<string>? tags = null, System.TimeSpan? timeout = null)
+namespace Homeostat.HealthChecks
+  public sealed class HealthCheckSignalOptions
+    public HealthCheckSignalOptions()
+    public System.TimeSpan? Interval { get; set; }

@@ -49,11 +49,11 @@ internal sealed class HomeostatDbInterceptor(CallRecorder recorder, Func<Excepti
     }
 
     public void CommandFailed(DbCommand command, CommandErrorEventData eventData)
-        => recorder.Record(isFailure(eventData.Exception), eventData.Duration);
+        => recorder.Record(IsFailure(eventData.Exception), eventData.Duration);
 
     public Task CommandFailedAsync(DbCommand command, CommandErrorEventData eventData, CancellationToken cancellationToken = default)
     {
-        recorder.Record(isFailure(eventData.Exception), eventData.Duration);
+        recorder.Record(IsFailure(eventData.Exception), eventData.Duration);
         return Task.CompletedTask;
     }
 
@@ -64,5 +64,18 @@ internal sealed class HomeostatDbInterceptor(CallRecorder recorder, Func<Excepti
     {
         recorder.Record(true, eventData.Duration);
         return Task.CompletedTask;
+    }
+
+    // A classifier that throws must not replace the command's exception in the application: it counts as a failure.
+    private bool IsFailure(Exception exception)
+    {
+        try
+        {
+            return isFailure(exception);
+        }
+        catch
+        {
+            return true;
+        }
     }
 }

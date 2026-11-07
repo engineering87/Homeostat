@@ -20,11 +20,11 @@ public class IncidentTests
                     p.With("renew", _ => { });
                     if (heals)
                     {
-                        p.VerifyWith<EngineTests.AlwaysHealedVerifier>();
+                        p.UseVerifier<EngineTests.AlwaysHealedVerifier>();
                     }
                     else
                     {
-                        p.VerifyWith<CachingTests.NeverHealed>();
+                        p.UseVerifier<CachingTests.NeverHealed>();
                     }
                 }));
                 notifier(h);
@@ -82,7 +82,7 @@ public class IncidentTests
     {
         var handler = new RecordingHandler();
         await using var host = await StartAsync(
-            h => h.AddOpsgenieAlerts(o => { o.ApiKey = "api-key"; o.Tags.Add("weather"); }),
+            h => h.AddOpsgenieIncidents(o => { o.ApiKey = "api-key"; o.Tags.Add("weather"); }),
             "Homeostat.Opsgenie", handler);
 
         host.Publish("feed", SignalSeverity.Unhealthy);
@@ -120,17 +120,13 @@ public class IncidentTests
     [Fact]
     public void Slack_messages_escape_text_and_carry_approval_buttons()
     {
-        var approval = new Notifications.HomeostatEvent(
-            Notifications.HomeostatEventKind.ApprovalRequested, DateTimeOffset.UnixEpoch, "weather-api", "feed-down",
-            "Step 'failover' of 'feed-down' waits for approval. <!channel> <https://evil.example|click>")
-        {
-            Step = "failover",
+        var approval = new Notifications.HomeostatEvent { Kind = Notifications.HomeostatEventKind.ApprovalRequested, Timestamp = DateTimeOffset.UnixEpoch, Application = "weather-api", Condition = "feed-down", Summary = "Step 'failover' of 'feed-down' waits for approval. <!channel> <https://evil.example|click>", Step = "failover",
             ApprovalId = "a1b2",
         };
 
         var json = JsonDocument.Parse(SlackSink.Payload(approval, new SlackOptions
         {
-            WebhookUrl = new Uri("https://hooks.slack.com/services/x"),
+            Url = new Uri("https://hooks.slack.com/services/x"),
             ApprovalButtons = true,
             DashboardUrl = new Uri("https://weather-api.internal/homeostat/dashboard"),
         }).ToJsonString(HttpEventSink.Json)).RootElement;
@@ -148,11 +144,9 @@ public class IncidentTests
     [Fact]
     public void Slack_text_stays_within_the_block_limit_without_splitting_entities()
     {
-        var e = new Notifications.HomeostatEvent(
-            Notifications.HomeostatEventKind.ConditionActivated, DateTimeOffset.UnixEpoch, "weather-api", "feed-down",
-            string.Concat(Enumerable.Repeat("a > b & c < d ", 400)));
+        var e = new Notifications.HomeostatEvent { Kind = Notifications.HomeostatEventKind.ConditionActivated, Timestamp = DateTimeOffset.UnixEpoch, Application = "weather-api", Condition = "feed-down", Summary = string.Concat(Enumerable.Repeat("a > b & c < d ", 400)) };
 
-        var json = JsonDocument.Parse(SlackSink.Payload(e, new SlackOptions { WebhookUrl = new Uri("https://hooks.slack.com/x") }).ToJsonString(HttpEventSink.Json)).RootElement;
+        var json = JsonDocument.Parse(SlackSink.Payload(e, new SlackOptions { Url = new Uri("https://hooks.slack.com/x") }).ToJsonString(HttpEventSink.Json)).RootElement;
         var section = json.GetProperty("blocks")[0].GetProperty("text").GetProperty("text").GetString()!;
 
         Assert.True(section.Length <= 3000);
@@ -167,7 +161,7 @@ public class IncidentTests
         var tracker = new IncidentTracker();
         var options = new PagerDutyOptions { RoutingKey = "key" };
         Notifications.HomeostatEvent Event(Notifications.HomeostatEventKind kind, string? outcome = null)
-            => new(kind, DateTimeOffset.UnixEpoch, "weather-api", "feed-down", "x") { Outcome = outcome };
+            => new Notifications.HomeostatEvent { Kind = kind, Timestamp = DateTimeOffset.UnixEpoch, Application = "weather-api", Condition = "feed-down", Summary = "x", Outcome = outcome };
 
         Assert.False(tracker.Decide(options, Event(Notifications.HomeostatEventKind.ConditionActivated)).IsTrigger);
         Assert.True(tracker.Decide(options, Event(Notifications.HomeostatEventKind.ConditionCleared)).IsResolve);
@@ -180,13 +174,11 @@ public class IncidentTests
     [Fact]
     public void Teams_cards_are_adaptive_cards_with_a_dashboard_link()
     {
-        var e = new Notifications.HomeostatEvent(
-            Notifications.HomeostatEventKind.RunCompleted, DateTimeOffset.UnixEpoch, "weather-api", "feed-down", "Run ended.")
-        { Outcome = "Healed" };
+        var e = new Notifications.HomeostatEvent { Kind = Notifications.HomeostatEventKind.RunCompleted, Timestamp = DateTimeOffset.UnixEpoch, Application = "weather-api", Condition = "feed-down", Summary = "Run ended.", Outcome = "Healed" };
 
         var json = JsonDocument.Parse(TeamsSink.Payload(e, new TeamsOptions
         {
-            WebhookUrl = new Uri("https://example.webhook.office.com/x"),
+            Url = new Uri("https://example.webhook.office.com/x"),
             DashboardUrl = new Uri("https://weather-api.internal/homeostat/dashboard"),
         }).ToJsonString(HttpEventSink.Json)).RootElement;
 
@@ -202,7 +194,7 @@ public class IncidentTests
     public async Task Notifier_settings_are_validated_at_startup()
     {
         await Assert.ThrowsAnyAsync<Exception>(() => HomeostatTestHost.StartAsync(h => h.AddPagerDutyIncidents(_ => { })));
-        await Assert.ThrowsAnyAsync<Exception>(() => HomeostatTestHost.StartAsync(h => h.AddOpsgenieAlerts(o => o.Url = new Uri("/relative", UriKind.Relative))));
+        await Assert.ThrowsAnyAsync<Exception>(() => HomeostatTestHost.StartAsync(h => h.AddOpsgenieIncidents(o => o.Url = new Uri("/relative", UriKind.Relative))));
         await Assert.ThrowsAnyAsync<Exception>(() => HomeostatTestHost.StartAsync(h => h.AddSlackNotifications(_ => { })));
         await Assert.ThrowsAnyAsync<Exception>(() => HomeostatTestHost.StartAsync(h => h.AddTeamsNotifications(o => o.MaxAttempts = 0)));
     }

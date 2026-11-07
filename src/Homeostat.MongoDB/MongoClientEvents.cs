@@ -75,11 +75,26 @@ internal sealed class MongoClientEvents
             lock (_gate)
             {
                 _clusters[clusterId] = (writable, connectedServers);
-                var now = _clusters.Values.All(c => c.Writable);
-                var changed = _writable != now;
-                _writable = now;
-                return changed;
+                return Recompute();
             }
+        }
+
+        /// <summary>Forgets a closed cluster. Returns whether writability changed.</summary>
+        public bool ClusterClosed(int clusterId)
+        {
+            lock (_gate)
+            {
+                return _clusters.Remove(clusterId) && Recompute();
+            }
+        }
+
+        // Caller holds the lock.
+        private bool Recompute()
+        {
+            bool? now = _clusters.Count == 0 ? null : _clusters.Values.All(c => c.Writable);
+            var changed = _writable != now;
+            _writable = now;
+            return changed;
         }
     }
 }

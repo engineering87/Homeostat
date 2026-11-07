@@ -1,7 +1,8 @@
 # Signals
 
-A signal is an observation about one part of your application. Homeostat reacts only to signals, so
-choosing good signals is the first step to useful self-healing.
+A signal is an observation about one part of your application. Homeostat reacts only to signals, so choosing good
+signals is the first step to useful self-healing. This page covers the `Signal` record, health checks as signals,
+source naming and publishing your own signals.
 
 ```csharp
 public sealed record Signal(string Source, SignalSeverity Severity, DateTimeOffset Timestamp)
@@ -13,7 +14,8 @@ public sealed record Signal(string Source, SignalSeverity Severity, DateTimeOffs
 ```
 
 `Value` is optional. Detectors and probes fill it (a latency, a ratio, a queue length); conditions read it with
-`WhenValueAbove`, trends, projections and anomalies (see [Conditions](conditions.md#values-trends-and-anomalies)).
+`WhenValueAbove`, trend, projection and anomaly rules (see [Conditions](conditions.md#values-trends-and-anomalies)).
+`Message` is a human-readable detail and `Tags` holds key/value attributes.
 
 ## Severities
 
@@ -26,8 +28,9 @@ public sealed record Signal(string Source, SignalSeverity Severity, DateTimeOffs
 Severities are ordered (`Healthy < Degraded < Unhealthy`), so conditions can use thresholds such as
 "at least `Degraded`".
 
-> Most applications don't need to publish signals by hand: [detectors](detectors.md) watch the
-> thread pool, memory, exceptions, HTTP and gRPC clients, Entity Framework Core and circuit breakers for you, a
+> [!TIP]
+> Most applications do not need to publish signals by hand: [detectors](detectors.md) watch the thread pool, memory,
+> exceptions, HTTP and gRPC clients, Entity Framework Core and circuit breakers for you, a
 > [starter preset](detectors.md#starter-presets) registers the usual ones in one line, and
 > [call signals](detectors.md#signals-from-any-client-call-signals) cover any other client.
 
@@ -42,7 +45,7 @@ builder.Services.AddHealthChecks()
     .AddCheck<AirQualityApiHealthCheck>("air-quality");
 
 builder.Services.AddHomeostat(/* ... */)
-    .AddHealthCheckSignals(period: TimeSpan.FromSeconds(10));
+    .AddHealthCheckSignals(o => o.Interval = TimeSpan.FromSeconds(10));
 ```
 
 | Health check | Signal |
@@ -52,16 +55,17 @@ builder.Services.AddHomeostat(/* ... */)
 | `Description` (or the exception message) | `Message` |
 | Duration | Tag `duration_ms`; tag `origin` = `health-check` |
 
-Notes:
+Things to know:
 
-- `AddHealthCheckSignals` calls `AddHealthChecks()` for you and plugs into the framework's periodic
-  health check publisher.
-- Without `period`, the framework default applies: every **30 seconds**, after an initial delay of
-  5 seconds.
-- `period` sets `HealthCheckPublisherOptions.Period`, which is shared by **every** `IHealthCheckPublisher` of the
+- `AddHealthCheckSignals` calls `AddHealthChecks()` for you and plugs into the framework's periodic health check
+  publisher.
+- Without `Interval` (`HealthCheckSignalOptions`), the framework default applies: every 30 seconds, after an initial
+  delay of 5 seconds. An `Interval` shorter than one second throws `ArgumentOutOfRangeException`.
+- `Interval` sets `HealthCheckPublisherOptions.Period`, which is shared by **every** `IHealthCheckPublisher` of the
   application: other publishers (for example one that pushes results to a monitoring service) run at the same
   period. Configure `HealthCheckPublisherOptions` yourself instead if they must differ; the last configuration wins.
-- Keep the period **shorter than the `SustainedFor`** of your conditions (see [Conditions](conditions.md)).
+- Keep the period shorter than the `SustainedFor` of your conditions (see
+  [Conditions](conditions.md#how-long-sustainedfor)).
 
 ## Naming sources
 
@@ -70,7 +74,7 @@ sources are easier to read in the dashboard and in alerts when they follow it to
 
 | Kind | Pattern | Examples |
 |---|---|---|
-| Integrations with a technology | `{technology}[:{name}][:{metric}]` | `redis`, `http:forecast`, `grpc:ForecastsClient`, `efcore:ReportsDbContext`, `efcore:ReportsDbContext:ping`, `cache:memory`, `sqlclient:pool`, `npgsql:pool`, `http-server:errors`, `http-server:latency`, `rabbitmq:thumbnails:dead-letter`, `mongodb:archive:primary`, `alert:DiskAlmostFull` |
+| Integrations with a technology | `{technology}[:{name}][:{metric}]` | `redis`, `http:forecast`, `grpc:ForecastsClient`, `efcore:ReportsDbContext`, `efcore:ReportsDbContext:ping`, `cache:memory`, `sqlclient:pool`, `npgsql:pool`, `http-server:errors`, `http-server:latency`, `rabbitmq:thumbnails:dead-letter`, `mongodb:archive:primary`, `servicebus:ingest:messages`, `counter:Microsoft.Data.SqlClient.EventSource:hard-connects`, `hosted-service:IngestWorker`, `alert:DiskAlmostFull` |
 | The process's own runtime detectors | a bare name | `threadpool`, `memory`, `exceptions` |
 | Health checks | the health check name | `weather-feed` |
 | Call signals (`AddCallSignals`) | your choice; the pattern above is recommended | `geocoding:api` |
@@ -78,9 +82,9 @@ sources are easier to read in the dashboard and in alerts when they follow it to
 
 Where a default source contains a client or context name (`http:{client name}`, `grpc:{client name}`,
 `efcore:{context type name}`), the name is the one .NET uses: the name given to the client, or the type name for a
-typed client or a `DbContext`, without its namespace. Sources are case-sensitive. Every built-in default can be changed (a `source` parameter or a `Source` option), and
-the default names are part of the public contract: they change only in a major version (see
-[Versioning](versioning.md)).
+typed client or a `DbContext`, without its namespace. Sources are case-sensitive. Every built-in default can be
+changed (a `source` parameter or a `Source` option), and the default names are part of the public contract: they change
+only in a major version (see [Versioning](versioning.md)).
 
 ## Publishing your own signals
 
@@ -106,7 +110,8 @@ public sealed class ThumbnailWorker(ISignalPublisher signals) : BackgroundServic
 }
 ```
 
-The short overload stamps the signal with the current time. To add a value or tags, create the record yourself:
+The short overload `TryPublish(source, severity, message, value)` stamps the signal with the current time; `message`
+and `value` are optional. To add tags or set the timestamp yourself, create the record:
 
 ```csharp
 signals.TryPublish(new Signal("thumbnail-queue", SignalSeverity.Degraded, timeProvider.GetUtcNow())
@@ -117,19 +122,25 @@ signals.TryPublish(new Signal("thumbnail-queue", SignalSeverity.Degraded, timePr
 });
 ```
 
+Rules use the timestamp (sustain and clear durations, trend and anomaly windows, occurrence counts), so a clock that
+runs ahead could hold them for as long as its skew. A timestamp more than 1 minute ahead of this instance's clock is
+therefore replaced by the current time when the engine processes the signal, with a warning (at most once a minute);
+timestamps in the past are kept. This applies on the system clock only: with a simulated one (`HomeostatTestHost`,
+`HomeostatReplay`) timestamps are kept as given, so a test can publish hours of signals ahead of it.
+
 ## Tips for good signals
 
-- **Publish healthy signals too**, not only failures. They are what clears a condition and what
-  verification looks at.
-- **Publish regularly.** Conditions and verification reason about time; a source that goes silent
-  leads to `Inconclusive` verification.
-- **One source per component** you would fix independently.
-- **Prefer symptoms users feel** (cannot fetch data, backlog growing) over internal details.
+- Publish healthy signals too, not only failures. They are what clears a condition and what verification looks at.
+- Publish regularly. Conditions and verification reason about time; a source that goes silent leads to `Inconclusive`
+  verification.
+- Use one source per component you would fix independently.
+- Prefer symptoms users feel (cannot fetch data, backlog growing) over internal details.
 
 ## Delivery semantics
 
-- `TryPublish` never blocks. Signals go into an in-memory buffer of `SignalBufferCapacity` items
-  (default 1024).
-- When the buffer is full, the **oldest** pending signal is dropped: fresh information wins.
-- `TryPublish` returns `false` only while the application is shutting down.
+- `TryPublish` never blocks. Signals go into an in-memory buffer of `SignalBufferCapacity` items (default 1024).
+- When the buffer is full, the oldest pending signal is dropped: fresh information wins.
+- `TryPublish` returns `false` only while Homeostat is shutting down.
 - Signals are in-process: each instance of your application has its own buffer.
+
+See also: [Detectors](detectors.md), [Conditions](conditions.md), [Integrations](integrations.md).

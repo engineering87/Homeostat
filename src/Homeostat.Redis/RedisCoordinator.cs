@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using Homeostat.Coordination;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -27,13 +28,20 @@ internal sealed class RedisCoordinator : IHomeostatCoordinator
         return 0
         """;
 
-    private readonly IConnectionMultiplexer _redis;
-    private readonly RedisHomeostatOptions _options;
+    private readonly RedisConnection _connection;
+    private readonly RedisStoreOptions _options;
     private readonly ILogger<RedisCoordinator> _logger;
 
-    public RedisCoordinator(IConnectionMultiplexer redis, IOptions<RedisHomeostatOptions> options, ILogger<RedisCoordinator> logger)
+    public RedisCoordinator(IConnectionMultiplexer redis, IOptions<RedisStoreOptions> options, ILogger<RedisCoordinator> logger)
+        : this(() => redis, options, logger)
     {
-        _redis = redis;
+    }
+
+    /// <summary>Resolves the connection on first use, so the application's startup never waits for Redis.</summary>
+    internal RedisCoordinator(Func<IConnectionMultiplexer> redis, IOptions<RedisStoreOptions> options, ILogger<RedisCoordinator> logger)
+    {
+        // Kept once resolved; a resolution that failed is tried again after a few seconds, not on every call.
+        _connection = new RedisConnection(redis);
         _options = options.Value;
         _logger = logger;
     }
@@ -44,8 +52,39 @@ internal sealed class RedisCoordinator : IHomeostatCoordinator
         var key = (RedisKey)$"{_options.KeyPrefix}lease:{resource}";
         var token = Guid.NewGuid().ToString("N");
 
-        var acquired = await _redis.GetDatabase().StringSetAsync(key, token, duration, When.NotExists).ConfigureAwait(false);
-        return acquired ? new Lease(this, key, token, duration) : null;
+        // The expiry runs from when Redis applies the command, which is after this moment: measuring from here is safe.
+        var requestedAt = Stopwatch.GetTimestamp();
+        var database = _connection.Get().GetDatabase();
+        bool acquired;
+        try
+        {
+            acquired = await database.StringSetAsync(key, token, duration, When.NotExists).ConfigureAwait(false);
+        }
+        catch (Exception)
+        {
+            // The command may have reached Redis even though the reply did not (a client-side timeout): the lease would
+            // then have no owner until it expires, and the plan could not run anywhere meanwhile. Released with its
+            // token, which only this call knows, so nobody else's lease is touched. Best effort and bounded.
+            await TryReleaseAsync(database, key, token).ConfigureAwait(false);
+            throw;
+        }
+
+        return acquired ? new Lease(this, key, token, duration, requestedAt) : null;
+    }
+
+    internal static readonly TimeSpan ReleaseAfterFailureTimeout = TimeSpan.FromSeconds(2);
+
+    private async Task TryReleaseAsync(IDatabase database, RedisKey key, string token)
+    {
+        try
+        {
+            await Task.Run(() => database.ScriptEvaluateAsync(ReleaseScript, [key], [token]), CancellationToken.None)
+                .WaitAsync(ReleaseAfterFailureTimeout).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Could not release the Homeostat lease {Lease} after a failed acquisition; it expires by itself.", (string?)key);
+        }
     }
 
     private sealed class Lease : IHomeostatLease
@@ -53,35 +92,61 @@ internal sealed class RedisCoordinator : IHomeostatCoordinator
         private readonly RedisCoordinator _owner;
         private readonly RedisKey _key;
         private readonly string _token;
+        private readonly TimeSpan _duration;
         private readonly CancellationTokenSource _stop = new();
         private readonly CancellationTokenSource _lost = new();
+        private readonly CancellationToken _lostToken;   // still readable once the lease is disposed
         private readonly Task _renewal;
+        private readonly Task _watchdog;
+        private int _disposed;
 
-        public Lease(RedisCoordinator owner, RedisKey key, string token, TimeSpan duration)
+        // Stopwatch timestamp until which the key certainly exists: the send time of the last successful renewal (or of
+        // the acquisition) plus the duration.
+        private long _validUntil;
+        private int _lostSignaled;
+
+        public Lease(RedisCoordinator owner, RedisKey key, string token, TimeSpan duration, long requestedAt)
         {
             _owner = owner;
             _key = key;
             _token = token;
-            _renewal = RenewAsync(duration);
+            _duration = duration;
+            _lostToken = _lost.Token;
+            _validUntil = requestedAt + ToTimestamp(duration);
+            _renewal = RenewAsync();
+            _watchdog = WatchAsync();
         }
 
-        public CancellationToken Lost => _lost.Token;
+        public CancellationToken Lost => _lostToken;
 
         public async ValueTask DisposeAsync()
         {
-            _stop.Cancel();
-            try
+            if (Interlocked.Exchange(ref _disposed, 1) == 1)
             {
-                await _renewal.ConfigureAwait(false);
+                return;   // released already
             }
-            catch (OperationCanceledException)
+
+            await _stop.CancelAsync().ConfigureAwait(false);
+            foreach (var task in new[] { _renewal, _watchdog })
             {
-                // Expected.
+                try
+                {
+                    await task.ConfigureAwait(false);
+                }
+                catch (Exception ex) when (ex is not OutOfMemoryException)
+                {
+                    // Stopping: a renewal that failed or was canceled must not prevent the release below.
+                }
             }
 
             try
             {
-                await _owner._redis.GetDatabase().ScriptEvaluateAsync(ReleaseScript, [_key], [_token]).ConfigureAwait(false);
+                await _owner._connection.Get().GetDatabase().ScriptEvaluateAsync(ReleaseScript, [_key], [_token]).ConfigureAwait(false);
+            }
+            catch (Exception ex) when (ex is RedisException or TimeoutException)
+            {
+                // Not fatal: the key expires by itself at the end of its duration.
+                _owner._logger.LogWarning(ex, "Could not release the Homeostat lease {Lease}; it expires by itself.", (string?)_key);
             }
             finally
             {
@@ -90,39 +155,79 @@ internal sealed class RedisCoordinator : IHomeostatCoordinator
             }
         }
 
-        private async Task RenewAsync(TimeSpan duration)
+        private async Task RenewAsync()
         {
-            var interval = duration / 3;
-            var lastRenewal = System.Diagnostics.Stopwatch.StartNew();
+            var interval = _duration / 3;
             while (!_stop.IsCancellationRequested)
             {
                 await Task.Delay(interval, _stop.Token).ConfigureAwait(false);
+                var sentAt = Stopwatch.GetTimestamp();
                 try
                 {
-                    var renewed = await _owner._redis.GetDatabase()
-                        .ScriptEvaluateAsync(RenewScript, [_key], [_token, (long)duration.TotalMilliseconds]).ConfigureAwait(false);
+                    var renewed = await _owner._connection.Get().GetDatabase()
+                        .ScriptEvaluateAsync(RenewScript, [_key], [_token, (long)_duration.TotalMilliseconds]).ConfigureAwait(false);
                     if ((int)renewed == 0)
                     {
-                        _owner._logger.LogWarning("The Homeostat lease {Lease} was lost; another instance may take over.", (string?)_key);
-                        _lost.Cancel();
+                        MarkLost(expired: false);
                         return;
                     }
 
-                    lastRenewal.Restart();
+                    // Only forward: a late reply to an older renewal must not shorten the validity.
+                    var validUntil = sentAt + ToTimestamp(_duration);
+                    long current;
+                    while ((current = Interlocked.Read(ref _validUntil)) < validUntil
+                        && Interlocked.CompareExchange(ref _validUntil, validUntil, current) != current)
+                    {
+                        // Another update won the race: read the new value and try again.
+                    }
                 }
                 catch (Exception ex) when (!_stop.IsCancellationRequested)
                 {
                     _owner._logger.LogWarning(ex, "Could not renew the Homeostat lease {Lease}; retrying.", (string?)_key);
                 }
-
-                // Without a successful renewal for a whole lease duration, the key may have expired: assume it is lost.
-                if (lastRenewal.Elapsed >= duration)
-                {
-                    _owner._logger.LogWarning("The Homeostat lease {Lease} could not be renewed in time; another instance may take over.", (string?)_key);
-                    _lost.Cancel();
-                    return;
-                }
             }
         }
+
+        /// <summary>
+        /// Declares the lease lost before the key can expire, independently of renewals that may be blocked on an
+        /// unreachable server: a run must stop before another instance is able to take the lease.
+        /// </summary>
+        private async Task WatchAsync()
+        {
+            // Margin for the difference between the two clocks and for the run to notice before its next step.
+            var margin = ToTimestamp(_duration / 6);
+            while (!_stop.IsCancellationRequested)
+            {
+                var remaining = Interlocked.Read(ref _validUntil) - margin - Stopwatch.GetTimestamp();
+                if (remaining <= 0)
+                {
+                    MarkLost(expired: true);
+                    return;
+                }
+
+                await Task.Delay(Stopwatch.GetElapsedTime(0, remaining), _stop.Token).ConfigureAwait(false);
+            }
+        }
+
+        private void MarkLost(bool expired)
+        {
+            if (Interlocked.Exchange(ref _lostSignaled, 1) != 0)
+            {
+                return;
+            }
+
+            if (expired)
+            {
+                _owner._logger.LogWarning("The Homeostat lease {Lease} could not be renewed in time; another instance may take over.", (string?)_key);
+            }
+            else
+            {
+                _owner._logger.LogWarning("The Homeostat lease {Lease} was lost; another instance may take over.", (string?)_key);
+            }
+
+            _lost.Cancel();
+        }
+
+        private static long ToTimestamp(TimeSpan span) => (long)(span.TotalSeconds * Stopwatch.Frequency);
     }
 }

@@ -13,22 +13,29 @@ namespace Homeostat.Recording;
 /// <summary>
 /// One recorded signal, as written to the recording files (JSON Lines) and read back by replays.
 /// </summary>
-/// <param name="Timestamp">Signal time.</param>
-/// <param name="Source">Signal source.</param>
-/// <param name="Severity">Signal severity.</param>
-/// <param name="Value">Signal value, if any.</param>
-/// <param name="Message">Signal message, if recorded.</param>
-/// <param name="Tags">Signal tags, if recorded.</param>
-/// <param name="Instance">Instance that recorded the signal (<see cref="HomeostatOptions.InstanceId"/>).</param>
-public sealed record RecordedSignal(
-    DateTimeOffset Timestamp,
-    string Source,
-    SignalSeverity Severity,
-    double? Value = null,
-    string? Message = null,
-    IReadOnlyDictionary<string, string>? Tags = null,
-    string? Instance = null)
+public sealed record RecordedSignal
 {
+    /// <summary>Signal time.</summary>
+    public required DateTimeOffset Timestamp { get; init; }
+
+    /// <summary>Signal source.</summary>
+    public required string Source { get; init; }
+
+    /// <summary>Signal severity.</summary>
+    public required SignalSeverity Severity { get; init; }
+
+    /// <summary>Signal value, if any.</summary>
+    public double? Value { get; init; }
+
+    /// <summary>Signal message, if recorded.</summary>
+    public string? Message { get; init; }
+
+    /// <summary>Signal tags, if recorded.</summary>
+    public IReadOnlyDictionary<string, string>? Tags { get; init; }
+
+    /// <summary>Instance that recorded the signal (<see cref="HomeostatOptions.InstanceId"/>).</summary>
+    public string? Instance { get; init; }
+
     internal static readonly JsonSerializerOptions Json = HomeostatJsonContext.CreateOptions(o =>
     {
         o.DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull;
@@ -39,7 +46,7 @@ public sealed record RecordedSignal(
     public Signal ToSignal() => new(Source, Severity, Timestamp) { Value = Value, Message = Message, Tags = Tags };
 
     /// <summary>Reads a recording file, skipping lines that are not valid recorded signals.</summary>
-    /// <param name="path">A file written by <c>RecordSignals</c>.</param>
+    /// <param name="path">A file written by <c>AddSignalRecording</c>.</param>
     public static IEnumerable<RecordedSignal> Read(string path)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
@@ -137,7 +144,14 @@ internal sealed class SignalRecorder : IHostedLifecycleService
     public async Task StoppedAsync(CancellationToken cancellationToken)
     {
         _queue.Writer.TryComplete();
-        await _loop.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            await _loop.WaitAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            // The shutdown timeout expired: the signals still queued are not recorded. Never an error for the host.
+        }
     }
 
     private async Task WriteLoopAsync()
@@ -181,8 +195,7 @@ internal sealed class SignalRecorder : IHostedLifecycleService
                 text.Clear();
                 foreach (var signal in group)
                 {
-                    var recorded = new RecordedSignal(signal.Timestamp, signal.Source, signal.Severity, signal.Value,
-                        _options.IncludeDetails ? signal.Message : null, _options.IncludeDetails ? signal.Tags : null, _instance);
+                    var recorded = new RecordedSignal { Timestamp = signal.Timestamp, Source = signal.Source, Severity = signal.Severity, Value = signal.Value, Message = _options.IncludeDetails ? signal.Message : null, Tags = _options.IncludeDetails ? signal.Tags : null, Instance = _instance };
                     text.Append(JsonSerializer.Serialize(recorded, RecordedSignal.Json.TypeInfo<RecordedSignal>())).Append('\n');
                 }
 
@@ -221,7 +234,7 @@ internal sealed class SignalRecorder : IHostedLifecycleService
     private void Cleanup()
     {
         var today = _timeProvider.GetUtcNow().UtcDateTime.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture);
-        if (_options.RetentionDays <= 0 || !_path.Contains("{date}", StringComparison.Ordinal) || _lastCleanupDate == today)
+        if (_options.Retention <= TimeSpan.Zero || !_path.Contains("{date}", StringComparison.Ordinal) || _lastCleanupDate == today)
         {
             return;
         }
@@ -237,7 +250,7 @@ internal sealed class SignalRecorder : IHostedLifecycleService
         }
 
         var (prefix, suffix) = (name[..at], name[(at + "{date}".Length)..]);
-        var oldest = _timeProvider.GetUtcNow().UtcDateTime.Date.AddDays(-_options.RetentionDays);
+        var oldest = _timeProvider.GetUtcNow().UtcDateTime.Date.AddDays(-Math.Ceiling(_options.Retention.TotalDays));
         IEnumerable<string> files;
         try
         {

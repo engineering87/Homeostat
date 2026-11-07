@@ -17,7 +17,7 @@ public class CustomSinkTests
             h => h
                 .AddCondition("feed-down", c => c
                     .ForSource("feed")
-                    .Heal(p => p.With("renew", _ => { }).VerifyWith<EngineTests.AlwaysHealedVerifier>()))
+                    .Heal(p => p.With("renew", _ => { }).UseVerifier<EngineTests.AlwaysHealedVerifier>()))
                 .AddEventSink<IncidentSink>()
                 .AddEventSink<IncidentSink>(),
             services => services.AddSingleton(store)))
@@ -48,9 +48,10 @@ public class CustomSinkTests
         }
     }
 
-    internal sealed class IncidentSink(IncidentStore store, IOptions<HomeostatOptions> options, TimeProvider time, ILogger<IncidentSink> logger)
-        : HomeostatEventSink(options.Value.ApplicationName, [HomeostatEventKind.RunCompleted], time, logger)
+    internal sealed class IncidentSink(IncidentStore store) : IHomeostatEventSink
     {
-        protected override Task WriteAsync(HomeostatEvent e, CancellationToken cancellationToken) => store.AddAsync(e.Summary);
+        public IReadOnlyCollection<HomeostatEventKind>? Events => [HomeostatEventKind.RunCompleted];
+
+        public Task WriteAsync(HomeostatEvent e, CancellationToken cancellationToken) => store.AddAsync(e.Summary);
     }
 }

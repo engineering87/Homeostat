@@ -1,26 +1,32 @@
 # Message brokers
 
-Consumers are where many .NET services break quietly: the backlog grows, messages pile up in the dead-letter queue,
-a consumer is canceled by the broker and nobody notices. Four packages bring the main brokers into view, and every
-broker gets the same healing tool: **pause the consumer** while what it writes to is down, instead of failing every
-message into the dead-letter queue.
+This page is for developers and SREs who run message consumers. Consumers are where many .NET services break quietly:
+the backlog grows, messages pile up in the dead-letter queue, a consumer is canceled by the broker and nobody notices.
+Four packages bring the main brokers into view, and every broker gets the same healing tool: **pause the consumer**
+while what it writes to is down, instead of failing every message into the dead-letter queue.
 
 | Broker | Package | Signals | Pausable consumer |
 |---|---|---|---|
-| Azure Service Bus | `Homeostat.ServiceBus` | `servicebus:{queue}:active`, `:dead-letter` (also for subscriptions) | `ServiceBusProcessor`, `ServiceBusSessionProcessor` |
-| RabbitMQ | `Homeostat.RabbitMQ` | `rabbitmq:{queue}:messages`, `:consumers`, `:dead-letter` | `PausableRabbitMqConsumer` |
-| Apache Kafka | `Homeostat.Kafka` | `kafka:{name}:lag`, `:brokers`, `:queue` (producers) | `KafkaPauseGate` |
-| Apache ActiveMQ Artemis | `Homeostat.Artemis` | `artemis:{queue}:messages`, `:consumers`, `:dead-letter` | `PauseGate` in the receive loop |
-| Any other | `Homeostat` | your own [probes](integrations.md#probes-any-number-as-a-signal) | your own `IPausableConsumer` |
+| [Azure Service Bus](#azure-service-bus) | `Homeostat.ServiceBus` | `servicebus:{queue}:messages`, `:dead-letter` (subscriptions: `servicebus:{topic}:{subscription}:messages`, `:dead-letter`) | `ServiceBusProcessor`, `ServiceBusSessionProcessor` |
+| [RabbitMQ](#rabbitmq) | `Homeostat.RabbitMQ` | `rabbitmq:{queue}:messages`, `:consumers`, `:dead-letter` | `PausableRabbitMqConsumer` |
+| [Apache Kafka](#apache-kafka) | `Homeostat.Kafka` | `kafka:{name}:lag`, `:brokers`, `:queue` (producers) | `KafkaPauseGate` |
+| [Apache ActiveMQ Artemis](#apache-activemq-artemis) | `Homeostat.Artemis` | `artemis:{queue}:messages`, `:consumers`, `:dead-letter` | `PauseGate` in the receive loop |
+| [Any other](#your-own-consumers) | `Homeostat` | your own [probes](integrations.md#probes-any-number-as-a-signal) | your own `IPausableConsumer` |
+
+The four broker packages are stable. Install them with `dotnet add package <Package> --prerelease` while the current
+version is a release candidate.
 
 Signal values are counts, so every condition rule applies: a threshold for the backlog, a **trend** for dead letters
 (they pile up until someone handles them, so what matters is how fast they grow), an anomaly for lag.
 
+Each broker section below follows the same order: install, what it measures, an example, the options, then pausing
+and notes.
+
 ## Pausing consumers
 
-A consumer that Homeostat can pause implements `IPausableConsumer` (the packages below provide adapters). It is
-paused while the switch `consumer:{name}:paused` is on (`ConsumerSwitches.Paused(name)` returns that name): turned on
-by the plan step `PauseConsumer(name)`, or by hand from the dashboard or the CLI
+A consumer that Homeostat can pause implements `IPausableConsumer` (the broker packages provide adapters). It is
+paused while the switch `consumer:{name}:paused` is on (`ConsumerSwitches.Paused(name)` returns that name). The switch
+is turned on by the plan step `PauseConsumer(name)`, or by hand from the dashboard or the CLI
 (`homeostat switch on consumer:ingest:paused`). `IHomeostatConsumers.IsPaused(name)` and `Names` tell the current
 state.
 
@@ -33,10 +39,16 @@ h.AddCondition("archive-db-down", c => c
         .Then<FailoverArchiveAction>().RequireApproval()));
 ```
 
-- `PauseConsumer(name, resumeWhenCleared: true)` resumes the consumer when the condition clears. With `false`, it
-  stays paused until a person turns the switch off.
-- Several consumers can share a name (the instances of a worker pool): they pause and resume together. Each
-  application instance pauses its own consumers.
+| Parameter of `PauseConsumer` | Default | Meaning |
+|---|---|---|
+| `consumer` | required | Consumer name; the step turns on `consumer:{name}:paused` |
+| `resumeWhenCleared` | `true` | Resumes the consumers when the condition clears; with `false` they stay paused until a person turns the switch off |
+
+Notes:
+
+- Several consumers can share a name (the instances of a worker pool): they pause and resume together.
+- The switch follows the rules of [`TurnOnSwitch`](actions.md#turnonswitchname-and-ihomeostatswitches): a plan pauses
+  the consumers of the instance that runs it, or of every instance in a `OncePerCluster()` plan.
 - Pausing stops taking **new** messages. What happens to the messages in progress depends on the broker: see each
   section below.
 - Consumers declared with `AddPausableConsumer` are registered when the host starts. Consumers created later register
@@ -46,16 +58,25 @@ h.AddCondition("archive-db-down", c => c
   next change.
 - The step is a switch, so it follows every guardrail: dry-run, budget, approvals. A switch that a person turned on
   is never turned off by a condition clearing: the person turns it off.
+- A condition on a backlog can keep itself active while its consumers are paused, since the backlog cannot shrink.
+  `.PauseConsumer("ingest").HoldAtMost(TimeSpan.FromMinutes(30))` turns the switch off after that time even if the
+  condition has not cleared; if it is still active, the plan runs again after its cooldown.
 - **Order of start-up**: a consumer that your code starts after registering it must not start consuming if it is
-  paused. `PausableRabbitMqConsumer.StartAsync` and `KafkaPauseGate` handle this; for Service Bus, do not call
+  paused. `PausableRabbitMqConsumer.StartAsync` and `KafkaPauseGate` handle this. A Service Bus processor paused before
+  the application starts it (the switch was already on) is watched while the pause stands, about every second, and
+  stopped as soon as it starts processing; the resume then starts it again. Still, prefer not to call
   `StartProcessingAsync` again on a processor that Homeostat may have paused (for example from a worker that restarts
-  it): let the processor's owner start it once, and Homeostat stop and start it afterwards.
+  it): it would process messages for up to a second before being stopped.
 
 ## Azure Service Bus
 
 ```bash
 dotnet add package Homeostat.ServiceBus --prerelease
 ```
+
+`AddServiceBusQueueSignals` and `AddServiceBusSubscriptionSignals` publish the active message count (the backlog) and
+the dead-letter count of a queue or subscription. `AddPausableServiceBusProcessor` lets plans stop and start a
+`ServiceBusProcessor`.
 
 ```csharp
 builder.Services.AddSingleton(new ServiceBusAdministrationClient("ingest-ns.servicebus.windows.net", new DefaultAzureCredential()));
@@ -64,10 +85,10 @@ builder.Services.AddSingleton(sp => sp.GetRequiredService<ServiceBusClient>().Cr
 builder.Services.AddHomeostat(h => h
     .AddServiceBusQueueSignals("ingest", o =>
     {
-        o.Active.UnhealthyAbove = 10_000;          // backlog
+        o.Messages.UnhealthyAbove = 10_000;        // backlog: servicebus:ingest:messages
         o.Interval = TimeSpan.FromSeconds(30);
     })
-    .AddServiceBusSubscriptionSignals("events", "audit")
+    .AddServiceBusSubscriptionSignals("events", "audit")   // servicebus:events:audit:messages, :dead-letter
     .AddPausableServiceBusProcessor("ingest")      // the ServiceBusProcessor in the services
     .AddCondition("ingest-dead-letters", c => c
         .ForSource("servicebus:ingest:dead-letter")
@@ -75,30 +96,40 @@ builder.Services.AddHomeostat(h => h
         .Heal(p => p.PauseConsumer("ingest", resumeWhenCleared: false))));
 ```
 
+| `ServiceBusSignalOptions` | Default | Meaning |
+|---|---|---|
+| `Source` | `servicebus:{queue}` or `servicebus:{topic}:{subscription}` | Prefix of the `:messages` and `:dead-letter` sources |
+| `Interval` | 30 seconds | How often the counts are read; an `Interval` set on `Messages` or `DeadLetter` wins over it for that signal |
+| `Messages` | no thresholds | Thresholds of the active message count (the backlog) |
+| `DeadLetter` | no thresholds | Thresholds of the dead-letter count |
+| `Client` | the registered `ServiceBusAdministrationClient` | Returns the administration client, for example one per namespace: `o.Client = sp => sp.GetRequiredKeyedService<ServiceBusAdministrationClient>("ingest-ns")` |
+
+Notes:
+
 - The counts come from `ServiceBusAdministrationClient`, which needs the **Manage** right or the *Azure Service Bus
   Data Owner* role. One read per interval feeds both signals. Service Bus refreshes the counts about every 30 seconds.
 - Dead letters include transfer dead letters.
 - Pausing calls `StopProcessingAsync`, which waits for the handlers in progress **and cancels their
   `CancellationToken`**: a handler that honors it gives up, and its message is abandoned and delivered again later,
   with its delivery count increased (after `MaxDeliveryCount` deliveries it is dead-lettered). Handlers that should
-  finish their message must not pass that token to the work. Resuming calls `StartProcessingAsync`. Neither is called
-  when the processor is already in that state. For session processors use `AddPausableServiceBusSessionProcessor`.
+  finish their message must not pass that token to the work.
+- Resuming calls `StartProcessingAsync`, only for a processor that Homeostat's pause stopped: one the application
+  stopped or closed itself stays as it is. Neither call is made when the processor is already in that state.
+- While a pause stands, a processor that starts processing (the application started it after the pause, at startup
+  for example) is stopped within about a second and counts as stopped by Homeostat, so the resume starts it. The
+  watch ends with the resume, or when the processor is closed.
 - Without a factory, `AddPausableServiceBusProcessor` wraps the `ServiceBusProcessor` registered in the services.
   With several processors, pass the factory for each: `AddPausableServiceBusProcessor("notifications", sp => ...)`.
-
-| `ServiceBusSignalOptions` | Default | Meaning |
-|---|---|---|
-| `Source` | `servicebus:{queue}` or `servicebus:{topic}/{subscription}` | Prefix of the `:active` and `:dead-letter` sources |
-| `Interval` | 30 seconds | How often the counts are read |
-| `Active` | no thresholds | Thresholds of the active message count (the backlog) |
-| `DeadLetter` | no thresholds | Thresholds of the dead-letter count |
-| `Client` | the registered `ServiceBusAdministrationClient` | Returns the administration client, for example one per namespace: `o.Client = sp => sp.GetRequiredKeyedService<ServiceBusAdministrationClient>("ingest-ns")` |
+  For session processors use `AddPausableServiceBusSessionProcessor(name, sp => ...)`, which always takes a factory.
 
 ## RabbitMQ
 
 ```bash
 dotnet add package Homeostat.RabbitMQ --prerelease
 ```
+
+`AddRabbitMqQueueSignals` publishes the ready message count (the backlog) and the consumer count of a queue, and
+optionally the message count of a dead-letter queue. `PausableRabbitMqConsumer` is a consumer that plans can pause.
 
 ```csharp
 builder.Services.AddSingleton<IConnection>(_ => new ConnectionFactory { HostName = "rabbitmq" }.CreateConnectionAsync().GetAwaiter().GetResult());
@@ -111,23 +142,8 @@ builder.Services.AddHomeostat(h => h
     }));
 ```
 
-- Each read is a passive queue declare on a **short-lived channel** of the application's `IConnection`: a missing
-  queue closes that channel only, and the probe reports the failure (Unhealthy, without a value).
-- `rabbitmq:{queue}:consumers` is Unhealthy when the queue has **no consumer** (`Consumers.UnhealthyBelow = 1`): the
-  broker canceled them, or the consumer crashed. If the application pauses its own consumer, set
-  `o.Consumers.UnhealthyBelow = null`, or suppress the condition while paused.
-
-| `RabbitMqQueueSignalOptions` | Default | Meaning |
-|---|---|---|
-| `Source` | `rabbitmq:{queue}` | Prefix of the `:messages`, `:consumers` and `:dead-letter` sources |
-| `Interval` | 30 seconds | How often the queue is read |
-| `Messages` | no thresholds | Thresholds of the ready message count (the backlog) |
-| `Consumers` | `UnhealthyBelow = 1` | Thresholds of the consumer count |
-| `DeadLetterQueue` | none | A dead-letter queue to watch as well |
-| `DeadLetter` | no thresholds | Thresholds of the dead-letter count |
-| `Connection` | the registered `IConnection` | Returns the connection used for the reads |
-
-Consume through `PausableRabbitMqConsumer` instead of calling `BasicConsumeAsync` yourself:
+Consume through `PausableRabbitMqConsumer` instead of calling `BasicConsumeAsync` yourself. Register it before
+starting it, so a consumer whose switch is already on never subscribes:
 
 ```csharp
 public sealed class ThumbnailWorker(IConnection connection, IHomeostatConsumers consumers) : RestartableBackgroundService
@@ -137,19 +153,36 @@ public sealed class ThumbnailWorker(IConnection connection, IHomeostatConsumers 
         await using var channel = await connection.CreateChannelAsync(cancellationToken: stoppingToken);
         await channel.BasicQosAsync(0, 20, false, stoppingToken);
         var consumer = new PausableRabbitMqConsumer("thumbnails", channel, "thumbnails", autoAck: false, new ThumbnailConsumer(channel));
-        await consumer.StartAsync(stoppingToken);
         using var registration = consumers.Register(consumer);
+        await consumer.StartAsync(stoppingToken);   // does not subscribe while Homeostat has it paused
         await Task.Delay(Timeout.Infinite, stoppingToken);
     }
 }
 ```
 
-Pausing cancels the subscription (`BasicCancelAsync`): the broker stops delivering, and messages already delivered
-are still handled and acknowledged. Resuming subscribes again. `IsConsuming` tells whether the consumer currently
-holds a subscription; `StartAsync` does not subscribe while Homeostat has the consumer paused (it subscribes at the
-resume). If the broker cancels the subscription itself (queue
-deleted, node failure), the next resume subscribes again; a pause that fails because the channel is closed counts
-as done, since the subscription went with the channel.
+| `RabbitMqQueueSignalOptions` | Default | Meaning |
+|---|---|---|
+| `Source` | `rabbitmq:{queue}` | Prefix of the `:messages`, `:consumers` and `:dead-letter` sources |
+| `Interval` | 30 seconds | How often the queue is read; an `Interval` set on `Messages`, `Consumers` or `DeadLetter` wins over it for that signal |
+| `Messages` | no thresholds | Thresholds of the ready message count (the backlog) |
+| `Consumers` | `UnhealthyBelow = 1` | Thresholds of the consumer count |
+| `DeadLetterQueue` | none | A dead-letter queue to watch as well |
+| `DeadLetter` | no thresholds | Thresholds of the dead-letter count |
+| `Connection` | the registered `IConnection` | Returns the connection used for the reads |
+
+Notes:
+
+- Each read is a passive queue declare on a **short-lived channel** of the application's `IConnection`: a missing
+  queue closes that channel only, and the probe reports the failure (Unhealthy, without a value).
+- `rabbitmq:{queue}:consumers` is Unhealthy when the queue has **no consumer** (`Consumers.UnhealthyBelow = 1`): the
+  broker canceled them, or the consumer crashed. If the application pauses its own consumer, set
+  `o.Consumers.UnhealthyBelow = null`, or suppress the condition while paused.
+- Pausing cancels the subscription (`BasicCancelAsync`): the broker stops delivering, and messages already delivered
+  are still handled and acknowledged. Resuming subscribes again.
+- `IsConsuming` tells whether the consumer currently holds a subscription. `StartAsync` does not subscribe while
+  Homeostat has the consumer paused; it subscribes at the resume.
+- If the broker cancels the subscription itself (queue deleted, node failure), the next resume subscribes again. A
+  pause that fails because the channel is closed counts as done, since the subscription went with the channel.
 
 ## Apache Kafka
 
@@ -158,7 +191,8 @@ dotnet add package Homeostat.Kafka --prerelease
 ```
 
 The Kafka client already knows the lag of every assigned partition and the state of its broker connections, and
-reports them in its statistics, so the signals need no extra connection or query:
+reports them in its statistics, so the signals need no extra connection or query. `SetHomeostatSignals` on the
+consumer or producer builder publishes them.
 
 ```csharp
 var consumer = new ConsumerBuilder<string, byte[]>(new ConsumerConfig
@@ -167,7 +201,7 @@ var consumer = new ConsumerBuilder<string, byte[]>(new ConsumerConfig
         GroupId = "telemetry",
         StatisticsIntervalMs = 30_000,             // required: no statistics, no signal
     })
-    .SetHomeostatSignals(services, "telemetry", o => o.LagUnhealthyAbove = 100_000)
+    .SetHomeostatSignals(services, "telemetry", o => o.Lag.UnhealthyAbove = 100_000)
     .Build();
 
 var producer = new ProducerBuilder<string, byte[]>(new ProducerConfig { BootstrapServers = "kafka:9092", StatisticsIntervalMs = 30_000 })
@@ -177,28 +211,21 @@ var producer = new ProducerBuilder<string, byte[]>(new ProducerConfig { Bootstra
 
 | Signal | Client | Value | Severity |
 |---|---|---|---|
-| `kafka:{name}:brokers` | both | brokers connected (`UP`) among those leading the client's partitions (the client connects to the others only when needed); before any partition, any broker up | Unhealthy when none is up, Degraded when some are down, after two statistics documents in a row |
-| `kafka:{name}:lag` | consumer | messages behind, summed over the partitions | `LagDegradedAbove`, `LagUnhealthyAbove` |
-| `kafka:{name}:queue` | producer | share of the local queue in use: the fuller of messages (`msg_cnt / msg_max`) and bytes (`msg_size / msg_size_max`) | Degraded above 0.8, Unhealthy above 0.95 |
-
-A producer whose brokers are down keeps accepting messages into its local queue until it is full, then `Produce`
-fails with "Local: Queue full": the queue signal shows it coming, in time to turn on a degraded mode.
+| `kafka:{name}:brokers` | both | brokers connected (`UP`) among those leading the client's partitions (the client connects to the others only when needed); before any partition, any broker up | Unhealthy when none is up, Degraded when some are down; a worse state is published after two statistics documents in a row show it, a better one at once |
+| `kafka:{name}:lag` | consumer | messages behind, summed over the partitions | `Lag.DegradedAbove`, `Lag.UnhealthyAbove` |
+| `kafka:{name}:queue` | producer | share of the local queue in use: the fuller of messages (`msg_cnt / msg_max`) and bytes (`msg_size / msg_size_max`) | `Queue.DegradedAbove`, `Queue.UnhealthyAbove` (0.8, 0.95) |
 
 | `KafkaSignalOptions` | Default | Meaning |
 |---|---|---|
 | `Source` | `kafka:{name}` | Prefix of the `:lag`, `:brokers` and `:queue` sources |
-| `LagDegradedAbove`, `LagUnhealthyAbove` | none | Consumer lag thresholds, in messages |
+| `Lag.DegradedAbove`, `Lag.UnhealthyAbove` | none | Consumer lag thresholds, in messages (`KafkaThresholds`) |
 | `FromCommittedOffsets` | `false` | Measures the lag from the committed offsets instead of the stored ones |
-| `QueueDegradedAbove`, `QueueUnhealthyAbove` | 0.8, 0.95 | Producer queue thresholds, as a share of `queue.buffering.max.messages` (and of the byte limit) in use |
+| `Queue.DegradedAbove`, `Queue.UnhealthyAbove` | 0.8, 0.95 | Producer queue thresholds (`KafkaThresholds`), as a share of `queue.buffering.max.messages` (and of the byte limit) in use |
 
-- `kafka:{name}:lag` is the total lag over the partitions in the statistics with a known lag, from the **stored**
-  offsets (set `FromCommittedOffsets` to use the committed ones). By default the client stores an offset when `Consume`
-  returns the message, before your code handles it: for a lag of what was handled, set `EnableAutoOffsetStore = false`
-  and call `StoreOffset` after handling. The tags carry the number of partitions and the largest partition lag;
-  before the first assignment nothing is published.
-- A client has one statistics handler: to keep yours, create a `KafkaSignalReporter` and call `Report(json)` from it.
-  Unexpected documents are skipped: the handler never throws, since the client would rethrow from the next `Consume`.
-- While the consumer is paused it fetches nothing, so the lag it reports can stop moving: judge the lag while running.
+Kafka thresholds compare strictly: a value above the threshold reaches it.
+
+A producer whose brokers are down keeps accepting messages into its local queue until it is full, then `Produce`
+fails with "Local: Queue full": the queue signal shows it coming, in time to turn on a degraded mode.
 
 The Kafka consumer is not thread-safe, so Homeostat cannot pause it from another thread. A `KafkaPauseGate` records
 the request, and your consume loop applies it. Register the gate with `AddKafkaPauseGate(name)`: it becomes a keyed
@@ -225,13 +252,24 @@ while (!stoppingToken.IsCancellationRequested)
 }
 ```
 
-While paused, `Consume` returns no messages but the consumer stays in its group (no rebalance). Partitions assigned
-later are paused at the next `Apply`, so a `Consume` right after a rebalance can still return a message from them.
-Call `Consume` with a timeout, so the loop keeps running and applies the resume. `IsPauseRequested` tells whether a
-pause is requested (it takes effect at the next `Apply`), for example to skip work in the loop.
+Notes:
 
-A gate created by hand (`new KafkaPauseGate("telemetry")`) works too: register it with
-`IHomeostatConsumers.Register(gate)` and dispose the registration when the loop ends.
+- `kafka:{name}:lag` is the total lag over the partitions in the statistics with a known lag, from the **stored**
+  offsets (set `FromCommittedOffsets` to use the committed ones). By default the client stores an offset when `Consume`
+  returns the message, before your code handles it: for a lag of what was handled, set `EnableAutoOffsetStore = false`
+  and call `StoreOffset` after handling. The tags carry the number of partitions (`partitions`) and the largest
+  partition lag (`max-partition-lag`); before the first assignment nothing is published.
+- A client has one statistics handler: to keep yours, create a `KafkaSignalReporter` and call `Report(json)` from it.
+  Unexpected documents are skipped: the handler never throws, since the client would rethrow from the next `Consume`.
+- While the consumer is paused it fetches nothing, so the lag it reports can stop moving: judge the lag while running.
+- While paused, `Consume` returns no messages but the consumer stays in its group (no rebalance). Partitions assigned
+  later are paused at the next `Apply`, so a `Consume` right after a rebalance can still return a message from them.
+- Call `Consume` with a timeout, so the loop keeps running and applies the resume.
+- If the application pauses partitions itself (for backpressure), pass them to `Apply(consumer, pausedByApplication)`:
+  Homeostat's resume leaves them paused. `IsPauseRequested` tells whether a pause is requested (it takes effect at the
+  next `Apply`), for example to skip work in the loop.
+- A gate created by hand (`new KafkaPauseGate("telemetry")`) works too: register it with
+  `IHomeostatConsumers.Register(gate)` and dispose the registration when the loop ends.
 
 ## Apache ActiveMQ Artemis
 
@@ -239,8 +277,9 @@ A gate created by hand (`new KafkaPauseGate("telemetry")`) works too: register i
 dotnet add package Homeostat.Artemis --prerelease
 ```
 
-`Homeostat.Artemis` reads the queues through the broker's **management API** (Jolokia, on the web console port), so
-it needs no AMQP or JMS client and works whatever client the application consumes with:
+`Homeostat.Artemis` reads the message and consumer counts of a queue through the broker's **management API**
+(Jolokia, on the web console port), so it needs no AMQP or JMS client and works whatever client the application
+consumes with.
 
 ```csharp
 builder.Services.AddHomeostat(h => h
@@ -259,28 +298,12 @@ builder.Services.AddHomeostat(h => h
     .AddArtemisQueueSignals("events.audit", q => { q.Address = "events"; q.RoutingType = "multicast"; }));
 ```
 
-- One request per interval reads `MessageCount` and `ConsumerCount` of the queue's MBean (a second one reads the
-  dead-letter queue)
-  (`org.apache.activemq.artemis:broker=...,component=addresses,address=...,subcomponent=queues,routing-type=...,queue=...`).
-  A missing queue makes the probe fail (Unhealthy, without a value).
-- `artemis:{queue}:consumers` is Unhealthy when the queue has no consumer, as for RabbitMQ.
-- Dead letters: the default configuration sends every address to one shared queue, `DLQ`, so its count is
-  broker-wide. With `auto-create-dead-letter-resources`, each address gets its own queue, `DLQ.{address}` on the address
-  `DLQ`: set `DeadLetterQueue` to it (and `DeadLetterAddress` if you changed the dead-letter address).
-- `ManagementUrl` can carry a path (a console behind a reverse proxy): `JolokiaPath` is appended to it. Credentials go in
-  `UserName` and `Password`, never in the URL; use https when the broker is not on a private network.
-- **Access**: the user needs a role allowed to read in `management.xml`, and the `Origin` header that Homeostat sends
-  (by default the origin of `ManagementUrl`) must be allowed in `jolokia-access.xml`, which by default accepts only
-  `localhost`. Set `o.Origin` to an allowed value, or add the origin there. Use a read-only monitoring user.
-- A read that the management API refuses (unknown MBean, missing attribute, access denied) fails the probe with an
-  `ArtemisManagementException`; its type appears in the `error` tag of the signal and its message in the log.
-
 | `ArtemisOptions` | Default | Meaning |
 |---|---|---|
-| `ManagementUrl` | required | Address of the web console, `http` or `https` |
+| `ManagementUrl` | required | Address of the web console, `http` or `https`, without credentials |
 | `JolokiaPath` | `/console/jolokia` | Appended to the path of `ManagementUrl` |
 | `BrokerName` | required | `<name>` in `broker.xml`, as in the MBean names (`0.0.0.0` by default) |
-| `UserName`, `Password` | none | Management user, if the API requires one |
+| `UserName`, `Password` | none | Management user, if the API requires one; a `UserName` needs a `Password` |
 | `Origin` | origin of `ManagementUrl` | Value of the `Origin` header |
 
 | `ArtemisQueueSignalOptions` | Default | Meaning |
@@ -288,13 +311,13 @@ builder.Services.AddHomeostat(h => h
 | `Source` | `artemis:{queue}` | Prefix of the `:messages`, `:consumers` and `:dead-letter` sources |
 | `Address` | the queue name | Address the queue is bound to |
 | `RoutingType` | `anycast` | `anycast` or `multicast` |
-| `Interval` | 30 seconds | How often the queue is read |
-| `Messages`, `Consumers`, `DeadLetter` | `Consumers.UnhealthyBelow = 1` | Thresholds of each count |
+| `Interval` | 30 seconds | How often the queue is read; an `Interval` set on `Messages`, `Consumers` or `DeadLetter` wins over it for that signal |
+| `Messages`, `Consumers`, `DeadLetter` | `Consumers.UnhealthyBelow = 1` | Thresholds of each count; `Messages` includes messages being delivered |
 | `DeadLetterQueue`, `DeadLetterAddress` | none, `DLQ` | The dead-letter queue to watch and its address |
 
-Clients that receive in a loop (for example ArtemisNetClient over AMQP, below) are paused with a `PauseGate`. Register
-it with `AddPauseGate(name)` (package `Homeostat`): it becomes a keyed singleton that outlives the loop, so a
-restarted worker keeps the paused state, and the loop resolves it by name:
+Clients that receive in a loop (for example ArtemisNetClient over AMQP) are paused with a `PauseGate`. Register it
+with `AddPauseGate(name)` (package `Homeostat`): it becomes a keyed singleton that outlives the loop, so a restarted
+worker keeps the paused state, and the loop resolves it by name:
 
 ```csharp
 h.AddPauseGate("telemetry-ingest");
@@ -311,11 +334,29 @@ while (!stoppingToken.IsCancellationRequested)
 }
 ```
 
-While paused, the loop stops receiving; messages the client has already prefetched (its link credit) stay with it
-until the loop resumes, so keep the credit small for consumers you pause, or close and reopen the consumer from
-`PauseAsync` and `ResumeAsync` of your own `IPausableConsumer`.
+Notes:
+
+- One request per interval reads `MessageCount` and `ConsumerCount` of the queue's MBean
+  (`org.apache.activemq.artemis:broker=...,component=addresses,address=...,subcomponent=queues,routing-type=...,queue=...`);
+  a second one reads the dead-letter queue. A missing queue makes the probe fail (Unhealthy, without a value).
+- `artemis:{queue}:consumers` is Unhealthy when the queue has no consumer, as for RabbitMQ.
+- Dead letters: the default configuration sends every address to one shared queue, `DLQ`, so its count is
+  broker-wide. With `auto-create-dead-letter-resources`, each address gets its own queue, `DLQ.{address}` on the address
+  `DLQ`: set `DeadLetterQueue` to it (and `DeadLetterAddress` if you changed the dead-letter address).
+- `ManagementUrl` can carry a path (a console behind a reverse proxy): `JolokiaPath` is appended to it. Credentials go
+  in `UserName` and `Password`, never in the URL; use https when the broker is not on a private network.
+- **Access**: the user needs a role allowed to read in `management.xml`, and the `Origin` header that Homeostat sends
+  (by default the origin of `ManagementUrl`) must be allowed in `jolokia-access.xml`, which by default accepts only
+  `localhost`. Set `o.Origin` to an allowed value, or add the origin there. Use a read-only monitoring user.
+- A read that the management API refuses (unknown MBean, missing attribute, access denied) fails the probe with an
+  `ArtemisManagementException`; its type appears in the `error` tag of the signal and its message in the log.
+- While paused, the loop stops receiving. Messages the client has already prefetched (its link credit) stay with it
+  until the loop resumes, so keep the credit small for consumers you pause, or close and reopen the consumer from
+  `PauseAsync` and `ResumeAsync` of your own `IPausableConsumer`.
 
 ## Your own consumers
+
+Implement `IPausableConsumer` for any other client, and declare it with `AddPausableConsumer`:
 
 ```csharp
 public sealed class ImportQueueConsumer : IPausableConsumer
@@ -334,3 +375,5 @@ tells the current state. A gate created by hand (`new PauseGate(name)`) is regis
 `IHomeostatConsumers.Register(gate)` instead.
 
 Watch the backlog of any other broker with a [probe](integrations.md#probes-any-number-as-a-signal).
+
+See also: [Integrations](integrations.md), [Actions](actions.md), [Conditions](conditions.md).

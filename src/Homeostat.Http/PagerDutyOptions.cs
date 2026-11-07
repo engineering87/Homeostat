@@ -3,6 +3,9 @@ namespace Homeostat.Http;
 /// <summary>Settings of the PagerDuty notifier (Events API v2).</summary>
 public sealed class PagerDutyOptions : IncidentOptions
 {
+    /// <summary>Name of the <see cref="HttpClient"/> used to send events; configure it (proxy, handlers) with <c>AddHttpClient(PagerDutyOptions.HttpClientName)</c>.</summary>
+    public const string HttpClientName = "Homeostat.PagerDuty";
+
     /// <summary>Integration key of the PagerDuty service (Events API v2 integration). Required; keep it in a secret store.</summary>
     public string? RoutingKey { get; set; }
 

@@ -21,7 +21,7 @@ public class PrepublicationTests
             .AddPauseGate("telemetry-ingest")
             .AddCondition("archive-down", c => c.ForSource("archive-db").Heal(p => p
                 .PauseConsumer("telemetry-ingest")
-                .VerifyWith<BuiltInActionTests.AlwaysHealed>())));
+                .UseVerifier<BuiltInActionTests.AlwaysHealed>())));
         var gate = host.Services.GetRequiredKeyedService<PauseGate>("telemetry-ingest");
         Assert.Same(gate, host.Services.GetRequiredKeyedService<PauseGate>("telemetry-ingest"));
 
@@ -60,7 +60,7 @@ public class PrepublicationTests
         var services = new ServiceCollection();
         var time = new FakeTimeProvider();
         services.AddSingleton<TimeProvider>(time);
-        services.AddHomeostat(h => h.AddNpgsqlPoolSignal(maxPoolSize: 50, dataSourceName: "reports"));
+        services.AddHomeostat(h => h.AddNpgsqlPoolSignal(o => { o.MaxPoolSize = 50; o.DataSourceName = "reports"; }));
         using var detector = services.BuildServiceProvider().GetServices<ISignalDetector>().OfType<MetricSignalDetector>().Single();
 
         var sink = new CollectingPublisher();
@@ -86,16 +86,22 @@ public class PrepublicationTests
         var path = Path.Combine(Path.GetTempPath(), $"homeostat-{Guid.NewGuid():N}.json");
         try
         {
-            var store = new FileHomeostatStore(path);
-            await store.UpdatePlanStateAsync("old", new PlanStateUpdate { LastRunEndedAt = DateTimeOffset.UtcNow.AddDays(-10) });
-            await store.UpdatePlanStateAsync("recent", new PlanStateUpdate { LastRunEndedAt = DateTimeOffset.UtcNow.AddDays(-1) });
+            using (var store = new FileHomeostatStore(path))
+            {
+                await store.UpdatePlanStateAsync("old", new PlanStateUpdate { LastRunEndedAt = DateTimeOffset.UtcNow.AddDays(-10) });
+                await store.UpdatePlanStateAsync("recent", new PlanStateUpdate { LastRunEndedAt = DateTimeOffset.UtcNow.AddDays(-1) });
+            }
 
-            var withDefault = new FileHomeostatStore(path);
-            Assert.NotNull((await withDefault.GetPlanStateAsync("old")).LastRunEndedAt);
+            using (var withDefault = new FileHomeostatStore(path))
+            {
+                Assert.NotNull((await withDefault.GetPlanStateAsync("old")).LastRunEndedAt);
+            }
 
-            var withWeek = new FileHomeostatStore(path, new FileStoreOptions { PlanStateRetention = TimeSpan.FromDays(7) });
-            Assert.Null((await withWeek.GetPlanStateAsync("old")).LastRunEndedAt);
-            Assert.NotNull((await withWeek.GetPlanStateAsync("recent")).LastRunEndedAt);
+            using (var withWeek = new FileHomeostatStore(path, new FileStoreOptions { PlanStateRetention = TimeSpan.FromDays(7) }))
+            {
+                Assert.Null((await withWeek.GetPlanStateAsync("old")).LastRunEndedAt);
+                Assert.NotNull((await withWeek.GetPlanStateAsync("recent")).LastRunEndedAt);
+            }
 
             Assert.Throws<ArgumentOutOfRangeException>(() => new FileHomeostatStore(path, new FileStoreOptions { PlanStateRetention = TimeSpan.Zero }));
         }

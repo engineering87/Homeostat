@@ -22,17 +22,19 @@
 <p align="center">
   <a href="docs/getting-started.md">Getting started</a> ·
   <a href="docs/concepts.md">Concepts</a> ·
+  <a href="docs/why-homeostat.md">Why Homeostat</a> ·
   <a href="docs/packages.md">Packages</a> ·
   <a href="docs/recipes.md">Recipes</a> ·
   <a href="docs/faq.md">FAQ</a> ·
-  <a href="docs/README.md">All docs</a>
+  <a href="docs/README.md">All docs</a> ·
+  <a href="https://engineering87.github.io/Homeostat/">Docs site and API reference</a>
 </p>
 
 ---
 
 Retries and circuit breakers keep a single call alive while a dependency misbehaves. Homeostat works one level
-above: it watches the whole application, decides when a problem is real rather than a blip, runs a guarded
-healing plan, and verifies the outcome before doing anything more.
+above. It watches the whole application, decides when a problem has lasted long enough to be real, runs a guarded
+healing plan, and checks the outcome after each step before doing anything more.
 
 ```mermaid
 flowchart LR
@@ -43,6 +45,16 @@ flowchart LR
     V -- "not healed" --> P
     V -- "inconclusive" --> H(["Stop and leave it to a person"])
 ```
+
+## See it work
+
+A run of the [weather feed sample](samples/Homeostat.Samples.WeatherFeed) with its primary provider down
+([watch the 30-second recording](assets/demo.gif)):
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="assets/healing-run-dark.svg">
+  <img src="assets/healing-run-light.svg" alt="Timeline of a healing run: the feed goes down, the condition becomes active after 4 seconds, renewing the client does not heal it, failing over waits for approval, and the run is verified as healed" width="900">
+</picture>
 
 ## Quick start
 
@@ -67,13 +79,13 @@ builder.Services.AddSingleton<WeatherFeedClient>();
 builder.Services.AddHealthChecks().AddCheck<WeatherFeedHealthCheck>("weather-feed");
 
 builder.Services.AddHomeostat(h => h
-    .AddHealthCheckSignals()                               // health check results become signals
+    .AddHealthCheckSignals(o => o.Interval = TimeSpan.FromSeconds(10))  // health check results become signals
     .AddCondition("weather-feed-down", c => c
         .ForSource("weather-feed")                         // the health check's name
         .SustainedFor(TimeSpan.FromSeconds(30))            // ignore short blips
         .Heal(p => p
             .With<RenewFeedClientAction>()                 // try this first
-            .TurnOnSwitch("serve-cached-forecast", turnOffWhenCleared: true))));  // then degrade gracefully
+            .TurnOnSwitch("serve-cached-forecast"))));  // then degrade gracefully
 
 var app = builder.Build();
 app.Run();
@@ -116,9 +128,9 @@ When the decisions look right, let it act:
 builder.Services.AddHomeostat(h => h.Configure(o => o.DryRun = false));
 ```
 
-Not sure where to start? One line registers the usual detectors (thread pool, memory, exceptions, server errors and
-latency) with an observe-only condition for each, ready for a plan when you have seen them in action
-([starter presets](docs/detectors.md#starter-presets)):
+To start without writing conditions, one line registers the usual detectors (thread pool, memory, exceptions, and in a
+web API the server error rate and latency) with an observe-only condition for each. Give a condition a plan once you
+have seen it activate when you expect ([starter presets](docs/detectors.md#starter-presets)):
 
 ```csharp
 builder.Services.AddHomeostat(h => h.AddWebApiDefaults());   // AddWorkerDefaults() in a worker service
@@ -150,17 +162,19 @@ The [getting started guide](docs/getting-started.md) walks through this step by 
 
 ## Packages
 
-Reference only what you use. Every package targets .NET 10.
+Reference only what you use. Every package targets .NET 10. `Homeostat.Grpc`, `Homeostat.EntityFrameworkCore`,
+`Homeostat.Caching`, `Homeostat.FeatureManagement`, `Homeostat.OpenFeature`, `Homeostat.Azure` and
+`Homeostat.Aspire.Hosting` are [previews](docs/versioning.md#stable-and-preview-packages): tested, but their API can
+still change in a minor version.
 
 | Package | Adds |
 |---|---|
-| `Homeostat` | Engine, conditions, healing plans, guardrails, runtime detectors, starter presets, call signals for any client, built-in actions, switches, approvals, audit log, file store, build-time analyzers |
+| `Homeostat` | Engine, conditions, healing plans, guardrails, runtime detectors, starter presets, call signals for any client, database probes and pool signals for any ADO.NET provider, built-in actions, switches, approvals, audit log, file store, build-time analyzers |
 | `Homeostat.HealthChecks` | Health check results as signals; Homeostat's own health check |
 | `Homeostat.AspNetCore` | Status, control and history endpoints, dashboard, Slack and Teams approvals, alert ingestion |
 | `Homeostat.Http` | Failure ratio and latency of `IHttpClientFactory` clients; webhook, Slack, Teams, PagerDuty and Opsgenie notifiers |
 | `Homeostat.Grpc` | Failure ratio and latency of gRPC clients, judged on the gRPC status, streaming calls included |
 | `Homeostat.Polly` | Polly v8 circuit breakers as signals, circuit isolation, chaos enabled by switches |
-| `Homeostat.Data` | Database probes for any ADO.NET provider, SqlClient and Npgsql pool signals, connection pool reset |
 | `Homeostat.EntityFrameworkCore` | Failure ratio and latency of the commands of a `DbContext`, connectivity probe |
 | `Homeostat.Redis` | Shared state and once-per-cluster plans; Redis health signals |
 | `Homeostat.Caching` | Memory cache hit ratio; HybridCache, distributed and memory cache purge actions |
@@ -185,8 +199,8 @@ The [package index](docs/packages.md) lists the install command and entry points
 | Concurrency | 1 run at a time | Two plans acting on the system together |
 | Step timeout | 30 seconds | A stuck step holding up the run |
 | Verification | after every step | Escalating blindly, or stopping without knowing |
-| Kill switch | `POST /homeostat/pause`, the dashboard, the CLI or `IHomeostatControl.Pause()` | Interventions during an incident or maintenance |
-| Approval | per step, on by default for infrastructure actions | Risky steps running without a person agreeing |
+| Kill switch | `POST /homeostat/pause`, the dashboard, the CLI or `IHomeostatControl.PauseAsync()`; with a shared store, for every instance | Interventions during an incident or maintenance |
+| Approval | per step; on by default for application restarts, Kubernetes and Azure actions | Risky steps running without a person agreeing |
 | Suppression | per condition | Healing the symptoms of a failure instead of its cause |
 | Fail closed | always | Acting when the cooldown or budget cannot be checked |
 
@@ -212,10 +226,11 @@ approved step of a plan instead of the first reaction.
 - **Overhead**: publishing a signal costs well under a microsecond and processing it does not allocate; see the
   [measurements](docs/performance.md).
 - **Trimming and Native AOT**: the libraries (except `Homeostat.Aspire.Hosting` and `Homeostat.EntityFrameworkCore`)
-  are marked trimming and AOT compatible; CI publishes and runs a Native AOT application that uses the core, ASP.NET Core, health check, HTTP,
-  caching, Kubernetes and Azure packages ([details](docs/native-aot.md)).
-- **Stable API**: the public API of every library package is recorded in [`api/`](api) and checked by a test. From 1.0 the
-  project follows Semantic Versioning ([versioning policy](docs/versioning.md)).
+  are marked trimming and AOT compatible. CI publishes and runs a Native AOT application that uses the core, ASP.NET
+  Core, health check, HTTP, caching, Kubernetes and Azure packages ([details](docs/native-aot.md)).
+- **Stable API**: the public API of every library package is recorded in [`api/`](api) and checked by a test. From 1.0
+  the stable packages follow Semantic Versioning; preview packages can still change in a minor version
+  ([versioning policy](docs/versioning.md)).
 - **Supply chain**: releases carry an SBOM and build provenance; every CI action is pinned to a commit
   ([SECURITY.md](SECURITY.md)); CodeQL analyzes the C# code and the workflows on every pull request.
 

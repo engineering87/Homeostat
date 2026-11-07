@@ -4,7 +4,7 @@ namespace Aspire.Hosting
 namespace Homeostat.Aspire.Hosting
   public sealed class HomeostatResourceOptions
     public HomeostatResourceOptions()
-    public System.Func<System.IServiceProvider, System.Threading.CancellationToken, System.Threading.Tasks.Task<string?>>? BearerToken { get; set; }
+    public System.Func<System.IServiceProvider, System.Threading.CancellationToken, System.Threading.Tasks.ValueTask<string?>>? BearerToken { get; set; }
     public bool Commands { get; set; }
     public bool DashboardLink { get; set; }
     public string? EndpointName { get; set; }

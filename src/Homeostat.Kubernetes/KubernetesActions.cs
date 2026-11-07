@@ -28,12 +28,29 @@ internal static class KubernetesActions
         }
 
         await RestartGuard.EnsureAllowedAsync(context, limits, cancellationToken).ConfigureAwait(false);
-        Log(context).LogCritical("Deleting pod {Pod} in {Namespace} for condition {Condition}: its controller starts a new one.",
+        Log(context).LogCritical("Evicting pod {Pod} in {Namespace} for condition {Condition}: its controller starts a new one.",
             api.PodName, api.Namespace, context.ConditionName);
-        await api.DeleteAsync(
-            podPath,
-            new JsonObject { ["apiVersion"] = "v1", ["kind"] = "DeleteOptions", ["gracePeriodSeconds"] = gracePeriodSeconds },
-            cancellationToken).ConfigureAwait(false);
+
+        // An eviction, not a delete: the PodDisruptionBudgets apply, so replicas restarting for the same reason at the
+        // same moment can never take the whole workload down together.
+        try
+        {
+            await api.PostAsync(
+                $"{podPath}/eviction",
+                new JsonObject
+                {
+                    ["apiVersion"] = "policy/v1",
+                    ["kind"] = "Eviction",
+                    ["metadata"] = new JsonObject { ["name"] = api.PodName, ["namespace"] = api.Namespace },
+                    ["deleteOptions"] = new JsonObject { ["gracePeriodSeconds"] = gracePeriodSeconds },
+                },
+                cancellationToken).ConfigureAwait(false);
+        }
+        catch (KubernetesApiException ex) when (ex.StatusCode == System.Net.HttpStatusCode.TooManyRequests)
+        {
+            throw new InvalidOperationException(
+                $"Pod {api.PodName} was not restarted: a PodDisruptionBudget does not allow another disruption now.", ex);
+        }
     }
 
     public static async Task RolloutRestartAsync(HealingContext context, string deployment, CancellationToken cancellationToken)
@@ -67,33 +84,49 @@ internal static class KubernetesActions
             cancellationToken).ConfigureAwait(false);
     }
 
+    // A deployment that is rolling out changes its scale subresource's version all the time: a conditional update can
+    // answer 409 a few times in a row. Each attempt reads again and decides again (direction and bounds included).
+    internal const int ScaleAttempts = 4;
+
     public static async Task ScaleAsync(HealingContext context, string deployment, int by, int minimum, int maximum, CancellationToken cancellationToken)
     {
         var api = context.Services.GetRequiredService<KubernetesApi>();
         var path = $"/apis/apps/v1/namespaces/{Segment(api.Namespace)}/deployments/{Segment(deployment)}/scale";
-        var scale = await api.GetAsync(path, cancellationToken).ConfigureAwait(false);
-        var current = scale?["spec"]?["replicas"]?.GetValue<int>() ?? 0;
-
-        // Only in the asked direction: a deployment already above the maximum is not scaled in by a scale-out step.
-        var target = by > 0 ? Math.Min(current + by, maximum) : Math.Max(current + by, minimum);
-        if (by > 0 ? target <= current : target >= current)
+        for (var attempt = 1; ; attempt++)
         {
-            throw new InvalidOperationException(
-                $"Deployment {deployment} has {current} replicas: this step cannot scale it {(by > 0 ? "out" : "in")} within {minimum} to {maximum}.");
+            var scale = await api.GetAsync(path, cancellationToken).ConfigureAwait(false);
+            var current = scale?["spec"]?["replicas"]?.GetValue<int>() ?? 0;
+
+            // Only in the asked direction: a deployment already above the maximum is not scaled in by a scale-out step.
+            var target = by > 0 ? Math.Min(current + by, maximum) : Math.Max(current + by, minimum);
+            if (by > 0 ? target <= current : target >= current)
+            {
+                throw new InvalidOperationException(
+                    $"Deployment {deployment} has {current} replicas: this step cannot scale it {(by > 0 ? "out" : "in")} within {minimum} to {maximum}.");
+            }
+
+            Log(context).LogWarning("Scaling deployment {Deployment} in {Namespace} from {Current} to {Target} replicas for condition {Condition}.",
+                deployment, api.Namespace, current, target, context.ConditionName);
+
+            // resourceVersion makes the change conditional: a concurrent change answers 409 instead of being overwritten.
+            var resourceVersion = scale?["metadata"]?["resourceVersion"]?.GetValue<string>();
+            var patch = new JsonObject { ["spec"] = new JsonObject { ["replicas"] = target } };
+            if (resourceVersion is not null)
+            {
+                patch["metadata"] = new JsonObject { ["resourceVersion"] = resourceVersion };
+            }
+
+            try
+            {
+                await api.PatchAsync(path, patch, "application/merge-patch+json", cancellationToken).ConfigureAwait(false);
+                return;
+            }
+            catch (KubernetesApiException ex) when (ex.StatusCode == System.Net.HttpStatusCode.Conflict && attempt < ScaleAttempts)
+            {
+                Log(context).LogInformation("Deployment {Deployment} changed while it was being scaled; reading it again.", deployment);
+                await Task.Delay(TimeSpan.FromMilliseconds(250 * attempt), cancellationToken).ConfigureAwait(false);
+            }
         }
-
-        Log(context).LogWarning("Scaling deployment {Deployment} in {Namespace} from {Current} to {Target} replicas for condition {Condition}.",
-            deployment, api.Namespace, current, target, context.ConditionName);
-
-        // resourceVersion makes the change conditional: a concurrent change answers 409 instead of being overwritten.
-        var resourceVersion = scale?["metadata"]?["resourceVersion"]?.GetValue<string>();
-        var patch = new JsonObject { ["spec"] = new JsonObject { ["replicas"] = target } };
-        if (resourceVersion is not null)
-        {
-            patch["metadata"] = new JsonObject { ["resourceVersion"] = resourceVersion };
-        }
-
-        await api.PatchAsync(path, patch, "application/merge-patch+json", cancellationToken).ConfigureAwait(false);
     }
 
     public static async Task SetUnschedulableAsync(HealingContext context, bool unschedulable, CancellationToken cancellationToken)

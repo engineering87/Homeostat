@@ -23,7 +23,7 @@ public static class HomeostatMetricExtensions
         var metric = new MetricSignalBuilder(instrument);
         configure(metric);
         builder.Services.AddSingleton(metric.Build());
-        builder.Services.AddSignalDetector<MetricSignalDetector>();
+        builder.Services.AddHomeostatDetector<MetricSignalDetector>();
         return builder;
     }
 
@@ -51,9 +51,9 @@ public static class HomeostatMetricExtensions
 
         var options = new EventCounterSignalOptions();
         configure?.Invoke(options);
-        if (options.IntervalSeconds is < 1 or > 3600)
+        if (options.Interval < TimeSpan.FromSeconds(1) || options.Interval > TimeSpan.FromHours(1) || options.Interval.Ticks % TimeSpan.TicksPerSecond != 0)
         {
-            throw new ArgumentOutOfRangeException(nameof(configure), options.IntervalSeconds, "IntervalSeconds must be between 1 and 3600.");
+            throw new ArgumentOutOfRangeException(nameof(configure), options.Interval, "Interval must be a whole number of seconds between 1 second and 1 hour.");
         }
 
         if (new[] { options.DegradedAbove, options.UnhealthyAbove, options.DegradedBelow, options.UnhealthyBelow }.Any(t => t is { } v && !double.IsFinite(v))
@@ -69,51 +69,45 @@ public static class HomeostatMetricExtensions
     }
 
     /// <summary>
-    /// Publishes the share of server requests answered with a 5xx status, from the ASP.NET Core
+    /// Publishes the share of server requests answered with a 5xx status (0 to 1), from the ASP.NET Core
     /// <c>http.server.request.duration</c> metric. No signal is published for intervals with fewer than
-    /// <paramref name="minimumRequests"/> requests.
+    /// <see cref="ServerSignalOptions.MinimumRequests"/> requests.
     /// </summary>
     /// <param name="builder">The Homeostat builder.</param>
-    /// <param name="source">Signal source.</param>
-    /// <param name="degradedAbove">Error ratio (0 to 1) from which the signal is Degraded.</param>
-    /// <param name="unhealthyAbove">Error ratio (0 to 1) from which the signal is Unhealthy.</param>
-    /// <param name="minimumRequests">Minimum requests per interval.</param>
-    public static HomeostatBuilder AddServerErrorRateSignal(
-        this HomeostatBuilder builder,
-        string source = "http-server:errors",
-        double degradedAbove = 0.01,
-        double unhealthyAbove = 0.05,
-        int minimumRequests = 20)
-        => builder.AddMetricSignal("http.server.request.duration", m => m
+    /// <param name="configure">Source, thresholds and minimum requests; optional.</param>
+    /// <example><code>h.AddServerErrorRateSignal(o => o.UnhealthyErrorRatio = 0.02)</code></example>
+    public static HomeostatBuilder AddServerErrorRateSignal(this HomeostatBuilder builder, Action<ServerErrorRateSignalOptions>? configure = null)
+    {
+        var options = new ServerErrorRateSignalOptions();
+        configure?.Invoke(options);
+        return builder.AddMetricSignal("http.server.request.duration", m => m
             .FromMeter("Microsoft.AspNetCore.Hosting")
-            .Source(source)
+            .Source(options.Source)
             .RatioOf((_, tags) => tags.TryGetValue("http.response.status_code", out var status) && IsServerError(status))
-            .DegradedAbove(degradedAbove)
-            .UnhealthyAbove(unhealthyAbove)
-            .MinimumCount(minimumRequests));
+            .DegradedAbove(options.DegradedErrorRatio)
+            .UnhealthyAbove(options.UnhealthyErrorRatio)
+            .MinimumCount(options.MinimumRequests));
+    }
 
     /// <summary>
-    /// Publishes the 95th percentile of server request duration, in seconds, from the ASP.NET Core
+    /// Publishes the 95th percentile of server request duration, in seconds (the signal's value), from the ASP.NET Core
     /// <c>http.server.request.duration</c> metric.
     /// </summary>
     /// <param name="builder">The Homeostat builder.</param>
-    /// <param name="source">Signal source.</param>
-    /// <param name="degradedAboveSeconds">p95 (seconds) from which the signal is Degraded.</param>
-    /// <param name="unhealthyAboveSeconds">p95 (seconds) from which the signal is Unhealthy.</param>
-    /// <param name="minimumRequests">Minimum requests per interval.</param>
-    public static HomeostatBuilder AddServerLatencySignal(
-        this HomeostatBuilder builder,
-        string source = "http-server:latency",
-        double degradedAboveSeconds = 0.5,
-        double unhealthyAboveSeconds = 2,
-        int minimumRequests = 20)
-        => builder.AddMetricSignal("http.server.request.duration", m => m
+    /// <param name="configure">Source, thresholds and minimum requests; optional.</param>
+    /// <example><code>h.AddServerLatencySignal(o => o.UnhealthyLatency = TimeSpan.FromSeconds(1))</code></example>
+    public static HomeostatBuilder AddServerLatencySignal(this HomeostatBuilder builder, Action<ServerLatencySignalOptions>? configure = null)
+    {
+        var options = new ServerLatencySignalOptions();
+        configure?.Invoke(options);
+        return builder.AddMetricSignal("http.server.request.duration", m => m
             .FromMeter("Microsoft.AspNetCore.Hosting")
-            .Source(source)
+            .Source(options.Source)
             .Statistic(MetricStatistic.P95)
-            .DegradedAbove(degradedAboveSeconds)
-            .UnhealthyAbove(unhealthyAboveSeconds)
-            .MinimumCount(minimumRequests));
+            .DegradedAbove(options.DegradedLatency.TotalSeconds)
+            .UnhealthyAbove(options.UnhealthyLatency.TotalSeconds)
+            .MinimumCount(options.MinimumRequests));
+    }
 
     private static bool IsServerError(object? status) => status switch
     {

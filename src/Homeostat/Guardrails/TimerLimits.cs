@@ -6,4 +6,7 @@ internal static class TimerLimits
     public static readonly TimeSpan Max = TimeSpan.FromMilliseconds(uint.MaxValue - 1);
 
     public static bool IsValid(TimeSpan value) => value > TimeSpan.Zero && value <= Max;
+
+    /// <summary>The value, at most <see cref="Max"/>: for delays computed from a valid setting (a multiple of it).</summary>
+    public static TimeSpan Clamp(TimeSpan value) => value > Max ? Max : value;
 }

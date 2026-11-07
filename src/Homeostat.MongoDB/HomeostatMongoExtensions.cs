@@ -38,7 +38,7 @@ public static class HomeostatMongoExtensions
     ///     settings.AddHomeostatSignals(sp, "archive");
     ///     return new MongoClient(settings);
     /// });
-    /// builder.Services.AddHomeostat(h => h.AddMongoSignals("archive", o => o.Ping.DegradedAbove = 100));
+    /// builder.Services.AddHomeostat(h => h.AddMongoSignals("archive", o => o.Ping.DegradedLatency = TimeSpan.FromMilliseconds(100)));
     /// </code>
     /// </example>
     public static HomeostatBuilder AddMongoSignals(this HomeostatBuilder builder, string name = "default", Action<MongoSignalOptions>? configure = null)
@@ -60,13 +60,14 @@ public static class HomeostatMongoExtensions
             to.Origin ??= "mongodb";
         }
 
-        builder.AddLatencyProbe(MongoSignals.Source(name, "ping"),
+        var prefix = MongoSignals.Prefix(name, options);
+        builder.AddLatencyProbe($"{prefix}:ping",
             (sp, ct) => client(sp).GetDatabase("admin").RunCommandAsync<BsonDocument>(new BsonDocument("ping", 1), cancellationToken: ct),
             p => Settings(options.Ping, p));
 
         if (options.ReplicationLag)
         {
-            builder.AddProbe(MongoSignals.Source(name, "replication-lag"), async (sp, ct) =>
+            builder.AddProbe($"{prefix}:replication-lag", async (sp, ct) =>
             {
                 var status = await client(sp).GetDatabase("admin")
                     .RunCommandAsync<BsonDocument>(new BsonDocument("replSetGetStatus", 1), cancellationToken: ct).ConfigureAwait(false);
@@ -81,7 +82,7 @@ public static class HomeostatMongoExtensions
         }
 
         builder.Services.AddSingleton(new MongoRegistration(name, options));
-        builder.Services.AddSignalDetector<MongoSignalDetector>();
+        builder.Services.AddHomeostatDetector<MongoSignalDetector>();
         return builder;
     }
 
@@ -104,7 +105,8 @@ public static class HomeostatMongoExtensions
         ArgumentNullException.ThrowIfNull(services);
         ArgumentException.ThrowIfNullOrWhiteSpace(name);
         var events = services.GetService<MongoClientEvents>();
-        if (events is null || !services.GetServices<MongoRegistration>().Any(r => r.Name == name))
+        var registration = services.GetServices<MongoRegistration>().LastOrDefault(r => r.Name == name);
+        if (events is null || registration is null)
         {
             throw new InvalidOperationException($"Call AddMongoSignals(\"{name}\") in AddHomeostat to publish the MongoDB signals.");
         }
@@ -118,9 +120,10 @@ public static class HomeostatMongoExtensions
         settings.ClusterConfigurator = events.Configurator(name, previous, () => cluster =>
         {
             previous?.Invoke(cluster);
-            cluster.Subscribe<ConnectionPoolCheckingOutConnectionFailedEvent>(e =>
-                state.CheckoutFailed(e.Reason == ConnectionCheckOutFailedReason.Timeout));
-            cluster.Subscribe<ClusterDescriptionChangedEvent>(e =>
+            // The handlers run inside the driver's connection pool and server monitoring: they never throw.
+            cluster.Subscribe<ConnectionPoolCheckingOutConnectionFailedEvent>(e => Safely(() =>
+                state.CheckoutFailed(e.Reason == ConnectionCheckOutFailedReason.Timeout)));
+            cluster.Subscribe<ClusterDescriptionChangedEvent>(e => Safely(() =>
             {
                 var servers = e.NewDescription.Servers;
 
@@ -137,11 +140,34 @@ public static class HomeostatMongoExtensions
                 // A lost primary is published at once, not at the next interval.
                 if (state.ClusterChanged(e.ClusterId.Value, writable, connected))
                 {
-                    MongoSignals.PublishPrimary(publisher, name, state, time.GetUtcNow());
+                    MongoSignals.PublishPrimary(publisher, registration.Prefix, state, time.GetUtcNow());
                 }
-            });
+            }));
+
+            // A client that is disposed (or recreated, as some applications do) must not keep counting: its last
+            // description would stay forever, and a closed cluster that had lost its primary would keep the
+            // deployment unwritable.
+            cluster.Subscribe<ClusterClosedEvent>(e => Safely(() =>
+            {
+                if (state.ClusterClosed(e.ClusterId.Value))
+                {
+                    MongoSignals.PublishPrimary(publisher, registration.Prefix, state, time.GetUtcNow());
+                }
+            }));
         });
         return settings;
+    }
+
+    private static void Safely(Action handler)
+    {
+        try
+        {
+            handler();
+        }
+        catch
+        {
+            // A signal missed is better than a driver event handler that fails.
+        }
     }
 
     private static IEnumerable<ReplicaMember> Members(BsonDocument status)

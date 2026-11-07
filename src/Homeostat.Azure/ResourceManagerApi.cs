@@ -14,11 +14,13 @@ internal sealed partial class ResourceManagerApi
     internal const string HttpClientName = "Homeostat.Azure";
     private readonly IHttpClientFactory _clients;
     private readonly AzureOptions _options;
+    private readonly IServiceProvider _services;
 
-    public ResourceManagerApi(IHttpClientFactory clients, IOptions<AzureOptions> options)
+    public ResourceManagerApi(IHttpClientFactory clients, IOptions<AzureOptions> options, IServiceProvider services)
     {
         _clients = clients;
         _options = options.Value;
+        _services = services;
     }
 
     /// <summary>
@@ -28,7 +30,7 @@ internal sealed partial class ResourceManagerApi
     public async Task<JsonNode?> SendAsync(HttpMethod method, string resourceId, string? action, string apiVersion, JsonNode? body, CancellationToken cancellationToken)
     {
         var token = _options.AccessToken is { } provider
-            ? await provider(cancellationToken).ConfigureAwait(false)
+            ? await provider(_services, cancellationToken).ConfigureAwait(false)
             : throw new InvalidOperationException("Set AzureOptions.AccessToken, for example from Azure.Identity's DefaultAzureCredential.");
 
         var separator = action?.Contains('?', StringComparison.Ordinal) == true ? '&' : '?';

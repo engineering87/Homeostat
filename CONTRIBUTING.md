@@ -1,6 +1,7 @@
 # Contributing to Homeostat
 
-Thanks for your interest in contributing.
+Thanks for your interest in contributing. This page covers the development setup, the commit and API conventions,
+pull requests and, for maintainers, releases.
 
 ## Before you start
 
@@ -16,6 +17,35 @@ Requirements: .NET 10 SDK.
 dotnet restore Homeostat.slnx
 dotnet build Homeostat.slnx
 dotnet test Homeostat.slnx
+```
+
+Tests that need a real server are skipped without one:
+
+| Server | Tests | How to run them |
+|---|---|---|
+| Redis | `tests/Homeostat.Tests` | A local `redis-server` is started if installed; or set `HOMEOSTAT_TEST_REDIS` (for example `localhost:6379`). The CI workflow runs them against a Redis container. |
+| Kubernetes | `KubernetesClusterTests` | Set the `HOMEOSTAT_TEST_KUBERNETES_*` variables. The `kubernetes` job of the CI workflow shows how, on a kind cluster, with the Role documented in [`docs/cloud.md`](docs/cloud.md#permissions). |
+| Kafka, MongoDB, RabbitMQ, Artemis, Service Bus emulator | `tests/Homeostat.IntegrationTests`, a separate project (not in `Homeostat.slnx`) | One variable per server: `HOMEOSTAT_TEST_KAFKA`, `HOMEOSTAT_TEST_MONGODB`, `HOMEOSTAT_TEST_RABBITMQ`, `HOMEOSTAT_TEST_ARTEMIS` (with `HOMEOSTAT_TEST_ARTEMIS_USER` and `HOMEOSTAT_TEST_ARTEMIS_PASSWORD`), `HOMEOSTAT_TEST_SERVICEBUS`. The `Integration` workflow starts each server in a container, and every job must pass. |
+
+To run one of the integration tests locally:
+
+```bash
+docker run -d -p 9092:9092 apache/kafka:3.8.0
+HOMEOSTAT_TEST_KAFKA=localhost:9092 dotnet test tests/Homeostat.IntegrationTests --filter "FullyQualifiedName~KafkaTests"
+```
+
+`DocumentationTests` checks that the limits and timeouts stated in `docs/` are the ones the code uses, and that the
+stability of each package is the same in its project, `docs/packages.md`, `docs/versioning.md` and its NuGet readme.
+When you change one of those constants, update the page it names. It also checks that every page of `docs/` is in
+`docs/toc.yml`, the table of contents of the documentation site.
+
+The documentation site (`site/`) is built with [docfx](https://dotnet.github.io/docfx/) from `docs/` and from the XML
+documentation of the packages (the API reference), by the `Docs` workflow, and published to GitHub Pages from `main`.
+To preview it locally:
+
+```bash
+dotnet tool install --global docfx --version 2.81.0
+docfx site/docfx.json --serve    # http://localhost:8080
 ```
 
 ## Commit messages
@@ -35,18 +65,31 @@ Commits and pull request titles follow [Conventional Commits](https://www.conven
 | Type | `feat`, `fix`, `docs`, `test`, `refactor`, `perf`, `build`, `ci`, `chore`, `style`, `revert` |
 | Scope (optional) | `core`, `analyzers`, `artemis`, `aspire`, `aspnetcore`, `azure`, `caching`, `cli`, `data`, `efcore`, `featureflags`, `grpc`, `healthchecks`, `http`, `kafka`, `kubernetes`, `mongodb`, `polly`, `rabbitmq`, `redis`, `servicebus`, `templates`, `testing`, `samples`, `docs`, `deps`, `ci`, `release` |
 
+Most scopes are the name of a project in `src/` in lower case, without `Homeostat.` (`analyzers`, `http`, `servicebus`...).
+The others:
+
+| Scope | Covers |
+|---|---|
+| `core` | The `Homeostat` package |
+| `data` | The database probes, pool signals and `ClearConnectionPools<T>`, part of the core package (their option types are in the `Homeostat.Data` namespace) |
+| `efcore` | `Homeostat.EntityFrameworkCore` |
+| `aspire` | `Homeostat.Aspire.Hosting` |
+| `featureflags` | `Homeostat.FeatureManagement` and `Homeostat.OpenFeature` |
+| `samples`, `docs`, `deps`, `ci`, `release` | The samples, the documentation, dependency updates, the workflows, releases |
+
 Examples: `feat(core): add hysteresis to conditions`, `fix(http): dispose the response when IsFailure throws`,
 `docs: explain approvals`. A `!` after the type or scope (`feat(aspnetcore)!: ...`) marks a breaking change.
 The header can be up to 100 characters.
 
 The rules live in `commitlint.config.mjs` and are checked:
 
-- **locally**, by a `commit-msg` hook: run `npm install` once (Node.js 22.12 or later); it installs commitlint
-  and points git to the hooks in `.githooks`. Without Node.js the hook does nothing.
-- **in CI**, by the `Commit lint` workflow, on every commit of a pull request and on the pull request title,
-  which becomes the commit message when the pull request is squash-merged.
+- locally, by a `commit-msg` hook: run `npm install` once (Node.js 22.12 or later); it installs commitlint and points
+  git to the hooks in `.githooks`. Without Node.js the hook does nothing.
+- in CI, by the `Commit lint` workflow, on every commit of a pull request and on the pull request title, which becomes
+  the commit message when the pull request is squash-merged.
 
-Dependabot is configured to write compliant messages (`build(deps): ...`, `ci(deps): ...`).
+Dependabot is configured to write compliant messages (`build(deps): ...`, `ci(deps): ...`); commitlint accepts its
+capitalized `Bump ...` subjects as they are.
 
 ## Public API
 
@@ -58,6 +101,17 @@ HOMEOSTAT_ACCEPT_API=1 dotnet test Homeostat.slnx --filter PublicApiTests
 ```
 
 then review the diff of `api/*.txt` and include it in the pull request: reviewers see every API change there.
+
+Conventions that new APIs follow:
+
+| Topic | Convention |
+|---|---|
+| Durations | `TimeSpan` (`Interval`, `Timeout`, `DegradedLatency`). A number is a count, a ratio or a value in the unit of the signal it describes, and its name or documentation says the unit. |
+| Signal sources | A source the caller must choose is a method parameter (`AddProbe(source, ...)`). A default that Homeostat derives from a name or a type is a `string?` `Source` property (`null` means derived). A fixed default is a `string` property with that default (`RedisSignalOptions.Source = "redis"`). |
+| Options callbacks | They come last (`Action<TOptions>? configure = null`), and options are validated when they are registered or at startup, never at first use. |
+| Who acted | A `string? by` parameter, before the `CancellationToken`, which is always last. |
+| Results and events | Records with `required` and `init` properties, never positional records, so that adding a property later is not a breaking change. |
+| Interfaces that users implement | After 1.0, new members only with a default implementation. |
 
 From 1.0 on, removing or changing a public member is a breaking change and waits for a major version. To keep
 additions non-breaking:
@@ -78,8 +132,9 @@ coordinators, control queries). Every asynchronous public method takes a `Cancel
 
 ## Native AOT and performance
 
-The libraries are `IsAotCompatible`: trimming and AOT analyzer warnings are errors in CI. Serialize JSON with the
-source-generated contexts or `JsonNode`, never with reflection. The `native-aot` CI job publishes and runs
+The libraries are `IsAotCompatible`, except `Homeostat.EntityFrameworkCore` and `Homeostat.Aspire.Hosting`, whose
+dependencies are not (the "Native AOT" column of [docs/packages.md](docs/packages.md)). Trimming and AOT analyzer
+warnings are errors in CI. Serialize JSON with the source-generated contexts or `JsonNode`, never with reflection. The `native-aot` CI job publishes and runs
 `tests/Homeostat.AotSmoke`; extend it when a package gains a feature that must work in AOT applications.
 
 Code that runs for every signal (publishing, the engine loop, condition rules) must not allocate in steady state.
@@ -88,6 +143,10 @@ change to those paths and mention the figures in the pull request.
 
 ## Pull requests
 
+Branches: `develop` receives the work, `main` holds what is ready to release. Open pull requests against `develop`;
+maintainers merge `develop` into `main` through a pull request when preparing a release. Both branches are protected
+and run the same checks (`CI`, `CodeQL`, `Commit lint`) on every pull request and push.
+
 - Keep changes focused; one topic per pull request.
 - Give the pull request a Conventional Commits title (see above).
 - Add or update tests for behavior changes. For arithmetic that turns numbers into decisions (ratios, percentiles,
@@ -95,6 +154,9 @@ change to those paths and mention the figures in the pull request.
   generated inputs, and reports the smallest failing case.
 - Public APIs must have XML documentation: missing comments are build warnings, and errors in CI.
 - New guardrail-relevant behavior must default to the safe option.
+- Check the change against the [design decisions](docs/decisions.md): a change that goes against one needs a new
+  argument in the pull request, and the decision, its guarding test and this page change together. Review findings
+  that contradict a decision are answered by pointing to it, so review cycles do not undo earlier fixes.
 - Update `CHANGELOG.md` under `[Unreleased]`.
 
 ## Releasing
@@ -102,17 +164,33 @@ change to those paths and mention the figures in the pull request.
 Maintainers only.
 
 1. Move the `[Unreleased]` entries of `CHANGELOG.md` under a new version heading.
-2. Push a tag named after the version: `git tag v1.0.0 && git push origin v1.0.0`.
+2. Merge `develop` into `main` with a pull request (squash merge, so `main` gets one commit named by the pull
+   request title; the commit lint checks the title, and the commits were checked when they reached `develop`), then
+   tag `main` with the version: `git tag v1.0.0 origin/main && git push origin v1.0.0`. The `Release` workflow refuses
+   a tag that is not on `main`. Afterwards merge `main` back into `develop`
+   (`git checkout develop && git merge origin/main && git push`), so the next release pull request shows only the new
+   changes.
 3. The `Release` workflow builds, tests, packs (with symbols and SourceLink), signs the packages when a certificate is
    configured, produces an SBOM and a build provenance attestation, pushes the packages to NuGet and creates a GitHub
-   release with the packages and the SBOM. Versions with a suffix (`-preview.1`) are marked as pre-releases.
+   release with the packages and the SBOM. Versions with a suffix (`-rc.1`) are marked as pre-releases. The version
+   comes from the tag (`-p:HomeostatVersion=1.0.0`); preview packages get `-preview.1` on a release and `-preview.0.rc.N` on a release candidate (see
+   [Stable and preview packages](docs/versioning.md#stable-and-preview-packages)). To promote a preview package,
+   remove `<HomeostatPreview>true</HomeostatPreview>` from its project and move it to the stable rows of
+   `docs/versioning.md` and `docs/packages.md` (a test checks that they agree).
 
-The workflow needs a repository secret `NUGET_API_KEY` (a NuGet API key scoped to the `Homeostat*`
-packages) and runs in the `nuget` environment, where you can require a manual approval. To author-sign the packages,
+The workflow publishes with nuget.org [trusted publishing](https://learn.microsoft.com/nuget/nuget-org/trusted-publishing),
+so no API key is stored: on nuget.org, add a trusted publishing policy (owner `engineering87`, repository `Homeostat`,
+workflow `release.yml`, environment `nuget`), and save the nuget.org profile name as the repository secret
+`NUGET_USER`. The workflow runs in the `nuget` environment, where you can require a manual approval. To author-sign the packages,
 add `NUGET_SIGNING_CERTIFICATE` (the code signing certificate as a base64 PFX) and `NUGET_SIGNING_PASSWORD`, and
 register the certificate on the nuget.org account first.
+Before the first release, reserve the `Homeostat` ID prefix on nuget.org
+([ID prefix reservation](https://learn.microsoft.com/nuget/nuget-org/id-prefix-reservation)), so that no one else can
+publish a package named `Homeostat.*` and the packages show as verified.
 After the first release, set `PackageValidationBaselineVersion` in `Directory.Build.props` to the latest
-published version, so that accidental breaking changes fail the build.
+published version (for example `1.0.0`; preview packages compare with `1.0.0-preview.1` by themselves), so that
+accidental breaking changes fail the build. A package added after that release has no baseline yet: set
+`<EnablePackageValidation>false</EnablePackageValidation>` in its project until it has been published once.
 
 Notes for dependencies:
 

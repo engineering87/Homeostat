@@ -25,7 +25,7 @@ competes with the measuring thread, so the absolute figures vary from run to run
 | Engine, 100 conditions, trend over 5 minutes | 490–530 ns per signal | 0 B |
 | Engine, 100 conditions, anomaly over 5 minutes | 280–370 ns per signal | 0 B |
 | `HttpClient.SendAsync` to a stub handler, without Homeostat | 1.1–1.3 µs | 1,544 B |
-| `HttpClient.SendAsync` to a stub handler, with `AddHomeostatSignals()` | 1.3–1.4 µs | 1,616 B |
+| `HttpClient.SendAsync` to a stub handler, with `AddHomeostatSignals()` | 1.1–1.4 µs | 1,544 B |
 
 How to read them:
 
@@ -35,8 +35,32 @@ How to read them:
   the number of conditions: a signal is offered only to the conditions that listen to its source (and to those with a
   custom filter only). Trend, projection and anomaly rules keep running sums over their window, so their cost does not
   grow with the number of points in it either. None of this allocates in steady state.
-- **The HTTP handler** adds about a tenth of a microsecond and 72 bytes to a request, against a stub that answers at
-  once; next to a real network call (hundreds of microseconds at least) it is not measurable.
+- **The HTTP handler** adds about a tenth of a microsecond to a request, and allocates nothing when the response is
+  already there (a stub, a cache). A call that completes asynchronously adds the handler's async state, small next to
+  what `HttpClient` allocates; next to a real network call (hundreds of microseconds at least) it is not measurable.
+
+## Memory
+
+What Homeostat keeps does not grow with the traffic, the signal rate or the cardinality of what it observes: every
+structure that grows with its input has a limit, and `ResourceBoundsTests` checks that retained memory stays flat over
+a million signals per source.
+
+| Structure | Limit |
+|---|---|
+| Signal buffer | `SignalBufferCapacity` signals (1,024); the oldest is dropped |
+| Window of a trend, projection or anomaly rule | About 8,192 points (about 128 KB); a faster source keeps the latest value of each interval of window / 8,192 |
+| Matches of an `Occurrences` rule | The latest `count` |
+| Latency samples of a call recorder or an HTTP client | 2,048 per interval (reservoir sampling) |
+| Samples of a metric | 4,096 per interval (reservoir sampling) |
+| Series (tag combinations) of an observable metric | 10,000 per instrument; series that stop reporting are forgotten |
+| External alerts | 1,000 sources, 1,000 firing series per source and 10,000 in all |
+| Run and condition history | `RunHistorySize` (50) and `ConditionHistorySize` (200) |
+| Seasonal baselines | A few running sums per time slot, at most 2,016 slots (a week of 5-minute slots) per condition |
+| Actions and verifiers abandoned at their timeout | One of each per step: a call still running is not started again |
+| Store calls abandoned at their timeout | One plan state read and one lease request per plan, one history read and one history write, one load or save per seasonal baseline |
+| Events queued for a sink | 1,000 per sink; the oldest are dropped, with a warning at most once a minute |
+
+Everything else is sized by your configuration (conditions, plans, detectors, switches, consumers), not by the load.
 
 ## Method
 
@@ -50,3 +74,5 @@ How to read them:
   `AddHomeostatSignals()`. The first client measured in a process is slower whichever it is, so one pass is discarded.
 
 Run the program on your own hardware for figures that apply to you, and compare runs on the same machine.
+
+See also: [Design notes](design.md) · [Trimming and Native AOT](native-aot.md)

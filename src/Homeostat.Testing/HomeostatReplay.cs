@@ -41,7 +41,7 @@ namespace Homeostat.Testing;
 public static class HomeostatReplay
 {
     /// <summary>
-    /// Replays the signals of recording files (written by <c>RecordSignals</c>) in time order, merging the files as they
+    /// Replays the signals of recording files (written by <c>AddSignalRecording</c>) in time order, merging the files as they
     /// are read: the files of several instances, or of several days, form one timeline. Files are streamed, so long
     /// recordings do not need to fit in memory.
     /// </summary>
@@ -147,16 +147,16 @@ public static class HomeostatReplay
             builder.Configure(options);
         }
 
-        // The catalog of mapped actions, found by AddConditionsFromConfiguration when the conditions are loaded.
-        var catalog = builder.Services.Select(d => d.ImplementationInstance).OfType<ConfiguredActions>().FirstOrDefault();
-        if (catalog is null)
+        // The mapped actions, found by AddConditionsFromConfiguration when the conditions are loaded.
+        var mapped = builder.Services.Select(d => d.ImplementationInstance).OfType<ConfiguredActions>().FirstOrDefault();
+        if (mapped is null)
         {
-            catalog = new ConfiguredActions();
-            builder.Services.AddSingleton(catalog);
+            mapped = new ConfiguredActions();
+            builder.Services.AddSingleton(mapped);
         }
 
         builder.AddConditionsFromConfiguration(conditions);
-        catalog.Fallback = name => (
+        mapped.Fallback = name => (
             plan => plan.With(name, static (_, _) => Task.CompletedTask),
             plan => plan.UndoWith(name, static (_, _) => Task.CompletedTask));
     }
@@ -179,7 +179,7 @@ public static class HomeostatReplay
         using var signals = ordered.GetEnumerator();
         if (!signals.MoveNext())
         {
-            return new ReplayReport(DateTimeOffset.MinValue, DateTimeOffset.MinValue, 0, [], [], []);
+            return new ReplayReport { Since = DateTimeOffset.MinValue, Until = DateTimeOffset.MinValue, SignalCount = 0, Events = [], Conditions = [], Runs = [] };
         }
 
         var first = signals.Current;
@@ -218,6 +218,9 @@ public static class HomeostatReplay
         provider.GetRequiredService<SeasonalBaselineKeeper>().SkipLoading();   // learns from the replayed signals only
         var conditions = provider.GetRequiredService<ConditionSet>();
         var engine = (BackgroundService)provider.GetServices<IHostedService>().Single();
+
+        // The refresher is not running: read the (empty) control state once, so Homeostat does not count as paused.
+        await provider.GetRequiredService<SharedControl>().TryRefreshAsync(cancellationToken).ConfigureAwait(false);
         using var processed = new SemaphoreSlim(0);
         channel.ProcessedNotifier = processed;
 
@@ -269,13 +272,15 @@ public static class HomeostatReplay
         var plans = conditions.Trackers
             .Where(t => t.Definition.Plan is not null)
             .ToDictionary<ConditionTracker, string, IReadOnlyList<string>>(t => t.Definition.Name, t => [.. t.Definition.Plan!.Steps.Select(s => s.Name)], StringComparer.Ordinal);
-        var summaries = conditions.Trackers.Select(t => t.Definition.Name).Select(name => new ReplayConditionSummary(
-            name,
-            recorder.Events.Count(e => e.Condition == name && e.Kind == ReplayEventKind.Activated),
-            recorder.Events.Count(e => e.Condition == name && e.Kind == ReplayEventKind.WouldHeal),
-            plans.GetValueOrDefault(name) ?? [])).ToList();
+        var summaries = conditions.Trackers.Select(t => t.Definition.Name).Select(name => new ReplayConditionSummary
+        {
+            Condition = name,
+            Activations = recorder.Events.Count(e => e.Condition == name && e.Kind == ReplayEventKind.Activated),
+            WouldHeal = recorder.Events.Count(e => e.Condition == name && e.Kind == ReplayEventKind.WouldHeal),
+            PlanSteps = plans.GetValueOrDefault(name) ?? [],
+        }).ToList();
 
-        return new ReplayReport(first.Timestamp, last, count, recorder.Events, summaries, recorder.Runs);
+        return new ReplayReport { Since = first.Timestamp, Until = last, SignalCount = count, Events = recorder.Events, Conditions = summaries, Runs = recorder.Runs };
     }
 
     private sealed class ReplayRecorder(TimeProvider time) : IHealingObserver
@@ -307,10 +312,10 @@ public static class HomeostatReplay
         }
 
         public void OnConditionActivated(ConditionSnapshot condition)
-            => Add(new ReplayEvent(time.GetUtcNow(), condition.Name, ReplayEventKind.Activated, condition.LastSignal?.Message));
+            => Add(new ReplayEvent { At = time.GetUtcNow(), Condition = condition.Name, Kind = ReplayEventKind.Activated, Detail = condition.LastSignal?.Message });
 
         public void OnConditionCleared(ConditionSnapshot condition)
-            => Add(new ReplayEvent(time.GetUtcNow(), condition.Name, ReplayEventKind.Cleared, null));
+            => Add(new ReplayEvent { At = time.GetUtcNow(), Condition = condition.Name, Kind = ReplayEventKind.Cleared, Detail = null });
 
         public void OnStepCompleted(HealingStepResult step)
         {
@@ -324,7 +329,7 @@ public static class HomeostatReplay
                 _runs.Add(run);
             }
 
-            Add(new ReplayEvent(run.StartedAt, run.ConditionName, kind, run.Outcome.ToString()));
+            Add(new ReplayEvent { At = run.StartedAt, Condition = run.ConditionName, Kind = kind, Detail = run.Outcome.ToString() });
         }
 
         private void Add(ReplayEvent e)
@@ -357,39 +362,63 @@ public enum ReplayEventKind
 }
 
 /// <summary>Something that happened during a replay.</summary>
-/// <param name="At">Signal time when it happened.</param>
-/// <param name="Condition">Condition concerned.</param>
-/// <param name="Kind">What happened.</param>
-/// <param name="Detail">Latest signal message, or the run outcome.</param>
-public sealed record ReplayEvent(DateTimeOffset At, string Condition, ReplayEventKind Kind, string? Detail);
+public sealed record ReplayEvent
+{
+    /// <summary>Signal time when it happened.</summary>
+    public required DateTimeOffset At { get; init; }
+
+    /// <summary>Condition concerned.</summary>
+    public required string Condition { get; init; }
+
+    /// <summary>What happened.</summary>
+    public required ReplayEventKind Kind { get; init; }
+
+    /// <summary>Latest signal message, or the run outcome.</summary>
+    public string? Detail { get; init; }
+}
 
 /// <summary>What a condition did during a replay.</summary>
-/// <param name="Condition">Condition name.</param>
-/// <param name="Activations">Times it became active.</param>
-/// <param name="WouldHeal">Times its plan would have run.</param>
-/// <param name="PlanSteps">Steps of its plan, in order.</param>
-public sealed record ReplayConditionSummary(string Condition, int Activations, int WouldHeal, IReadOnlyList<string> PlanSteps);
+public sealed record ReplayConditionSummary
+{
+    /// <summary>Condition name.</summary>
+    public required string Condition { get; init; }
+
+    /// <summary>Times it became active.</summary>
+    public required int Activations { get; init; }
+
+    /// <summary>Times its plan would have run.</summary>
+    public required int WouldHeal { get; init; }
+
+    /// <summary>Steps of its plan, in order.</summary>
+    public required IReadOnlyList<string> PlanSteps { get; init; }
+}
 
 /// <summary>Result of <see cref="HomeostatReplay"/>.</summary>
-/// <param name="From">First signal time.</param>
-/// <param name="To">Last signal time.</param>
-/// <param name="Signals">Signals replayed.</param>
-/// <param name="Events">Activations, clears and runs, in order.</param>
-/// <param name="Conditions">One summary per condition.</param>
-/// <param name="Runs">The dry runs, with their outcomes.</param>
-public sealed record ReplayReport(
-    DateTimeOffset From,
-    DateTimeOffset To,
-    int Signals,
-    IReadOnlyList<ReplayEvent> Events,
-    IReadOnlyList<ReplayConditionSummary> Conditions,
-    IReadOnlyList<HealingRunResult> Runs)
+public sealed record ReplayReport
 {
+    /// <summary>First signal time (the start of the range, as <c>CoverageReport.Since</c>).</summary>
+    public required DateTimeOffset Since { get; init; }
+
+    /// <summary>Last signal time (the end of the range, as <c>CoverageReport.Until</c>).</summary>
+    public required DateTimeOffset Until { get; init; }
+
+    /// <summary>Number of signals replayed.</summary>
+    public required int SignalCount { get; init; }
+
+    /// <summary>Activations, clears and runs, in order.</summary>
+    public required IReadOnlyList<ReplayEvent> Events { get; init; }
+
+    /// <summary>One summary per condition.</summary>
+    public required IReadOnlyList<ReplayConditionSummary> Conditions { get; init; }
+
+    /// <summary>The dry runs, with their outcomes.</summary>
+    public required IReadOnlyList<HealingRunResult> Runs { get; init; }
+
     /// <summary>A readable report: one line per condition, then the timeline.</summary>
     public string ToText()
     {
         var text = new StringBuilder();
-        text.AppendLine(CultureInfo.InvariantCulture, $"Replay of {Signals} signals from {From:u} to {To:u}");
+        text.AppendLine(CultureInfo.InvariantCulture, $"Replay of {SignalCount} signals from {Since:u} to {Until:u}");
         foreach (var c in Conditions)
         {
             text.AppendLine(CultureInfo.InvariantCulture,

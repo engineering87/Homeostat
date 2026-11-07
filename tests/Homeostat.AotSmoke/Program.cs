@@ -30,7 +30,7 @@ builder.Services.AddHomeostat(h => h
     })
     .UseFileStore(Path.Combine(directory.FullName, "homeostat.json"))
     .AddAuditLog(Path.Combine(directory.FullName, "audit-{date}.jsonl"))
-    .RecordSignals(o => o.Path = Path.Combine(directory.FullName, "signals-{instance}-{date}.jsonl"))
+    .AddSignalRecording(o => o.Path = Path.Combine(directory.FullName, "signals-{instance}-{date}.jsonl"))
     .AddCondition("feed-down", c => c
         .ForSource("alert:feed") // The alert endpoints prefix the sources they receive.
         .WhenSeverityAtLeast(SignalSeverity.Unhealthy)
@@ -50,9 +50,9 @@ builder.Services.AddHomeostat(h => h
     {
         o.ApiServer = new Uri("https://kubernetes.invalid");
         o.Namespace = "smoke";
-        o.AccessToken = _ => ValueTask.FromResult("token");
+        o.AccessToken = (_, _) => ValueTask.FromResult("token");
     })
-    .UseAzure(o => o.AccessToken = _ => ValueTask.FromResult("token"))
+    .UseAzure(o => o.AccessToken = (_, _) => ValueTask.FromResult("token"))
     .AddCallSignals("geocoding:api")
     .AddWebhookNotifications(o =>
     {
@@ -64,13 +64,13 @@ builder.Services.AddHomeostat(h => h
         o.RoutingKey = "smoke-routing-key";
         o.OnConditionActivated = true;
     })
-    .AddOpsgenieAlerts(o =>
+    .AddOpsgenieIncidents(o =>
     {
         o.ApiKey = "smoke-api-key";
         o.OnConditionActivated = true;
     })
-    .AddSlackNotifications(o => o.WebhookUrl = new Uri("https://hooks.slack.com/services/smoke"))
-    .AddTeamsNotifications(o => o.WebhookUrl = new Uri("https://teams.invalid/workflow")));
+    .AddSlackNotifications(o => o.Url = new Uri("https://hooks.slack.com/services/smoke"))
+    .AddTeamsNotifications(o => o.Url = new Uri("https://teams.invalid/workflow")));
 
 // The notifiers send to an in-memory receiver.
 foreach (var client in new[] { WebhookOptions.HttpClientName, "Homeostat.Slack", "Homeostat.Teams", "Homeostat.PagerDuty", "Homeostat.Opsgenie" })
@@ -136,7 +136,7 @@ try
 
     step = "recording calls";
     var calls = app.Services.GetRequiredKeyedService<Homeostat.Calls.CallRecorder>("geocoding:api");
-    Check(await calls.TrackAsync(_ => Task.FromResult(42), timeout.Token) == 42, "call signals: TrackAsync did not return the result");
+    Check(await calls.TrackAsync(_ => Task.FromResult(42), cancellationToken: timeout.Token) == 42, "call signals: TrackAsync did not return the result");
 
     step = "reading coverage, history, dashboard and health";
     var coverage = JsonNode.Parse(await http.GetStringAsync("/homeostat/coverage", timeout.Token));

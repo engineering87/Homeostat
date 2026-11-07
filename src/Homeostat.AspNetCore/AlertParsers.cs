@@ -79,7 +79,7 @@ internal static class AlertParsers
             tags["fingerprint"] = Truncate(key);
 
             batch.Alerts.Add(new AlertObservation(
-                source, key, firing, severity, ReadValue(alert, options.GrafanaValueKey), Truncate(message, 1024), tags));
+                source, SeriesKey(key), firing, severity, ReadValue(alert, options.GrafanaValueKey), Truncate(message, 1024), tags));
         }
 
         return batch;
@@ -123,7 +123,7 @@ internal static class AlertParsers
         // The alert id is the same in the Fired and Resolved notifications of one alert instance.
         var key = ReadString(essentials, "alertId") is { Length: > 0 } alertId ? alertId : rule;
         batch.Alerts.Add(new AlertObservation(
-            source, key, firing, severity, ReadAzureMetricValue(data),
+            source, SeriesKey(key), firing, severity, ReadAzureMetricValue(data),
             Truncate(ReadString(essentials, "description") ?? $"Azure Monitor alert {rule} is {condition}.", 1024), tags));
         return batch;
     }
@@ -185,8 +185,17 @@ internal static class AlertParsers
     {
         var trimmed = name.Trim();
         source = options.SourcePrefix + trimmed;
-        return trimmed.Length > 0 && source.Length <= MaxSourceLength;
+
+        // No control characters: the source reaches logs and the dashboard.
+        return trimmed.Length > 0 && source.Length <= MaxSourceLength && !trimmed.Any(char.IsControl);
     }
+
+    /// <summary>
+    /// The key a series is kept under: as sent when short, otherwise a hash of it, so a sender cannot make each kept
+    /// series cost more than a few hundred bytes (the key comes from the request).
+    /// </summary>
+    private static string SeriesKey(string key)
+        => key.Length <= MaxTagLength ? key : "sha256:" + Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(key)));
 
     /// <summary>Identity of an alert series without a fingerprint: its sorted labels.</summary>
     private static string LabelKey(Dictionary<string, string> labels)

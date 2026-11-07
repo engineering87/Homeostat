@@ -204,7 +204,7 @@ public class IntelligenceTests
                 .With("renew", _ => { })
                 .Then("reset-pool", _ => { })
                 .Adaptive()
-                .VerifyWith<BuiltInActionTests.AlwaysHealed>())));
+                .UseVerifier<BuiltInActionTests.AlwaysHealed>())));
 
         host.Publish("feed", SignalSeverity.Unhealthy);
         var run = await host.WaitForRunAsync("feed-down");
@@ -226,11 +226,11 @@ public class IntelligenceTests
             await File.WriteAllTextAsync(notOurs, "{}\n");
             await using (var host = await HomeostatTestHost.StartAsync(
                 h => h
-                    .RecordSignals(o =>
+                    .AddSignalRecording(o =>
                     {
                         o.Path = Path.Combine(directory, "signals-{date}.jsonl");
                         o.Sources.Add("feed");
-                        o.RetentionDays = 7;
+                        o.Retention = TimeSpan.FromDays(7);
                         o.IncludeDetails = true;
                     })
                     .AddCondition("feed-down", c => c.ForSource("feed"))
@@ -272,7 +272,7 @@ public class IntelligenceTests
             await using (var host = await HomeostatTestHost.StartAsync(
                 h => h
                     .Configure(o => o.InstanceId = "web/1")
-                    .RecordSignals(o => o.Path = Path.Combine(directory, "signals-{instance}-{date}.jsonl"))
+                    .AddSignalRecording(o => o.Path = Path.Combine(directory, "signals-{instance}-{date}.jsonl"))
                     .AddCondition("feed-down", c => c.ForSource("feed")),
                 options: new HomeostatTestHostOptions { StartTime = Start }))
             {
@@ -296,7 +296,7 @@ public class IntelligenceTests
     public async Task Replay_stays_in_dry_run_even_if_the_configuration_post_configures_it_off()
     {
         var acted = false;
-        var signals = Enumerable.Range(0, 5).Select(i => new RecordedSignal(Start.AddSeconds(i * 10), "feed", SignalSeverity.Unhealthy));
+        var signals = Enumerable.Range(0, 5).Select(i => new RecordedSignal { Timestamp = Start.AddSeconds(i * 10), Source = "feed", Severity = SignalSeverity.Unhealthy });
 
         var report = await HomeostatReplay.RunAsync(signals, h =>
         {
@@ -318,12 +318,12 @@ public class IntelligenceTests
             var signals = new List<RecordedSignal>();
             for (var s = 0; s <= 120; s += 10)
             {
-                signals.Add(new(Start.AddSeconds(s), "weather-feed", SignalSeverity.Unhealthy, Message: "timeout"));
+                signals.Add(new RecordedSignal { Timestamp = Start.AddSeconds(s), Source = "weather-feed", Severity = SignalSeverity.Unhealthy, Message = "timeout" });
             }
 
-            signals.Add(new(Start.AddSeconds(130), "weather-feed", SignalSeverity.Healthy));
-            signals.Add(new(Start.AddHours(4), "weather-feed", SignalSeverity.Unhealthy));
-            signals.Add(new(Start.AddHours(4).AddSeconds(10), "weather-feed", SignalSeverity.Healthy));
+            signals.Add(new RecordedSignal { Timestamp = Start.AddSeconds(130), Source = "weather-feed", Severity = SignalSeverity.Healthy });
+            signals.Add(new RecordedSignal { Timestamp = Start.AddHours(4), Source = "weather-feed", Severity = SignalSeverity.Unhealthy });
+            signals.Add(new RecordedSignal { Timestamp = Start.AddHours(4).AddSeconds(10), Source = "weather-feed", Severity = SignalSeverity.Healthy });
             var file = Path.Combine(directory, "signals.jsonl");
             await File.WriteAllLinesAsync(file, signals.Select(s => JsonSerializer.Serialize(s, RecordedSignal.Json)));
             var acted = false;
@@ -340,7 +340,7 @@ public class IntelligenceTests
 
             Assert.False(acted);
             Assert.False(File.Exists(audit));
-            Assert.Equal(16, report.Signals);
+            Assert.Equal(16, report.SignalCount);
             var summary = Assert.Single(report.Conditions);
             Assert.Equal(1, summary.Activations);                       // the blip was too short
             Assert.Equal(1, summary.WouldHeal);
@@ -366,7 +366,7 @@ public class IntelligenceTests
             .AddCondition("feed-down", c => c.ForSource("feed").Heal(p => p
                 .With("renew", _ => { })
                 .Then("failover", _ => { })
-                .VerifyWith<BuiltInActionTests.AlwaysHealed>()))
+                .UseVerifier<BuiltInActionTests.AlwaysHealed>()))
             .AddCondition("disk-full", c => c.ForSource("disk").Heal(p => p.With("prune", _ => { })))
             .AddCondition("observed", c => c.ForSource("threadpool")));
         var since = host.Time.GetUtcNow();
@@ -396,7 +396,7 @@ public class IntelligenceTests
                 .With("renew", _ => throw new InvalidOperationException("no"))
                 .Then("failover", _ => { })
                 .Cooldown(TimeSpan.Zero)
-                .VerifyWith<BuiltInActionTests.AlwaysHealed>())));
+                .UseVerifier<BuiltInActionTests.AlwaysHealed>())));
         var since = host.Time.GetUtcNow();
 
         host.Publish("feed", SignalSeverity.Unhealthy);
@@ -423,7 +423,7 @@ public class IntelligenceTests
         builder.Services.AddHomeostat(h => h
             .Configure(o => o.DryRun = false)
             .AddCondition("feed-down", c => c.ForSource("feed").Heal(p => p
-                .With("renew", _ => { }).Then("failover", _ => { }).VerifyWith<BuiltInActionTests.AlwaysHealed>())));
+                .With("renew", _ => { }).Then("failover", _ => { }).UseVerifier<BuiltInActionTests.AlwaysHealed>())));
         var app = builder.Build();
         app.MapHomeostatStatus(allowAnonymous: true);
         await app.StartAsync();

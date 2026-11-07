@@ -1,6 +1,6 @@
 # Homeostat.FeatureManagement
 
-Microsoft.FeatureManagement integration for Homeostat: a feature filter that turns a feature off while a Homeostat switch is on (or on, with `EnabledWhen: On`), so healing plans degrade gracefully through the feature flags your code already reads.
+Microsoft.FeatureManagement integration for Homeostat: a feature filter that turns a feature off while a Homeostat switch is on (or on, with `EnabledWhen: On`), so healing plans can turn features off through the feature flags your code already reads. Invalid filter parameters are logged once and never make a feature check throw.
 
 ## Install
 
@@ -8,7 +8,7 @@ Microsoft.FeatureManagement integration for Homeostat: a feature filter that tur
 dotnet add package Homeostat.FeatureManagement --prerelease
 ```
 
-The current version is a release candidate (`1.0.0-rc.1`): `--prerelease` is needed until 1.0.0 is published.
+This package is a **preview**: it works and is tested, but its API can still change in a minor version (see [Stable and preview packages](https://github.com/engineering87/Homeostat/blob/main/docs/versioning.md#stable-and-preview-packages)), so `--prerelease` stays needed after 1.0.0.
 
 ## Example
 
@@ -22,7 +22,7 @@ builder.Services.AddHomeostat(h => h
     .AddCondition("forecast-maps-slow", c => c
         .ForSource("http:maps")
         .SustainedFor(TimeSpan.FromMinutes(1))
-        .Heal(p => p.TurnOnSwitch("shed-forecast-maps", turnOffWhenCleared: true))));
+        .Heal(p => p.TurnOnSwitch("shed-forecast-maps"))));
 
 // appsettings.json:
 // "FeatureManagement": {

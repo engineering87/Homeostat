@@ -1,0 +1,168 @@
+name: Integration
+
+# Homeostat's integrations against real servers, each in a container: tests/Homeostat.IntegrationTests. Every job must
+# pass. The images are pinned by tag; when one moves (the Service Bus emulator follows latest), a failure here says so.
+# Kubernetes runs in ci.yml (job "kubernetes"), Redis in the main build.
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  kafka:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    services:
+      kafka:
+        # Single node in KRaft mode, advertised as localhost:9092.
+        image: apache/kafka:3.8.0
+        ports: [ "9092:9092" ]
+        options: >-
+          --health-cmd "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:9092"
+          --health-interval 5s
+          --health-timeout 10s
+          --health-retries 20
+
+    env:
+      HOMEOSTAT_TEST_KAFKA: localhost:9092
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          dotnet-version: 10.0.x
+      - name: Test
+        run: dotnet test tests/Homeostat.IntegrationTests --configuration Release --filter "FullyQualifiedName~KafkaTests" --logger "console;verbosity=normal"
+
+  mongodb:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    services:
+      mongodb:
+        image: mongo:7.0
+        ports: [ "27017:27017" ]
+        options: >-
+          --health-cmd "mongosh --quiet --eval 'db.adminCommand({ ping: 1 })'"
+          --health-interval 5s
+          --health-timeout 10s
+          --health-retries 20
+
+    env:
+      HOMEOSTAT_TEST_MONGODB: mongodb://localhost:27017
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          dotnet-version: 10.0.x
+      - name: Test
+        run: dotnet test tests/Homeostat.IntegrationTests --configuration Release --filter "FullyQualifiedName~MongoTests" --logger "console;verbosity=normal"
+
+  rabbitmq:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    services:
+      rabbitmq:
+        image: rabbitmq:3.13-alpine
+        ports: [ "5672:5672" ]
+        options: >-
+          --health-cmd "rabbitmq-diagnostics -q ping"
+          --health-interval 5s
+          --health-timeout 10s
+          --health-retries 20
+
+    env:
+      HOMEOSTAT_TEST_RABBITMQ: amqp://guest:guest@localhost:5672
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          dotnet-version: 10.0.x
+      - name: Test
+        run: dotnet test tests/Homeostat.IntegrationTests --configuration Release --filter "FullyQualifiedName~RabbitMqTests" --logger "console;verbosity=normal"
+
+  artemis:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    services:
+      artemis:
+        # User and password artemis / artemis; the web console (and Jolokia) on 8161.
+        image: apache/activemq-artemis:2.31.2
+        ports: [ "8161:8161", "61616:61616" ]
+
+    env:
+      HOMEOSTAT_TEST_ARTEMIS: http://localhost:8161
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          dotnet-version: 10.0.x
+      - name: Wait for the management API
+        run: |
+          for i in $(seq 1 60); do
+            code=$(curl -s -o /dev/null -w "%{http_code}" -u artemis:artemis -H "Origin: http://localhost:8161" http://localhost:8161/console/jolokia/version || true)
+            if [ "$code" = "200" ]; then exit 0; fi
+            sleep 2
+          done
+          echo "The Artemis management API did not answer." >&2
+          exit 1
+      - name: Test
+        run: dotnet test tests/Homeostat.IntegrationTests --configuration Release --filter "FullyQualifiedName~ArtemisTests" --logger "console;verbosity=normal"
+
+  servicebus:
+    # The Service Bus emulator needs SQL Server and a configuration file (.github/servicebus-emulator/Config.json,
+    # with the queue "ingest"): started with docker run, after the checkout that provides the file.
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    env:
+      SQL_PASSWORD: Homeostat-IT-1
+      HOMEOSTAT_TEST_SERVICEBUS: Endpoint=sb://localhost;SharedAccessKeyName=RootManageSharedAccessKey;SharedAccessKey=SAS_KEY_VALUE;UseDevelopmentEmulator=true;
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          dotnet-version: 10.0.x
+      - name: Start the emulator
+        run: |
+          docker network create sb
+          docker run -d --name sqledge --network sb -e ACCEPT_EULA=Y -e MSSQL_SA_PASSWORD="$SQL_PASSWORD" mcr.microsoft.com/mssql/server:2022-latest
+          docker run -d --name emulator --network sb -p 5672:5672 \
+            -e ACCEPT_EULA=Y -e SQL_SERVER=sqledge -e MSSQL_SA_PASSWORD="$SQL_PASSWORD" \
+            -v "$GITHUB_WORKSPACE/.github/servicebus-emulator/Config.json:/ServiceBus_Emulator/ConfigFiles/Config.json:ro" \
+            mcr.microsoft.com/azure-messaging/servicebus-emulator:latest
+          for i in $(seq 1 90); do
+            if docker logs emulator 2>&1 | grep -q "Emulator Service is Successfully Up"; then exit 0; fi
+            sleep 2
+          done
+          docker logs emulator
+          echo "The Service Bus emulator did not start." >&2
+          exit 1
+      - name: Test
+        run: dotnet test tests/Homeostat.IntegrationTests --configuration Release --filter "FullyQualifiedName~ServiceBusTests" --logger "console;verbosity=normal"
+      - name: Emulator logs on failure
+        if: failure()
+        run: docker logs emulator | tail -100

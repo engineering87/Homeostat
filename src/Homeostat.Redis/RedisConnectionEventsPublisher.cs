@@ -56,6 +56,19 @@ internal sealed class RedisConnectionEventsPublisher(string source, SignalSeveri
 
     private void Publish(SignalSeverity severity, string outcome, ConnectionFailedEventArgs e, string message)
     {
+        // Runs inside the Redis client's connection handling: never throw there.
+        try
+        {
+            PublishCore(severity, outcome, e, message);
+        }
+        catch
+        {
+            // The periodic ping reports the state anyway.
+        }
+    }
+
+    private void PublishCore(SignalSeverity severity, string outcome, ConnectionFailedEventArgs e, string message)
+    {
         _signals?.TryPublish(new Signal(source, severity, _timeProvider.GetUtcNow())
         {
             Message = message,

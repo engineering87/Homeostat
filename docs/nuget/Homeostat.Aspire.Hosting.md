@@ -1,6 +1,6 @@
 # Homeostat.Aspire.Hosting
 
-.NET Aspire hosting integration for Homeostat. In the app host, it adds a **Homeostat** link to the application's Homeostat dashboard and **Pause healing** and **Resume healing** commands to the resource in the Aspire dashboard, handy while you debug a failure that Homeostat would otherwise heal.
+.NET Aspire hosting integration for Homeostat. In the app host, it adds a **Homeostat** link to the application's Homeostat dashboard and **Pause healing** and **Resume healing** commands to the resource in the Aspire dashboard, useful while you debug a failure that Homeostat would otherwise heal. **Pause healing** pauses for 30 minutes by default (`PauseFor`).
 
 ## Install
 
@@ -8,7 +8,7 @@
 dotnet add package Homeostat.Aspire.Hosting --prerelease   # in the app host project
 ```
 
-The current version is a release candidate (`1.0.0-rc.1`): `--prerelease` is needed until 1.0.0 is published.
+This package is a **preview**: it works and is tested, but its API can still change in a minor version (see [Stable and preview packages](https://github.com/engineering87/Homeostat/blob/main/docs/versioning.md#stable-and-preview-packages)), so `--prerelease` stays needed after 1.0.0.
 
 ## Example
 

@@ -58,7 +58,7 @@ builder.Services
             .ForSource("alert:RadarTilesSlow")
             .WhenSeverityAtLeast(SignalSeverity.Degraded)
             .Heal(p => p.TurnOnSwitch("hide-radar-tiles", turnOffWhenCleared: true)))
-        .AddHealthCheckSignals(period: TimeSpan.FromSeconds(2))
+        .AddHealthCheckSignals(o => o.Interval = TimeSpan.FromSeconds(2))
         // Every decision, one JSON object per line.
         .AddAuditLog("logs/homeostat-{date}.jsonl"));
 

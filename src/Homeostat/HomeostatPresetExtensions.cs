@@ -36,7 +36,7 @@ public static class HomeostatPresetExtensions
 
     /// <summary>
     /// Registers the runtime detectors (thread pool, memory, exceptions), the state of every
-    /// <see cref="RestartableBackgroundService"/> (sources <c>service:{type name}</c>), and a condition for each
+    /// <see cref="RestartableBackgroundService"/> (sources <c>hosted-service:{type name}</c>), and a condition for each
     /// runtime detector (see <see cref="HomeostatDefaults"/>). The conditions only observe until you give them a plan.
     /// </summary>
     /// <param name="builder">The Homeostat builder.</param>
@@ -47,7 +47,7 @@ public static class HomeostatPresetExtensions
     /// builder.Services.AddHomeostat(h => h
     ///     .AddWorkerDefaults()
     ///     .AddCondition("ingest-worker-stopped", c => c
-    ///         .ForSource("service:IngestWorker")
+    ///         .ForSource("hosted-service:IngestWorker")
     ///         .Heal(p => p.RestartHostedService&lt;IngestWorker&gt;())));
     /// </code>
     /// </example>

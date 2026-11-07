@@ -1,0 +1,65 @@
+name: Docs
+
+# Builds the documentation site (docs/ and the API reference generated from the XML documentation) with docfx, on
+# every pull request and push, so a broken page or table of contents fails here; publishes it to GitHub Pages from
+# main. One-time setup: Settings > Pages > Source: GitHub Actions.
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: docs-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      # docfx runs on the newest installed runtime, so it can load the .NET 10 projects for the API reference.
+      DOTNET_ROLL_FORWARD: Major
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Install docfx
+        # A fixed version, like every other tool and dependency of the build.
+        run: dotnet tool install --global docfx --version 2.81.0
+
+      - name: Restore
+        run: dotnet restore Homeostat.slnx
+
+      - name: Build the site
+        # Warnings (for example links from docs/ to files outside the site, such as the changelog) are reported, not
+        # fatal; errors fail the job.
+        run: docfx site/docfx.json
+
+      - name: Upload the site
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+        uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
+        with:
+          path: site/_site
+
+  deploy:
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write      # publish to GitHub Pages
+      id-token: write   # authenticate the deployment
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1

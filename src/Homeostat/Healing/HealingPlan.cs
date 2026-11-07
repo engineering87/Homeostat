@@ -9,8 +9,6 @@ internal sealed class HealingPlan
         string conditionName,
         IReadOnlyList<HealingStep> steps,
         Type? verifierType,
-        TimeSpan? verificationTimeout,
-        TimeSpan? actionTimeout,
         TimeSpan? cooldown,
         PlanScope scope,
         double cooldownBackoff,
@@ -22,8 +20,6 @@ internal sealed class HealingPlan
         ConditionName = conditionName;
         Steps = steps;
         VerifierType = verifierType;
-        VerificationTimeout = verificationTimeout;
-        ActionTimeout = actionTimeout;
         Cooldown = cooldown;
     }
 
@@ -42,12 +38,6 @@ internal sealed class HealingPlan
 
     /// <summary>Custom verifier; <c>null</c> means <see cref="ConditionClearedVerifier"/>.</summary>
     public Type? VerifierType { get; }
-
-    /// <summary><c>null</c> means <see cref="HomeostatOptions.DefaultVerificationTimeout"/>.</summary>
-    public TimeSpan? VerificationTimeout { get; }
-
-    /// <summary><c>null</c> means <see cref="HomeostatOptions.DefaultActionTimeout"/>.</summary>
-    public TimeSpan? ActionTimeout { get; }
 
     /// <summary><c>null</c> means <see cref="HomeostatOptions.DefaultCooldown"/>.</summary>
     public TimeSpan? Cooldown { get; }

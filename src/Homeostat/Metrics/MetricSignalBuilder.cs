@@ -60,12 +60,16 @@ public sealed class MetricSignalBuilder
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(tag);
         var expected = Text(value);
-        _filters.Add(tags => tags.TryGetValue(tag, out var actual) && Text(actual) == expected);
+        var type = value?.GetType();
+
+        // Same type (an int status code compared with an int): compared as values, without formatting; otherwise as text.
+        _filters.Add(tags => tags.TryGetValue(tag, out var actual)
+            && (actual?.GetType() == type ? Equals(actual, value) : Text(actual) == expected));
         return this;
     }
 
     /// <summary>Only counts measurements whose tags satisfy the predicate.</summary>
-    /// <param name="predicate">Receives the tags of a measurement.</param>
+    /// <param name="predicate">Receives the tags of a measurement, valid only during the call (do not keep them).</param>
     public MetricSignalBuilder Where(Func<IReadOnlyDictionary<string, object?>, bool> predicate)
     {
         ArgumentNullException.ThrowIfNull(predicate);
@@ -157,9 +161,23 @@ public sealed class MetricSignalBuilder
             throw new InvalidOperationException($"The metric signal for '{Instrument}' uses Ratio: call RatioOf(...) to say what to count.");
         }
 
+        if (_ratioMatch is not null && _statistic != MetricStatistic.Ratio)
+        {
+            // Statistic(...) after RatioOf(...): the match would be silently ignored.
+            throw new InvalidOperationException($"The metric signal for '{Instrument}' calls RatioOf(...) but compares {_statistic}: remove one of the two.");
+        }
+
         if (_degradedAbove is null && _unhealthyAbove is null && _degradedBelow is null && _unhealthyBelow is null)
         {
             throw new InvalidOperationException($"The metric signal for '{Instrument}' has no threshold: call DegradedAbove, UnhealthyAbove, DegradedBelow or UnhealthyBelow.");
+        }
+
+        // As for event counters and probes: a NaN threshold never matches, and misordered ones hide a severity.
+        if (new[] { _degradedAbove, _unhealthyAbove, _degradedBelow, _unhealthyBelow }.Any(t => t is { } v && !double.IsFinite(v))
+            || _degradedAbove > _unhealthyAbove || _degradedBelow < _unhealthyBelow)
+        {
+            throw new InvalidOperationException(
+                $"The metric signal for '{Instrument}': thresholds must be finite, DegradedAbove at most UnhealthyAbove and DegradedBelow at least UnhealthyBelow.");
         }
 
         return new MetricWatch(

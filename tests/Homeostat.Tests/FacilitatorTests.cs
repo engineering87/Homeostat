@@ -36,7 +36,7 @@ public class FacilitatorTests
         {
             d.MemoryPressure.Enabled = false;
             d.ExceptionRate.SustainedFor = TimeSpan.Zero;
-            d.ExceptionRate.Heal(p => p.With("recycle", _ => Interlocked.Increment(ref renewed)).VerifyWith<BuiltInActionTests.AlwaysHealed>());
+            d.ExceptionRate.Heal(p => p.With("recycle", _ => Interlocked.Increment(ref renewed)).UseVerifier<BuiltInActionTests.AlwaysHealed>());
         }));
 
         var names = host.Control.GetConditions().Select(c => c.Name).Order(StringComparer.Ordinal);
@@ -147,7 +147,7 @@ public class FacilitatorTests
 
         using var canceled = new CancellationTokenSource();
         await canceled.CancelAsync();
-        await Assert.ThrowsAsync<TaskCanceledException>(() => recorder.TrackAsync(ct => Task.Delay(1000, ct), canceled.Token));
+        await Assert.ThrowsAsync<TaskCanceledException>(() => recorder.TrackAsync(ct => Task.Delay(1000, ct), cancellationToken: canceled.Token));
 
         var signal = recorder.Collect(DateTimeOffset.UtcNow, "calls")!;
         Assert.Equal("3", signal.Tags!["calls"]);

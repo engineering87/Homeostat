@@ -1,7 +1,7 @@
 namespace Homeostat.Conditions;
 
 /// <summary>How a composite condition combines the conditions it depends on.</summary>
-public enum CompositeMode
+internal enum CompositeMode
 {
     /// <summary>Active while every listed condition is active.</summary>
     All,

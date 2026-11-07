@@ -60,7 +60,7 @@ public class MessagingTests
             .AddPausableConsumer(_ => consumer)
             .AddCondition("archive-down", c => c.ForSource("archive-db").Heal(p => p
                 .PauseConsumer("ingest")
-                .VerifyWith<BuiltInActionTests.AlwaysHealed>())));
+                .UseVerifier<BuiltInActionTests.AlwaysHealed>())));
         var consumers = host.Services.GetRequiredService<IHomeostatConsumers>();
 
         host.Publish("archive-db", SignalSeverity.Unhealthy);
@@ -148,7 +148,7 @@ public class MessagingTests
             .AddPausableConsumer(_ => consumer)
             .AddCondition("archive-down", c => c.ForSource("archive-db").Heal(p => p
                 .PauseConsumer("ingest")
-                .VerifyWith<BuiltInActionTests.AlwaysHealed>())));
+                .UseVerifier<BuiltInActionTests.AlwaysHealed>())));
         var switches = host.Services.GetRequiredService<IHomeostatSwitches>();
 
         switches.TurnOn(ConsumerSwitches.Paused("ingest"));                // maintenance, from the dashboard
@@ -185,7 +185,7 @@ public class MessagingTests
         using var source = new PoolEventSource { Active = 90 };
         var signals = new CollectingPublisher();
         var registration = new EventCounterRegistration("Homeostat-Tests-Pool", "active-connections", "pool",
-            new EventCounterSignalOptions { IntervalSeconds = 1, Transform = v => v / 100, DegradedAbove = 0.8, UnhealthyAbove = 0.95 });
+            new EventCounterSignalOptions { Interval = TimeSpan.FromSeconds(1), Transform = v => v / 100, DegradedAbove = 0.8, UnhealthyAbove = 0.95 });
 
         using (new EventCounterSignalListener([registration], signals, TimeProvider.System, Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance))
         {
@@ -202,14 +202,14 @@ public class MessagingTests
     public void SqlClient_pool_signal_reads_the_active_connections_as_a_share_of_the_pool()
     {
         var services = new ServiceCollection();
-        services.AddHomeostat(h => h.AddSqlClientPoolSignal(maxPoolSize: 200));
+        services.AddHomeostat(h => h.AddSqlClientPoolSignal(o => o.MaxPoolSize = 200));
 
         var registration = Assert.Single(services.Select(d => d.ImplementationInstance).OfType<EventCounterRegistration>());
         Assert.Equal(("Microsoft.Data.SqlClient.EventSource", "number-of-active-connections", "sqlclient:pool"),
             (registration.EventSource, registration.Counter, registration.Source));
         Assert.Equal(0.5, registration.Options.Transform!(100));
         Assert.Equal(SignalSeverity.Unhealthy, registration.Options.SeverityOf(0.96));
-        Assert.Throws<ArgumentOutOfRangeException>(() => new ServiceCollection().AddHomeostat(h => h.AddEventCounterSignal("s", "c", o => o.IntervalSeconds = 0)));
+        Assert.Throws<ArgumentOutOfRangeException>(() => new ServiceCollection().AddHomeostat(h => h.AddEventCounterSignal("s", "c", o => o.Interval = TimeSpan.Zero)));
     }
 
     // ---------------------------------------------------------------- Service Bus
@@ -221,7 +221,7 @@ public class MessagingTests
         var (services, detector) = ProbeTests.Build(h =>
         {
             var options = new ServiceBusSignalOptions();
-            options.Active.UnhealthyAbove = 1_000;
+            options.Messages.UnhealthyAbove = 1_000;
             HomeostatServiceBusExtensions.AddCountSignals(h, "servicebus:ingest", options, (_, _) =>
             {
                 Interlocked.Increment(ref reads);
@@ -233,7 +233,7 @@ public class MessagingTests
 
         await detector.DetectAsync(signals, CancellationToken.None);
 
-        var active = signals.Signals.Single(s => s.Source == "servicebus:ingest:active");
+        var active = signals.Signals.Single(s => s.Source == "servicebus:ingest:messages");
         var deadLetter = signals.Signals.Single(s => s.Source == "servicebus:ingest:dead-letter");
         Assert.Equal((5_000d, SignalSeverity.Unhealthy), (active.Value!.Value, active.Severity));
         Assert.Equal((12d, SignalSeverity.Healthy), (deadLetter.Value!.Value, deadLetter.Severity));
@@ -250,6 +250,10 @@ public class MessagingTests
         public int Stops { get; private set; }
 
         public override bool IsProcessing => _processing;
+
+        public bool Closed { get; set; }
+
+        public override bool IsClosed => Closed;
 
         public override Task StartProcessingAsync(CancellationToken cancellationToken = default)
         {
@@ -278,6 +282,26 @@ public class MessagingTests
         await pausable.ResumeAsync(CancellationToken.None);
 
         Assert.Equal((1, 1), (processor.Stops, processor.Starts));
+    }
+
+    [Fact]
+    public async Task Service_Bus_resume_never_starts_a_processor_the_application_stopped_or_closed()
+    {
+        // Stopped by the application: a Homeostat pause finds it stopped, and its resume leaves it stopped.
+        var stoppedByApplication = new FakeProcessor();
+        await stoppedByApplication.StopProcessingAsync();
+        var pausable = new PausableServiceBusProcessor("ingest", stoppedByApplication);
+        await pausable.PauseAsync(CancellationToken.None);
+        await pausable.ResumeAsync(CancellationToken.None);
+        Assert.Equal(0, stoppedByApplication.Starts);
+
+        // Paused by Homeostat, then closed by the application (shutting down): not started again either.
+        var closed = new FakeProcessor();
+        var other = new PausableServiceBusProcessor("ingest", closed);
+        await other.PauseAsync(CancellationToken.None);
+        closed.Closed = true;
+        await other.ResumeAsync(CancellationToken.None);
+        Assert.Equal(0, closed.Starts);
     }
 
     // ---------------------------------------------------------------- RabbitMQ
@@ -415,7 +439,7 @@ public class MessagingTests
         Assert.Null(KafkaSignalReporter.Read("""{ "type": "consumer", "topics": {} }""", fromCommitted: false).Lag);
 
         var signals = new CollectingPublisher();
-        var reporter = new KafkaSignalReporter(signals, "telemetry", new KafkaSignalOptions { LagDegradedAbove = 100, LagUnhealthyAbove = 1_000 });
+        var reporter = new KafkaSignalReporter(signals, "telemetry", new KafkaSignalOptions { Lag = { DegradedAbove = 100, UnhealthyAbove = 1_000 } });
         reporter.Report(Statistics);
         reporter.Report("not json");
         var lag = signals.Signals.Single(s => s.Source == "kafka:telemetry:lag");
@@ -435,7 +459,7 @@ public class MessagingTests
         producer.Report("""{ "type": 5, "brokers": [] }""");                // odd documents are skipped, never thrown
         Assert.Equal(SignalSeverity.Unhealthy, signals.Signals.First(s => s.Source == "kafka:audit:queue").Severity);   // the byte limit
         Assert.Equal(
-            [SignalSeverity.Healthy, SignalSeverity.Unhealthy],                 // confirmed by the second document
+            [SignalSeverity.Unhealthy],                                         // the first document publishes nothing; the second confirms
             signals.Signals.Where(s => s.Source == "kafka:audit:brokers").Select(s => s.Severity));
         Assert.DoesNotContain(signals.Signals, s => s.Source == "kafka:audit:lag");
     }
@@ -466,6 +490,30 @@ public class MessagingTests
         Assert.Equal(2, ((IEnumerable<TopicPartition>)calls[0].Arguments[0]!).Count());
         Assert.Equal(3, ((IEnumerable<TopicPartition>)calls[1].Arguments[0]!).Count());
         Assert.Equal(3, ((IEnumerable<TopicPartition>)calls[2].Arguments[0]!).Count());
+
+        // Running with nothing to resume, the gate does not even read the assignment (the client copies it each time).
+        Assert.Equal(3, recorder.Calls.Count(c => c.Method == "get_Assignment"));
+    }
+
+    [Fact]
+    public async Task Kafka_resume_leaves_the_partitions_the_application_paused()
+    {
+        var assignment = new List<TopicPartition> { new("telemetry", 0), new("telemetry", 1) };
+        var (consumer, recorder) = Recorder<IConsumer<string, string>>.Create((method, _) => method.Name switch
+        {
+            "get_Assignment" => assignment.ToList(),
+            "Pause" or "Resume" => null,
+            _ => throw new NotSupportedException(method.Name),
+        });
+        var gate = new KafkaPauseGate("telemetry");
+
+        await gate.PauseAsync(CancellationToken.None);
+        gate.Apply(consumer);
+        await gate.ResumeAsync(CancellationToken.None);
+        gate.Apply(consumer, pausedByApplication: [new TopicPartition("telemetry", 1)]);   // backpressure on partition 1
+
+        var resume = recorder.Calls.Single(c => c.Method == "Resume");
+        Assert.Equal([new TopicPartition("telemetry", 0)], (IEnumerable<TopicPartition>)resume.Arguments[0]!);
     }
 
     // ---------------------------------------------------------------- Aspire

@@ -18,17 +18,17 @@ public class AzureTests
     private static Task<HomeostatTestHost> StartAsync(FakeArm arm, Action<HealingPlanBuilder> plan, bool heals = false)
         => HomeostatTestHost.StartAsync(
             h => h
-                .UseAzure(o => o.AccessToken = _ => ValueTask.FromResult("arm-token"))
+                .UseAzure(o => o.AccessToken = (_, _) => ValueTask.FromResult("arm-token"))
                 .AddCondition("api-down", c => c.ForSource("api").Heal(p =>
                 {
                     plan(p);
                     if (heals)
                     {
-                        p.VerifyWith<BuiltInActionTests.AlwaysHealed>();
+                        p.UseVerifier<BuiltInActionTests.AlwaysHealed>();
                     }
                     else
                     {
-                        p.VerifyWith<CachingTests.NeverHealed>();
+                        p.UseVerifier<CachingTests.NeverHealed>();
                     }
                 })),
             s => s.AddHttpClient("Homeostat.Azure").ConfigurePrimaryHttpMessageHandler(() => arm));
@@ -163,7 +163,7 @@ public class AzureTests
         await Assert.ThrowsAnyAsync<Exception>(() => HomeostatTestHost.StartAsync(h => h.UseAzure(_ => { })));
         await Assert.ThrowsAnyAsync<Exception>(() => HomeostatTestHost.StartAsync(h => h.UseAzure(o =>
         {
-            o.AccessToken = _ => ValueTask.FromResult("t");
+            o.AccessToken = (_, _) => ValueTask.FromResult("t");
             o.ResourceManager = new Uri("http://management.azure.com/");
         })));
     }

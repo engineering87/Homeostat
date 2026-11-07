@@ -3,6 +3,12 @@ namespace Homeostat.Caching;
 /// <summary>Settings of the memory cache signals registered with <c>AddMemoryCacheSignals</c>.</summary>
 public sealed class MemoryCacheSignalOptions
 {
+    /// <summary>Signal source. Defaults to <c>"cache:memory"</c>.</summary>
+    public string Source { get; set; } = "cache:memory";
+
+    /// <summary>Selects the cache; by default the <see cref="Microsoft.Extensions.Caching.Memory.IMemoryCache"/> registered in the services.</summary>
+    public Func<IServiceProvider, Microsoft.Extensions.Caching.Memory.IMemoryCache>? Cache { get; set; }
+
     /// <summary>The hit ratio (0 to 1) is published as Degraded when it is below this threshold.</summary>
     public double? DegradedBelow { get; set; }
 
@@ -13,7 +19,7 @@ public sealed class MemoryCacheSignalOptions
     /// Minimum number of lookups (hits plus misses) in a detection interval for the hit ratio to be published:
     /// a ratio over a handful of lookups is noise. Defaults to 20.
     /// </summary>
-    public long MinimumLookups { get; set; } = 20;
+    public int MinimumLookups { get; set; } = 20;
 
     internal void Validate(string source)
     {

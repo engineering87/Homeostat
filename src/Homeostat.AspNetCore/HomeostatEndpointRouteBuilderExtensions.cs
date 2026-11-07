@@ -1,9 +1,11 @@
 using System.Security.Claims;
 using Homeostat.AspNetCore;
+using Homeostat.Healing;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
 namespace Homeostat;
@@ -24,7 +26,10 @@ public static class HomeostatEndpointRouteBuilderExtensions
     /// <param name="policy">Authorization policy required to call the endpoint, for example <c>"operations"</c>.</param>
     /// <param name="prefix">Route prefix.</param>
     /// <param name="allowAnonymous"><c>true</c> maps the endpoint without authorization; only for local demos and tests.</param>
-    /// <exception cref="ArgumentException">Neither <paramref name="policy"/> nor <paramref name="allowAnonymous"/> was given.</exception>
+    /// <exception cref="ArgumentException">
+    /// Neither <paramref name="policy"/> nor <paramref name="allowAnonymous"/> was given, or <paramref name="policy"/>
+    /// starts with <c>/</c> (a route prefix passed by position).
+    /// </exception>
     /// <example><code>app.MapHomeostatStatus("operations");</code></example>
     public static RouteGroupBuilder MapHomeostatStatus(
         this IEndpointRouteBuilder endpoints,
@@ -58,7 +63,10 @@ public static class HomeostatEndpointRouteBuilderExtensions
     /// <c>true</c> maps the endpoints without any authorization requirement. Only for local demos and tests:
     /// anyone who can reach them can pause Homeostat or approve steps.
     /// </param>
-    /// <exception cref="ArgumentException">Neither <paramref name="policy"/> nor <paramref name="allowAnonymous"/> was given.</exception>
+    /// <exception cref="ArgumentException">
+    /// Neither <paramref name="policy"/> nor <paramref name="allowAnonymous"/> was given, or <paramref name="policy"/>
+    /// starts with <c>/</c> (a route prefix passed by position).
+    /// </exception>
     /// <example><code>app.MapHomeostatControl("operations");</code></example>
     public static RouteGroupBuilder MapHomeostatControl(
         this IEndpointRouteBuilder endpoints,
@@ -78,56 +86,76 @@ public static class HomeostatEndpointRouteBuilderExtensions
                 StatusCodes.Status403Forbidden)
             : await next(context));
 
-        group.MapPost("/pause", (IHomeostatControl control, TimeProvider time, string? @for) =>
+        group.MapPost("/pause", (IHomeostatControl control, TimeProvider time, ClaimsPrincipal user, string? @for, CancellationToken ct) =>
         {
-            if (@for is null)
+            DateTimeOffset? until = null;
+            if (@for is not null)
             {
-                control.Pause();
-                return Results.NoContent();
+                if (!TimeSpan.TryParse(@for, System.Globalization.CultureInfo.InvariantCulture, out var duration)
+                    || duration <= TimeSpan.Zero || duration > MaxPause)
+                {
+                    return Task.FromResult(HomeostatResults.BadRequest("'for' must be a positive duration of at most 30 days, in the d.hh:mm:ss format."));
+                }
+
+                until = time.GetUtcNow() + duration;
             }
 
-            if (!TimeSpan.TryParse(@for, System.Globalization.CultureInfo.InvariantCulture, out var duration)
-                || duration <= TimeSpan.Zero || duration > MaxPause)
+            return StoreCallAsync(() => control.PauseAsync(until, UserName(user), CancellationToken.None), ct);
+        });
+
+        group.MapPost("/resume", (IHomeostatControl control, ClaimsPrincipal user, CancellationToken ct)
+            => StoreCallAsync(() => control.ResumeAsync(UserName(user), CancellationToken.None), ct, letsAct: true));
+
+        group.MapPost("/conditions/{name}/release", (string name, IHomeostatControl control, CancellationToken ct) =>
+        {
+            name = RouteName(name);
+            if (!IsValidConditionName(name))
             {
-                return HomeostatResults.BadRequest("'for' must be a positive duration of at most 30 days, in the d.hh:mm:ss format.");
+                return Task.FromResult(Results.BadRequest());
             }
 
-            control.PauseUntil(time.GetUtcNow() + duration);
-            return Results.NoContent();
+            return AnswerAsync(() => control.ReleaseHoldAsync(name, CancellationToken.None), ct);
         });
 
-        group.MapPost("/resume", (IHomeostatControl control) =>
+        group.MapPost("/approvals/{id}/approve", (string id, IHomeostatApprovals approvals, ClaimsPrincipal user, CancellationToken ct)
+            => AnswerAsync(() => approvals.ApproveAsync(RouteName(id), UserName(user), CancellationToken.None), ct));
+
+        group.MapPost("/approvals/{id}/reject", (string id, IHomeostatApprovals approvals, ClaimsPrincipal user, CancellationToken ct)
+            => AnswerAsync(() => approvals.RejectAsync(RouteName(id), UserName(user), CancellationToken.None), ct));
+
+        group.MapPost("/switches/{name}/on", (string name, IHomeostatSwitches switches, ClaimsPrincipal user, string? scope, CancellationToken ct) =>
         {
-            control.Resume();
-            return Results.NoContent();
-        });
-
-        group.MapPost("/approvals/{id}/approve", (string id, IHomeostatApprovals approvals, ClaimsPrincipal user)
-            => approvals.Approve(id, UserName(user)) ? Results.NoContent() : Results.NotFound());
-
-        group.MapPost("/approvals/{id}/reject", (string id, IHomeostatApprovals approvals, ClaimsPrincipal user)
-            => approvals.Reject(id, UserName(user)) ? Results.NoContent() : Results.NotFound());
-
-        group.MapPost("/switches/{name}/on", (string name, IHomeostatSwitches switches) =>
-        {
+            name = RouteName(name);
             if (!IsValidSwitchName(name))
             {
-                return Results.BadRequest();
+                return Task.FromResult(Results.BadRequest());
             }
 
-            switches.TurnOn(name);
-            return Results.NoContent();
+            SwitchScope target;
+            switch (scope)
+            {
+                case null or "application":
+                    target = SwitchScope.Application;
+                    break;
+                case "instance":
+                    target = SwitchScope.Instance;
+                    break;
+                default:
+                    return Task.FromResult(HomeostatResults.BadRequest("'scope' must be 'application' (the default) or 'instance'."));
+            }
+
+            return StoreCallAsync(() => switches.TurnOnAsync(name, target, UserName(user), CancellationToken.None), ct, letsAct: true);
         });
 
-        group.MapPost("/switches/{name}/off", (string name, IHomeostatSwitches switches) =>
+        group.MapPost("/switches/{name}/off", (string name, IHomeostatSwitches switches, ClaimsPrincipal user, CancellationToken ct) =>
         {
+            name = RouteName(name);
             if (!IsValidSwitchName(name))
             {
-                return Results.BadRequest();
+                return Task.FromResult(Results.BadRequest());
             }
 
-            switches.TurnOff(name);
-            return Results.NoContent();
+            return StoreCallAsync(() => switches.TurnOffAsync(name, UserName(user), CancellationToken.None), ct);
         });
 
         return group;
@@ -136,6 +164,11 @@ public static class HomeostatEndpointRouteBuilderExtensions
     private const int MaxSwitchNameLength = 200;
 
     private static readonly TimeSpan MaxPause = TimeSpan.FromDays(30);
+
+    // A store that does not answer: the request gets a 503 instead of waiting, so requests do not pile up.
+    // Longer than SharedControl.WriteTimeout, so a pause or a switch turned off that the store does not take in time
+    // (applied here, written later) answers 204 rather than 503.
+    internal static readonly TimeSpan StoreTimeout = TimeSpan.FromSeconds(15);
 
     internal static bool IsForgeable(HttpRequest request)
     {
@@ -149,10 +182,49 @@ public static class HomeostatEndpointRouteBuilderExtensions
         return !hasBearer && !request.Headers.ContainsKey("X-Requested-With");
     }
 
-    private static RouteGroupBuilder CreateGroup(IEndpointRouteBuilder endpoints, string? policy, string prefix, bool allowAnonymous)
+    /// <summary>
+    /// Same as <see cref="MapHomeostatStatus(IEndpointRouteBuilder, string?, string, bool)"/>, with the authorization policy built
+    /// inline instead of registered by name.
+    /// </summary>
+    /// <param name="endpoints">The endpoint route builder.</param>
+    /// <param name="configurePolicy">Builds the policy, for example <c>p => p.RequireRole("operations")</c>.</param>
+    /// <param name="prefix">Route prefix.</param>
+    /// <example><code>app.MapHomeostatStatus(p => p.RequireRole("operations"));</code></example>
+    public static RouteGroupBuilder MapHomeostatStatus(
+        this IEndpointRouteBuilder endpoints,
+        Action<Microsoft.AspNetCore.Authorization.AuthorizationPolicyBuilder> configurePolicy,
+        string prefix = "/homeostat")
+    {
+        ArgumentNullException.ThrowIfNull(configurePolicy);
+        var group = MapHomeostatStatus(endpoints, policy: null, prefix, allowAnonymous: true);
+        group.RequireAuthorization(configurePolicy);
+        return group;
+    }
+
+    /// <summary>
+    /// Same as <see cref="MapHomeostatControl(IEndpointRouteBuilder, string?, string, bool)"/>, with the authorization policy built
+    /// inline instead of registered by name.
+    /// </summary>
+    /// <param name="endpoints">The endpoint route builder.</param>
+    /// <param name="configurePolicy">Builds the policy, for example <c>p => p.RequireRole("operations")</c>.</param>
+    /// <param name="prefix">Route prefix.</param>
+    /// <example><code>app.MapHomeostatControl(p => p.RequireRole("operations"));</code></example>
+    public static RouteGroupBuilder MapHomeostatControl(
+        this IEndpointRouteBuilder endpoints,
+        Action<Microsoft.AspNetCore.Authorization.AuthorizationPolicyBuilder> configurePolicy,
+        string prefix = "/homeostat")
+    {
+        ArgumentNullException.ThrowIfNull(configurePolicy);
+        var group = MapHomeostatControl(endpoints, policy: null, prefix, allowAnonymous: true);
+        group.RequireAuthorization(configurePolicy);
+        return group;
+    }
+
+    private static RouteGroupBuilder CreateGroup(IEndpointRouteBuilder endpoints, string? policy, string prefix, bool allowAnonymous, [System.Runtime.CompilerServices.CallerMemberName] string method = "")
     {
         ArgumentNullException.ThrowIfNull(endpoints);
         ArgumentException.ThrowIfNullOrWhiteSpace(prefix);
+        RefuseRouteAsPolicy(policy, method);
 
         if (string.IsNullOrWhiteSpace(policy) && !allowAnonymous)
         {
@@ -171,26 +243,130 @@ public static class HomeostatEndpointRouteBuilderExtensions
         return group;
     }
 
+    /// <summary>
+    /// Refuses a policy name that starts with <c>/</c>: ASP.NET Core's <c>Map*(pattern)</c> habit makes
+    /// <c>MapHomeostatControl("/ops")</c> likely, which would otherwise map under the default prefix and require a policy
+    /// named "/ops" (decided at map time, decision I2).
+    /// </summary>
+    internal static void RefuseRouteAsPolicy(string? policy, string method)
+    {
+        if (policy is not null && policy.StartsWith('/'))
+        {
+            throw new ArgumentException(
+                $"The policy \"{policy}\" looks like a route prefix: pass it as prefix: {method}(\"<policy>\", prefix: \"{policy}\").",
+                nameof(policy));
+        }
+    }
+
+    /// <summary>A change kept in the store: <c>204</c>, or <c>503</c> when the store cannot be reached.</summary>
+    /// <remarks>
+    /// The change itself runs with no cancellation token (it is bounded by <see cref="StoreTimeout"/> and the store's
+    /// own timeouts): a client that disconnects must not cut a change short halfway. Only the wait ends with the
+    /// request, and the endpoint then returns quietly.
+    /// </remarks>
+    /// <param name="call">The change.</param>
+    /// <param name="cancellationToken">The request's token: only the wait ends with it.</param>
+    /// <param name="letsAct">
+    /// A change that lets Homeostat act (resume, turn a switch on): when its write times out, Homeostat decides again in
+    /// the safe direction (pauses again, turns the switch off), so the answer says it was not made.
+    /// </param>
+    private static Task<IResult> StoreCallAsync(Func<ValueTask> call, CancellationToken cancellationToken, bool letsAct = false)
+        => AnswerAsync(async () =>
+        {
+            await call().ConfigureAwait(false);
+            return true;
+        }, cancellationToken, letsAct);
+
+    /// <inheritdoc cref="StoreCallAsync"/>
+    private static async Task<IResult> AnswerAsync(Func<ValueTask<bool>> answer, CancellationToken cancellationToken, bool letsAct = false)
+    {
+        try
+        {
+            return await StoreCall.Run(answer, StoreTimeout, cancellationToken).ConfigureAwait(false) ? Results.NoContent() : Results.NotFound();
+        }
+        catch (ArgumentException)
+        {
+            return Results.BadRequest();
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            // The client is gone: nobody reads the answer, and the change goes on by itself.
+            return Results.Empty;
+        }
+        catch (Exception ex) when (StoreCall.IsOutcomeUnknown(ex))
+        {
+            return letsAct ? StoreTimedOutSafely() : StoreOutcomeUnknown();
+        }
+        catch (Exception)
+        {
+            return StoreUnavailable();
+        }
+    }
+
+    // No exception details: a store's messages can name servers. GET /status reports that the store failed.
+    private static IResult StoreUnavailable()
+        => HomeostatResults.Problem("The Homeostat store is unavailable; nothing was changed (GET /status shows the error).", StatusCodes.Status503ServiceUnavailable);
+
+    // A timeout says nothing about the outcome: the store may still apply the change after the answer.
+    // A resume or a turn-on that times out is decided again in the safe direction (decision S4): it does not stand.
+    private static IResult StoreTimedOutSafely()
+        => HomeostatResults.Problem(
+            "The Homeostat store did not answer in time; the change was not made: Homeostat stays paused, or the switch stays off. Try again later.",
+            StatusCodes.Status503ServiceUnavailable);
+
+    private static IResult StoreOutcomeUnknown()
+        => HomeostatResults.Problem(
+            "The Homeostat store did not answer in time; the change may still be applied. Check GET /status before trying again.",
+            StatusCodes.Status503ServiceUnavailable);
+
     private static async Task<IResult> GetStatus(
         IHomeostatControl control,
         IHomeostatSwitches switches,
         IHomeostatApprovals approvals,
         IOptions<HomeostatOptions> options,
+        ILoggerFactory loggers,
         CancellationToken cancellationToken)
     {
         // The status stays available when the store is not: that is when operators need it most.
         BudgetStatus? budgetStatus = null;
         IReadOnlyList<RunInfo> runInfos = [];
+        IReadOnlyList<PendingApproval> pending = [];
         string? storeError = null;
+        // The three reads together (the dashboard polls this), each kept if it succeeds.
+        var pendingRead = StoreCall.Run(() => approvals.GetPendingAsync(cancellationToken), StoreTimeout, cancellationToken);
+        var budgetRead = StoreCall.Run(() => control.GetBudgetAsync(cancellationToken), StoreTimeout, cancellationToken);
+        var runsRead = StoreCall.Run(() => control.GetRecentRunsAsync(cancellationToken), StoreTimeout, cancellationToken);
         try
         {
-            var budget = await control.GetBudgetAsync(cancellationToken);
-            budgetStatus = new BudgetStatus(budget.Used, budget.Limit, budget.Remaining, budget.Window.TotalSeconds);
-            runInfos = (await control.GetRecentRunsAsync(cancellationToken)).Select(RunInfo.From).ToArray();
+            await Task.WhenAll(pendingRead, budgetRead, runsRead).ConfigureAwait(false);
         }
-        catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
-            storeError = ex.Message;
+            return Results.Empty;   // the client is gone
+        }
+        catch (Exception ex)
+        {
+            // No exception message: it can carry connection details (server names, user names). The type tells a
+            // timeout from a refused connection; the details go to the log only.
+            var error = new Task[] { pendingRead, budgetRead, runsRead }.FirstOrDefault(t => t.IsFaulted)?.Exception?.InnerException ?? ex;
+            storeError = $"The Homeostat store could not be read ({error.GetType().Name}); the application log has the details.";
+            loggers.CreateLogger("Homeostat.AspNetCore").LogWarning(error, "GET /status: the Homeostat store could not be read.");
+        }
+
+        if (pendingRead.IsCompletedSuccessfully)
+        {
+            pending = pendingRead.Result;
+        }
+
+        if (budgetRead.IsCompletedSuccessfully)
+        {
+            var budget = budgetRead.Result;
+            budgetStatus = new BudgetStatus(budget.Used, budget.Limit, budget.Remaining, budget.Window.TotalSeconds);
+        }
+
+        if (runsRead.IsCompletedSuccessfully)
+        {
+            runInfos = runsRead.Result.Select(RunInfo.From).ToArray();
         }
 
         var status = new HomeostatStatus(
@@ -202,7 +378,7 @@ public static class HomeostatEndpointRouteBuilderExtensions
             budgetStatus,
             control.GetConditions().Select(ConditionStatusInfo.From).ToArray(),
             switches.GetActive(),
-            approvals.GetPending(),
+            pending,
             runInfos,
             storeError);
         return Results.Json(status, HomeostatAspNetCoreJsonContext.Default.HomeostatStatus);
@@ -212,13 +388,17 @@ public static class HomeostatEndpointRouteBuilderExtensions
     {
         try
         {
-            var events = await control.GetConditionHistoryAsync(cancellationToken);
+            var events = await StoreCall.Run(() => control.GetConditionHistoryAsync(cancellationToken), StoreTimeout, cancellationToken);
             return Results.Json(events
                 .Where(e => condition is null || string.Equals(e.ConditionName, condition, StringComparison.Ordinal))
                 .Select(ConditionEventInfo.From)
                 .ToArray(), HomeostatAspNetCoreJsonContext.Default.ConditionEventInfoArray);
         }
-        catch (Exception) when (!cancellationToken.IsCancellationRequested)
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            return Results.Empty;   // the client is gone
+        }
+        catch (Exception)
         {
             return HomeostatResults.Problem("The condition history is unavailable.", StatusCodes.Status503ServiceUnavailable);
         }
@@ -231,9 +411,10 @@ public static class HomeostatEndpointRouteBuilderExtensions
         DateTimeOffset from;
         if (since is not null)
         {
-            if (!DateTimeOffset.TryParse(since, System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.AssumeUniversal, out from))
+            if (!DateTimeOffset.TryParse(since, System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.AssumeUniversal, out from)
+                || from > now || now - from > TimeSpan.FromDays(365))
             {
-                return HomeostatResults.BadRequest("'since' must be a date and time, for example 2026-11-02T08:00:00Z.");
+                return HomeostatResults.BadRequest("'since' must be a date and time within the last 365 days, for example 2026-11-02T08:00:00Z.");
             }
         }
         else if (last is not null)
@@ -252,10 +433,14 @@ public static class HomeostatEndpointRouteBuilderExtensions
 
         try
         {
-            var report = await control.GetCoverageAsync(from, cancellationToken);
+            var report = await StoreCall.Run(() => control.GetCoverageAsync(from, cancellationToken), StoreTimeout, cancellationToken);
             return Results.Json(report, HomeostatAspNetCoreJsonContext.Default.CoverageReport);
         }
-        catch (Exception) when (!cancellationToken.IsCancellationRequested)
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            return Results.Empty;   // the client is gone
+        }
+        catch (Exception)
         {
             // No exception details: they can carry store connection details.
             return HomeostatResults.Problem("The run history is unavailable.", StatusCodes.Status503ServiceUnavailable);
@@ -265,7 +450,20 @@ public static class HomeostatEndpointRouteBuilderExtensions
     private static string? UserName(ClaimsPrincipal user)
         => user.Identity is { IsAuthenticated: true, Name: { Length: > 0 } name } ? name : null;
 
-    /// <summary>A switch name from a URL: not empty, not too long, and without control characters (no line breaks in logs).</summary>
+    /// <summary>
+    /// A name from a route value. ASP.NET Core decodes every escape in the path except <c>%2F</c>, so that it cannot
+    /// split segments: a name with a slash (<c>feed/eu</c>, sent as <c>feed%2Feu</c> by the dashboard and the CLI)
+    /// arrives as <c>feed%2Feu</c>. Only that escape is decoded here: the rest is already decoded, and decoding it again
+    /// would change names that contain <c>%</c>.
+    /// </summary>
+    internal static string RouteName(string value)
+        => value.Contains('%', StringComparison.Ordinal) ? value.Replace("%2F", "/", StringComparison.OrdinalIgnoreCase) : value;
+
+    /// <summary>A switch or condition name from a URL: not empty, not too long, and without control characters (no line breaks in logs).</summary>
     internal static bool IsValidSwitchName(string name)
         => name.Length is > 0 and <= MaxSwitchNameLength && !name.Any(char.IsControl);
+
+    /// <summary>A condition name from a URL: not empty and without control characters (conditions have no length limit).</summary>
+    internal static bool IsValidConditionName(string name)
+        => name.Length > 0 && !name.Any(char.IsControl);
 }

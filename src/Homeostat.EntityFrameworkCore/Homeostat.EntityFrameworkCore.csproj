@@ -3,6 +3,8 @@
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
     <PackageId>Homeostat.EntityFrameworkCore</PackageId>
+    <!-- Preview: not yet proven in production; its API can still change in a minor version (docs/versioning.md). -->
+    <HomeostatPreview>true</HomeostatPreview>
     <Description>Entity Framework Core for Homeostat: the failure ratio and latency of the commands of a DbContext as a signal, added without touching AddDbContext, and a DbContext connectivity probe. Works with any relational provider.</Description>
     <PackageTags>$(PackageTags);efcore;entity-framework-core;database</PackageTags>
   </PropertyGroup>

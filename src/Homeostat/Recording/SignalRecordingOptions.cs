@@ -1,6 +1,6 @@
 namespace Homeostat.Recording;
 
-/// <summary>Settings of the signal recording enabled with <c>RecordSignals</c>.</summary>
+/// <summary>Settings of the signal recording enabled with <c>AddSignalRecording</c>.</summary>
 public sealed class SignalRecordingOptions
 {
     /// <summary>
@@ -13,8 +13,11 @@ public sealed class SignalRecordingOptions
     /// <summary>Sources to record; empty (the default) records every source.</summary>
     public ISet<string> Sources { get; } = new HashSet<string>(StringComparer.Ordinal);
 
-    /// <summary>Days of files to keep; older daily files are deleted. Defaults to 14; 0 keeps everything.</summary>
-    public int RetentionDays { get; set; } = 14;
+    /// <summary>
+    /// How long daily files are kept (rounded up to whole days); older ones are deleted. Defaults to 14 days;
+    /// <see cref="TimeSpan.Zero"/> keeps everything.
+    /// </summary>
+    public TimeSpan Retention { get; set; } = TimeSpan.FromDays(14);
 
     /// <summary>
     /// Whether to record signal messages and tags. They can carry details from external systems (error messages, host

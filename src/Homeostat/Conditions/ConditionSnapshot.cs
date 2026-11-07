@@ -3,20 +3,26 @@ using Homeostat.Signals;
 namespace Homeostat.Conditions;
 
 /// <summary>Point-in-time view of a condition.</summary>
-/// <param name="Name">Condition name.</param>
-/// <param name="Status">Current status.</param>
-/// <param name="PendingSince">When the first triggering signal of the current episode arrived.</param>
-/// <param name="ActiveSince">When the condition became active.</param>
-/// <param name="LastSignalAt">Timestamp of the latest relevant signal.</param>
-/// <param name="LastSignal">The latest relevant signal.</param>
-public sealed record ConditionSnapshot(
-    string Name,
-    ConditionStatus Status,
-    DateTimeOffset? PendingSince,
-    DateTimeOffset? ActiveSince,
-    DateTimeOffset? LastSignalAt,
-    Signal? LastSignal)
+public sealed record ConditionSnapshot
 {
+    /// <summary>Condition name.</summary>
+    public required string Name { get; init; }
+
+    /// <summary>Current status.</summary>
+    public required ConditionStatus Status { get; init; }
+
+    /// <summary>When the first triggering signal of the current episode arrived.</summary>
+    public DateTimeOffset? PendingSince { get; init; }
+
+    /// <summary>When the condition became active.</summary>
+    public DateTimeOffset? ActiveSince { get; init; }
+
+    /// <summary>Timestamp of the latest relevant signal.</summary>
+    public DateTimeOffset? LastSignalAt { get; init; }
+
+    /// <summary>The latest relevant signal.</summary>
+    public Signal? LastSignal { get; init; }
+
     /// <summary>
     /// When clearing signals started, while an active condition waits for <see cref="ConditionBuilder.ClearAfter"/>.
     /// </summary>

@@ -2,9 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main, develop ]
   pull_request:
-    branches: [ main ]
+    branches: [ main, develop ]
 
 permissions:
   contents: read
@@ -59,6 +59,86 @@ jobs:
         with:
           name: packages
           path: artifacts/*
+
+  kubernetes:
+    # The Kubernetes actions against a real API server: a kind cluster, the service account and the Role documented in
+    # docs/cloud.md (so a missing permission in the documentation fails here), and a PodDisruptionBudget that must
+    # stop an eviction. The fake API server of KubernetesTests cannot show either.
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    env:
+      NS: homeostat-it
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Create a kind cluster
+        # kind and kubectl are installed on the GitHub-hosted Ubuntu runners.
+        run: |
+          kind version
+          kind create cluster --name homeostat --wait 180s
+          kubectl cluster-info
+
+      - name: Set up the workloads, the service account and the Role
+        run: |
+          kubectl create namespace "$NS"
+          kubectl -n "$NS" create deployment weather-api --image=registry.k8s.io/pause:3.10 --replicas=1
+          kubectl -n "$NS" create deployment weather-protected --image=registry.k8s.io/pause:3.10 --replicas=1
+          kubectl -n "$NS" create poddisruptionbudget weather-protected --selector=app=weather-protected --min-available=1
+          kubectl -n "$NS" rollout status deployment/weather-api --timeout=180s
+          kubectl -n "$NS" rollout status deployment/weather-protected --timeout=180s
+          kubectl -n "$NS" create serviceaccount weather-api
+          kubectl apply -f - <<YAML
+          apiVersion: rbac.authorization.k8s.io/v1
+          kind: Role
+          metadata: { name: homeostat, namespace: $NS }
+          rules:
+            - apiGroups: [""]
+              resources: [pods]
+              verbs: [get]
+            - apiGroups: [""]
+              resources: [pods/eviction]
+              verbs: [create]
+            - apiGroups: [apps]
+              resources: [deployments]
+              resourceNames: [weather-api]
+              verbs: [patch]
+            - apiGroups: [apps]
+              resources: [deployments/scale]
+              resourceNames: [weather-api]
+              verbs: [get, patch]
+          ---
+          apiVersion: rbac.authorization.k8s.io/v1
+          kind: RoleBinding
+          metadata: { name: homeostat, namespace: $NS }
+          subjects: [{ kind: ServiceAccount, name: weather-api, namespace: $NS }]
+          roleRef: { kind: Role, name: homeostat, apiGroup: rbac.authorization.k8s.io }
+          YAML
+
+          kubectl -n "$NS" create token weather-api --duration=1h > "$RUNNER_TEMP/token"
+          kubectl config view --raw --minify -o jsonpath='{.clusters[0].cluster.certificate-authority-data}' | base64 -d > "$RUNNER_TEMP/ca.crt"
+          {
+            echo "HOMEOSTAT_TEST_KUBERNETES_SERVER=$(kubectl config view --minify -o jsonpath='{.clusters[0].cluster.server}')"
+            echo "HOMEOSTAT_TEST_KUBERNETES_CA=$RUNNER_TEMP/ca.crt"
+            echo "HOMEOSTAT_TEST_KUBERNETES_TOKEN=$RUNNER_TEMP/token"
+            echo "HOMEOSTAT_TEST_KUBERNETES_NAMESPACE=$NS"
+            echo "HOMEOSTAT_TEST_KUBERNETES_POD=$(kubectl -n "$NS" get pods -l app=weather-api -o jsonpath='{.items[0].metadata.name}')"
+            echo "HOMEOSTAT_TEST_KUBERNETES_PROTECTED_POD=$(kubectl -n "$NS" get pods -l app=weather-protected -o jsonpath='{.items[0].metadata.name}')"
+          } >> "$GITHUB_ENV"
+
+      - name: Test against the cluster
+        run: |
+          dotnet test tests/Homeostat.Tests --configuration Release --filter "FullyQualifiedName~KubernetesClusterTests" --logger "console;verbosity=normal"
+
+      - name: Cluster state on failure
+        if: failure()
+        run: kubectl -n "$NS" get all,pdb,events -o wide
 
   native-aot:
     # Publishes a small application with Native AOT and runs it: any trimming or AOT warning in Homeostat code fails

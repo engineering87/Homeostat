@@ -9,6 +9,7 @@ namespace Homeostat.MongoDB
     public System.TimeSpan Interval { get; set; }
     public Homeostat.Probes.ProbeOptions Lag { get; }
     public System.Collections.Generic.ISet<string> LagExcludedMembers { get; }
-    public Homeostat.Probes.ProbeOptions Ping { get; }
+    public Homeostat.Probes.LatencyProbeOptions Ping { get; }
     public int PoolTimeoutsUnhealthyAbove { get; set; }
     public bool ReplicationLag { get; set; }
+    public string? Source { get; set; }

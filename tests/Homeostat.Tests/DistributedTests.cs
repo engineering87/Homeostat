@@ -99,7 +99,7 @@ public class DistributedTests
             .ForSource("feed")
             .Heal(p => p
                 .With("renew", _ => { })
-                .VerifyWith<NeverHealedVerifier>()
+                .UseVerifier<NeverHealedVerifier>()
                 .Cooldown(TimeSpan.FromMinutes(1))
                 .CooldownBackoff(2, TimeSpan.FromMinutes(3)))));
 
@@ -128,7 +128,7 @@ public class DistributedTests
                 .With("switch-to-backup", _ => { })
                 .UndoWith("switch-to-primary", (_, _) => { Interlocked.Increment(ref undone); return Task.CompletedTask; })
                 .Then("renew", _ => { })
-                .VerifyWith<EngineTests.HealedOnSecondStepVerifier>())));
+                .UseVerifier<EngineTests.HealedOnSecondStepVerifier>())));
 
         host.Publish("feed", SignalSeverity.Unhealthy);
         var run = await host.WaitForRunAsync("feed-down");
@@ -282,7 +282,7 @@ public class DistributedTests
                         await Task.Delay(5);
                         Interlocked.Decrement(ref active);
                     })
-                    .VerifyWith<EngineTests.AlwaysHealedVerifier>())));
+                    .UseVerifier<EngineTests.AlwaysHealedVerifier>())));
 
         // Keep triggering signals coming while runs start and end.
         var until = DateTime.UtcNow.AddMilliseconds(800);
@@ -409,7 +409,7 @@ public class DistributedTests
                     .ForSource("feed")
                     .Heal(p =>
                     {
-                        p.With<EngineTests.RecordingAction>().VerifyWith<EngineTests.AlwaysHealedVerifier>();
+                        p.With<EngineTests.RecordingAction>().UseVerifier<EngineTests.AlwaysHealedVerifier>();
                         if (cluster)
                         {
                             p.OncePerCluster();
@@ -433,11 +433,128 @@ public class DistributedTests
         }
     }
 
+    [Fact]
+    public async Task Redis_store_keeps_the_control_state_with_atomic_switch_ownership_and_answers()
+    {
+        using var redis = RedisFixture.Connect();
+        var prefix = RedisFixture.Prefix();
+        var store = CreateRedisStore(redis, prefix);
+        var now = DateTimeOffset.UtcNow;
+
+        await store.SetPauseAsync(new PauseState { At = now, By = "on-call" });
+        Assert.Equal("on-call", (await store.GetControlStateAsync()).Pause?.By);
+        await store.SetPauseAsync(null);
+        Assert.Null((await store.GetControlStateAsync()).Pause);
+
+        // A plan claims a free switch, takes it back from itself, but never from a person or another condition.
+        Assert.True(await store.TryClaimSwitchAsync(new SwitchState { Name = "degrade", Condition = "feed-down", Instance = "a", At = now }));
+        Assert.True(await store.TryClaimSwitchAsync(new SwitchState { Name = "degrade", Condition = "feed-down", Instance = "b", At = now }));
+        Assert.False(await store.TryClaimSwitchAsync(new SwitchState { Name = "degrade", Condition = "disk-full", Instance = "a", At = now }));
+        Assert.False(await store.TryReleaseSwitchAsync("degrade", "feed-down", "a"), "B owns it now");
+        Assert.True(await store.TryReleaseSwitchAsync("degrade", "feed-down", "b"));
+
+        await store.SetSwitchAsync("serve-cached", new SwitchState { Name = "serve-cached", By = "on-call", At = now });
+        Assert.False(await store.TryClaimSwitchAsync(new SwitchState { Name = "serve-cached", Condition = "feed-down", Instance = "a", At = now }));
+        Assert.False(await store.TryReleaseSwitchAsync("serve-cached", "feed-down", null));
+        var state = Assert.Single((await store.GetControlStateAsync()).Switches);
+        Assert.Null(state.Condition);
+
+        // The first answer wins; an answer this version cannot read leaves the request pending.
+        var request = new PendingApproval { Id = "r1", ConditionName = "feed-down", Step = 0, StepName = "renew", RequestedAt = now, ExpiresAt = now.AddMinutes(5), TriggeringSignal = new Signal("feed", SignalSeverity.Unhealthy, now) };
+        await store.AddApprovalAsync(new ApprovalRecord { Request = request, Instance = "a" });
+        Assert.True(await store.TryResolveApprovalAsync("r1", ApprovalStatus.Approved, "on-call"));
+        Assert.False(await store.TryResolveApprovalAsync("r1", ApprovalStatus.Rejected, "someone else"));
+        var answered = Assert.Single((await store.GetControlStateAsync()).Approvals);
+        Assert.Equal(ApprovalStatus.Approved, answered.Status);
+        Assert.Equal("on-call", answered.ResolvedBy);
+
+        await store.AddApprovalAsync(new ApprovalRecord { Request = request with { Id = "r2" }, Instance = "a" });
+        await redis.GetDatabase().HashSetAsync($"{prefix}{{control}}:answers", "r2", "Postponed\nfuture");
+        Assert.Null((await store.GetControlStateAsync()).Approvals.Single(a => a.Request.Id == "r2").Status);
+
+        await store.RemoveApprovalAsync("r1");
+        Assert.Equal("r2", Assert.Single((await store.GetControlStateAsync()).Approvals).Request.Id);
+    }
+
+    [Theory]
+    [InlineData("memory")]
+    [InlineData("file")]
+    [InlineData("redis")]
+    public async Task Pause_and_switch_writes_apply_in_decision_order(string kind)
+    {
+        using var redis = kind == "redis" ? RedisFixture.Connect() : null;
+        var path = Path.Combine(Path.GetTempPath(), $"homeostat-order-{Guid.NewGuid():N}.json");
+        IHomeostatStore store = kind switch
+        {
+            "memory" => new InMemoryHomeostatStore(),
+            "file" => new FileHomeostatStore(path),
+            _ => CreateRedisStore(redis!, RedisFixture.Prefix()),
+        };
+
+        try
+        {
+            var t0 = DateTimeOffset.Parse("2026-11-04T10:00:00Z");
+
+            // A resume decided after a pause, then the pause written late (it timed out on its instance): the resume stands.
+            Assert.True(await store.TrySetPauseAsync(null, t0.AddSeconds(2)));
+            Assert.False(await store.TrySetPauseAsync(new PauseState { At = t0.AddSeconds(1), By = "deploy" }, t0.AddSeconds(1)));
+            Assert.Null((await store.GetControlStateAsync()).Pause);
+            Assert.True(await store.TrySetPauseAsync(new PauseState { At = t0.AddSeconds(3) }, t0.AddSeconds(3)));
+            Assert.NotNull((await store.GetControlStateAsync()).Pause);
+
+            // A switch turned off, then the earlier turn-on written late: it stays off.
+            Assert.True(await store.TrySetSwitchAsync("serve-cached", null, t0.AddSeconds(5)));
+            Assert.False(await store.TrySetSwitchAsync("serve-cached", new SwitchState { Name = "serve-cached", By = "on-call", At = t0.AddSeconds(4) }, t0.AddSeconds(4)));
+            Assert.Empty((await store.GetControlStateAsync()).Switches);
+
+            // A condition's claim older than that decision is refused too; a newer one is not.
+            Assert.False(await store.TryClaimSwitchAsync(new SwitchState { Name = "serve-cached", Condition = "feed-down", Instance = "a", At = t0.AddSeconds(4) }));
+            var claim = new SwitchState { Name = "serve-cached", Condition = "feed-down", Instance = "a", At = t0.AddSeconds(6) };
+            Assert.True(await store.TryClaimSwitchAsync(claim));
+
+            // A release decided before that claim, written late, does not turn the newer claim off.
+            Assert.False(await store.TryReleaseSwitchAsync("serve-cached", "feed-down", "a", t0.AddSeconds(5.5)));
+            Assert.Single((await store.GetControlStateAsync()).Switches);
+
+            // Released, then renewed by a renewal that raced with the release: the renewal does not turn it back on.
+            Assert.True(await store.TryReleaseSwitchAsync("serve-cached", "feed-down", "a", t0.AddSeconds(7)));
+            Assert.False(await store.TryClaimSwitchAsync(new SwitchState { Name = "serve-cached", Condition = "feed-down", Instance = "a", At = claim.At, RenewedAt = t0.AddSeconds(30) }));
+            Assert.Empty((await store.GetControlStateAsync()).Switches);
+
+            // On a tie, doing less wins: a turn-on or a resume stamped like the latest decision is refused; a turn-off
+            // or a pause written again with its own time is accepted.
+            Assert.False(await store.TrySetSwitchAsync("serve-cached", new SwitchState { Name = "serve-cached", At = t0.AddSeconds(7) }, t0.AddSeconds(7)));
+            Assert.True(await store.TrySetSwitchAsync("serve-cached", null, t0.AddSeconds(7)));
+            Assert.False(await store.TrySetPauseAsync(null, t0.AddSeconds(3)));
+            Assert.True(await store.TrySetPauseAsync(new PauseState { At = t0.AddSeconds(3) }, t0.AddSeconds(3)));
+
+            // A renewal is not a decision: a person's turn-off decided after the claim but before the renewal, written
+            // late, still applies.
+            static SwitchState Degrade(DateTimeOffset at, DateTimeOffset? renewedAt = null)
+                => new() { Name = "degrade", Condition = "feed-down", Instance = "a", At = at, RenewedAt = renewedAt };
+            Assert.True(await store.TryClaimSwitchAsync(Degrade(t0.AddSeconds(10))));
+            Assert.True(await store.TryClaimSwitchAsync(Degrade(t0.AddSeconds(10), t0.AddSeconds(40))));
+            Assert.True(await store.TrySetSwitchAsync("degrade", null, t0.AddSeconds(20)));
+            Assert.DoesNotContain((await store.GetControlStateAsync()).Switches, x => x.Name == "degrade");
+
+            // A release decided before the renewal it raced with is refused: the instance still holds the switch.
+            Assert.True(await store.TryClaimSwitchAsync(Degrade(t0.AddSeconds(50))));
+            Assert.True(await store.TryClaimSwitchAsync(Degrade(t0.AddSeconds(50), t0.AddSeconds(80))));
+            Assert.False(await store.TryReleaseSwitchAsync("degrade", "feed-down", "a", t0.AddSeconds(70)));
+            Assert.Contains((await store.GetControlStateAsync()).Switches, x => x.Name == "degrade");
+        }
+        finally
+        {
+            (store as IDisposable)?.Dispose();
+            File.Delete(path);
+        }
+    }
+
     private static RedisHomeostatStore CreateRedisStore(IConnectionMultiplexer redis, string prefix)
-        => new(redis, Options.Create(new RedisHomeostatOptions { KeyPrefix = prefix }), Options.Create(new HomeostatOptions()));
+        => new(redis, Options.Create(new RedisStoreOptions { KeyPrefix = prefix }), Options.Create(new HomeostatOptions()));
 
     private static RedisCoordinator CreateRedisCoordinator(IConnectionMultiplexer redis, string prefix)
-        => new(redis, Options.Create(new RedisHomeostatOptions { KeyPrefix = prefix }), NullLogger<RedisCoordinator>.Instance);
+        => new(redis, Options.Create(new RedisStoreOptions { KeyPrefix = prefix }), NullLogger<RedisCoordinator>.Instance);
 
     private static void InterlockedMax(ref int target, int value)
     {

@@ -1,7 +1,10 @@
 namespace Homeostat.Healing;
 
 /// <summary>How a healing run ended.</summary>
-/// <remarks>Numbered from 1: the default value, 0, is none of them, so an unset value never reads as a success.</remarks>
+/// <remarks>
+/// Numbered from 1 on purpose: 0 (<c>default</c>) is deliberately not a member, so a value never set is caught as
+/// undefined and never reads as a success.
+/// </remarks>
 public enum HealingRunOutcome
 {
     /// <summary>A step was verified as healed.</summary>
@@ -39,34 +42,57 @@ public enum HealingRunOutcome
 }
 
 /// <summary>Result of one executed step.</summary>
-/// <param name="ConditionName">Condition being healed.</param>
-/// <param name="Step">Zero-based index of the step.</param>
-/// <param name="Name">Step name.</param>
-/// <param name="Succeeded">Whether the action completed without throwing or timing out.</param>
-/// <param name="Verification">Verification outcome; <c>null</c> when the action did not succeed.</param>
-/// <param name="Error">The exception thrown by the action, or a <see cref="TimeoutException"/>.</param>
-/// <param name="UndoSucceeded">
-/// Whether the compensating action (<see cref="HealingPlanBuilder.UndoWith{TAction}"/>) completed; <c>null</c> when
-/// it did not run.
-/// </param>
-public sealed record HealingStepResult(
-    string ConditionName,
-    int Step,
-    string Name,
-    bool Succeeded,
-    VerificationOutcome? Verification,
-    Exception? Error,
-    bool? UndoSucceeded = null);
+public sealed record HealingStepResult
+{
+    /// <summary>Identifier of the run the step belongs to (<see cref="HealingRunResult.RunId"/>).</summary>
+    public required string RunId { get; init; }
+
+    /// <summary>Condition being healed.</summary>
+    public required string ConditionName { get; init; }
+
+    /// <summary>Zero-based index of the step.</summary>
+    public required int Step { get; init; }
+
+    /// <summary>Step name.</summary>
+    public required string Name { get; init; }
+
+    /// <summary>Whether the action completed without throwing or timing out.</summary>
+    public required bool Succeeded { get; init; }
+
+    /// <summary>Verification outcome; <c>null</c> when the action did not succeed.</summary>
+    public VerificationOutcome? Verification { get; init; }
+
+    /// <summary>The exception thrown by the action, or a <see cref="TimeoutException"/>.</summary>
+    public Exception? Error { get; init; }
+
+    /// <summary>
+    /// Whether the compensating action (<see cref="HealingPlanBuilder.UndoWith{TAction}"/>) completed; <c>null</c> when
+    /// it did not run (no compensating action, or the step was healed or inconclusive).
+    /// </summary>
+    public bool? UndoSucceeded { get; init; }
+}
 
 /// <summary>Result of a complete healing run.</summary>
-/// <param name="ConditionName">Condition being healed.</param>
-/// <param name="Outcome">How the run ended.</param>
-/// <param name="Steps">Executed steps, in order.</param>
-/// <param name="StartedAt">When the run started.</param>
-/// <param name="CompletedAt">When the run ended.</param>
-public sealed record HealingRunResult(
-    string ConditionName,
-    HealingRunOutcome Outcome,
-    IReadOnlyList<HealingStepResult> Steps,
-    DateTimeOffset StartedAt,
-    DateTimeOffset CompletedAt);
+public sealed record HealingRunResult
+{
+    /// <summary>Identifier of the run, also on each of its <see cref="HealingStepResult"/>s.</summary>
+    public required string RunId { get; init; }
+
+    /// <summary>Condition being healed.</summary>
+    public required string ConditionName { get; init; }
+
+    /// <summary>The instance that ran the plan (<see cref="HomeostatOptions.InstanceId"/>).</summary>
+    public required string Instance { get; init; }
+
+    /// <summary>How the run ended.</summary>
+    public required HealingRunOutcome Outcome { get; init; }
+
+    /// <summary>Executed steps, in order.</summary>
+    public required IReadOnlyList<HealingStepResult> Steps { get; init; }
+
+    /// <summary>When the run started.</summary>
+    public required DateTimeOffset StartedAt { get; init; }
+
+    /// <summary>When the run ended.</summary>
+    public required DateTimeOffset CompletedAt { get; init; }
+}

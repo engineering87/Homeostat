@@ -8,18 +8,20 @@ namespace Homeostat.Kafka
     public KafkaPauseGate(string name)
     public bool IsPauseRequested { get; }
     public string Name { get; }
-    public void Apply<TKey, TValue>(Confluent.Kafka.IConsumer<TKey, TValue> consumer)
+    public void Apply<TKey, TValue>(Confluent.Kafka.IConsumer<TKey, TValue> consumer, System.Collections.Generic.IReadOnlyCollection<Confluent.Kafka.TopicPartition>? pausedByApplication = null)
     public System.Threading.Tasks.Task PauseAsync(System.Threading.CancellationToken cancellationToken)
     public System.Threading.Tasks.Task ResumeAsync(System.Threading.CancellationToken cancellationToken)
   public sealed class KafkaSignalOptions
     public KafkaSignalOptions()
     public bool FromCommittedOffsets { get; set; }
-    public double? LagDegradedAbove { get; set; }
-    public double? LagUnhealthyAbove { get; set; }
-    public double QueueDegradedAbove { get; set; }
-    public double QueueUnhealthyAbove { get; set; }
+    public Homeostat.Kafka.KafkaThresholds Lag { get; }
+    public Homeostat.Kafka.KafkaThresholds Queue { get; }
     public string? Source { get; set; }
   public sealed class KafkaSignalReporter
     public KafkaSignalReporter(Homeostat.Signals.ISignalPublisher publisher, string name, Homeostat.Kafka.KafkaSignalOptions? options = null, System.TimeProvider? timeProvider = null)
     public string Source { get; }
     public void Report(string statisticsJson)
+  public sealed class KafkaThresholds
+    public KafkaThresholds()
+    public double? DegradedAbove { get; set; }
+    public double? UnhealthyAbove { get; set; }

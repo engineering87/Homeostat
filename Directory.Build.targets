@@ -1,0 +1,25 @@
+<Project>
+
+  <!--
+    Stability level of a package. A project that sets <HomeostatPreview>true</HomeostatPreview> is released as a preview,
+    so its API can still change in a minor version and NuGet shows it as a prerelease:
+      HomeostatVersion 1.2.0       ->  1.2.0-preview.1
+      HomeostatVersion 1.2.0-rc.1  ->  1.2.0-preview.0.rc.1
+    The prerelease builds sort below the release ("preview.0.rc.1" < "preview.1"), so users of a release candidate are
+    offered the release as an update. Keeping "1.2.0-rc.1" for a preview package would not work: "rc" sorts after
+    "preview", so 1.2.0-rc.1 would stay the latest version of the package.
+    Set here, after the project, because the props are read before the project sets HomeostatPreview.
+  -->
+  <PropertyGroup Condition="'$(HomeostatPreview)' == 'true'">
+    <_HomeostatSuffixAt>$(HomeostatVersion.IndexOf('-'))</_HomeostatSuffixAt>
+    <Version Condition="'$(_HomeostatSuffixAt)' == '-1'">$(HomeostatVersion)-preview.1</Version>
+    <Version Condition="'$(_HomeostatSuffixAt)' != '-1'">$(HomeostatVersion.Substring(0, $(_HomeostatSuffixAt)))-preview.0.$(HomeostatVersion.Substring($([MSBuild]::Add($(_HomeostatSuffixAt), 1))))</Version>
+    <PackageVersion>$(Version)</PackageVersion>
+  </PropertyGroup>
+
+  <!-- A preview package is compared with its own previous release, which carries the same suffix. -->
+  <PropertyGroup Condition="'$(HomeostatPreview)' == 'true' and '$(PackageValidationBaselineVersion)' != '' and !$(PackageValidationBaselineVersion.Contains('-'))">
+    <PackageValidationBaselineVersion>$(PackageValidationBaselineVersion)-preview.1</PackageValidationBaselineVersion>
+  </PropertyGroup>
+
+</Project>

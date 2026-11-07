@@ -21,9 +21,12 @@ builder.Services.AddHomeostat(h => h
     .AddCondition("pod-degraded", c => c
         .ForSource("threadpool")
         .SustainedFor(TimeSpan.FromMinutes(2))
+        .Heal(p => p.RestartPod()))                                  // this pod only, with approval
+    .AddCondition("weather-api-overloaded", c => c
+        .ForSource("alert:WeatherApiOverloaded")                     // from your monitoring
         .Heal(p => p
-            .ScaleDeployment("weather-api", by: 2, maximum: 10)     // with approval
-            .RestartPod())));                                        // last resort, with approval
+            .ScaleDeployment("weather-api", by: 2, maximum: 10)     // the whole deployment, with approval
+            .OncePerCluster())));                                    // one replica acts, not every one
 ```
 
 Grant the service account only the permissions of the actions you use: see the RBAC example in the documentation.

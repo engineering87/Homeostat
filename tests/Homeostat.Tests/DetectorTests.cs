@@ -13,7 +13,7 @@ public class DetectorTests
     public async Task ThreadPool_detector_publishes_a_signal_with_latency()
     {
         var sink = new CollectingPublisher();
-        var detector = new ThreadPoolStarvationDetector(Options.Create(new ThreadPoolDetectorOptions()), TimeProvider.System);
+        var detector = new ThreadPoolStarvationDetector(Options.Create(new ThreadPoolStarvationDetectorOptions()), TimeProvider.System);
 
         await detector.DetectAsync(sink, CancellationToken.None);
 
@@ -70,7 +70,7 @@ public class DetectorTests
             .AddDetector<AlwaysUnhealthyDetector>()
             .AddCondition("custom-down", c => c
                 .ForSource("custom")
-                .Heal(p => p.With("noop", _ => { }).VerifyWith<EngineTests.AlwaysHealedVerifier>())));
+                .Heal(p => p.With("noop", _ => { }).UseVerifier<EngineTests.AlwaysHealedVerifier>())));
 
         var run = await host.WaitForRunAsync("custom-down");
 

@@ -27,6 +27,7 @@ public static class HomeostatHttpClientBuilderExtensions
 
         var clientName = builder.Name ?? throw new InvalidOperationException(
             "AddHomeostatSignals must be called on a named or typed client, not inside ConfigureHttpClientDefaults.");
+        options.Validate(clientName);
 
         // Calling this twice on the same client replaces the options but must not add a second handler,
         // otherwise every request would be counted twice.
@@ -36,14 +37,14 @@ public static class HomeostatHttpClientBuilderExtensions
             && existing.ClientName == clientName);
 
         builder.Services.AddSingleton(new HttpClientSignalRegistration(clientName, options));
-        builder.Services.TryAddSingleton<HttpClientSignalCatalog>();
+        builder.Services.TryAddSingleton<HttpClientSignalRegistry>();
         builder.Services.TryAddSingleton(TimeProvider.System);
-        builder.Services.AddSignalDetector<HttpClientSignalDetector>();
+        builder.Services.AddHomeostatDetector<HttpClientSignalDetector>();
 
         if (!alreadyInstrumented)
         {
             builder.AddHttpMessageHandler(sp => new HomeostatSignalHandler(
-                sp.GetRequiredService<HttpClientSignalCatalog>().Get(clientName),
+                sp.GetRequiredService<HttpClientSignalRegistry>().Get(clientName),
                 sp.GetRequiredService<TimeProvider>()));
         }
 

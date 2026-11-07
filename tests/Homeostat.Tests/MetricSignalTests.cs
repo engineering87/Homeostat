@@ -169,6 +169,9 @@ public class MetricSignalTests
     {
         Assert.Throws<InvalidOperationException>(() => new ServiceCollection().AddHomeostat(h => h.AddMetricSignal("x", _ => { })));
         Assert.Throws<InvalidOperationException>(() => new ServiceCollection().AddHomeostat(h => h.AddMetricSignal("x", m => m.Statistic(MetricStatistic.Ratio).UnhealthyAbove(1))));
+
+        // RatioOf then another statistic: the match would be silently ignored.
+        Assert.Throws<InvalidOperationException>(() => new ServiceCollection().AddHomeostat(h => h.AddMetricSignal("x", m => m.RatioOf((_, _) => true).Statistic(MetricStatistic.P95).UnhealthyAbove(1))));
     }
 
     [Fact]
@@ -177,7 +180,7 @@ public class MetricSignalTests
         // Same meter and instrument names as ASP.NET Core; other tests may add a few real requests, hence the tolerance.
         using var meter = new Meter("Microsoft.AspNetCore.Hosting");
         var duration = meter.CreateHistogram<double>("http.server.request.duration");
-        var (detector, _) = CreateDetector(h => h.AddServerErrorRateSignal(minimumRequests: 100));
+        var (detector, _) = CreateDetector(h => h.AddServerErrorRateSignal(o => o.MinimumRequests = 100));
         using var _ = detector;
         await DetectAsync(detector);   // the first interval is only a baseline
 

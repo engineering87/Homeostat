@@ -1,7 +1,11 @@
 # Versioning
 
+What each version number promises, what counts as a breaking change and how long a version is supported. Read it
+before upgrading or before depending on Homeostat's JSON, routes or source names from other tools.
+
 Homeostat follows [Semantic Versioning 2.0](https://semver.org) from version 1.0.0. All packages are released
-together with the same version number, so `Homeostat.Redis 1.2.0` always goes with `Homeostat 1.2.0`.
+together with the same version number, so `Homeostat.Redis 1.2.0` always goes with `Homeostat 1.2.0` (and
+`Homeostat.Grpc 1.2.0-preview.1`, see [Stable and preview packages](#stable-and-preview-packages)).
 
 ## Current status
 
@@ -14,6 +18,23 @@ dotnet add package Homeostat --prerelease
 
 During the release candidate, the public API changes only if a problem found in the candidate requires it; any such
 change is listed in the [changelog](../CHANGELOG.md). From 1.0.0 the rules below apply.
+
+## Stable and preview packages
+
+Every package is released with every version, but not every package makes the same promise:
+
+| Stability | Packages | Version (release 1.2.0) | Promise |
+|---|---|---|---|
+| Stable | `Homeostat`, `Homeostat.HealthChecks`, `Homeostat.AspNetCore`, `Homeostat.Http`, `Homeostat.Polly`, `Homeostat.Redis`, `Homeostat.MongoDB`, `Homeostat.ServiceBus`, `Homeostat.RabbitMQ`, `Homeostat.Kafka`, `Homeostat.Artemis`, `Homeostat.Kubernetes`, `Homeostat.Testing`, `Homeostat.Cli`, `Homeostat.Templates` | `1.2.0` | The rules below |
+| Preview | `Homeostat.Azure`, `Homeostat.EntityFrameworkCore`, `Homeostat.Grpc`, `Homeostat.Caching`, `Homeostat.FeatureManagement`, `Homeostat.OpenFeature`, `Homeostat.Aspire.Hosting` | `1.2.0-preview.1` | Works and is tested, depends on the stable packages of the same release; its public API may still change in a minor version, listed in the changelog |
+
+A preview package becomes stable in a minor version, once it has been used in production and its API has settled; it
+then follows the rules below like the others. A stable package never goes back to preview. During a release candidate
+(`1.0.0-rc.1`) preview packages are numbered `1.0.0-preview.0.rc.1`, which sorts below `1.0.0-preview.1`, so the
+release is offered as an update to everyone who installed the candidate.
+
+In the build, a project is a preview with `<HomeostatPreview>true</HomeostatPreview>`. `Directory.Build.targets` adds
+the suffix, and the release workflow sets the version from the tag (`-p:HomeostatVersion=1.2.0`).
 
 ## What the version number promises
 
@@ -31,14 +52,17 @@ version:
 
 - **Public API**: removing or renaming a public type or member, changing a signature or a default parameter value,
   changing the underlying value of an enum member, sealing a class or adding an abstract member to a public base class or interface without a default
-  implementation.
+  implementation. Public positional records (such as `RestartLimits`) keep their constructor fixed: new fields arrive
+  as init-only properties with a default, so adding a field in a minor version is not a breaking change.
 - **Default signal source names**, such as `threadpool`, `http:{client}`, `cache:memory`, `sqlclient:pool`,
-  `npgsql:pool`, `http-server:errors` and `rabbitmq:{queue}:messages`: conditions and alert rules refer to them. See
+  `npgsql:pool`, `http-server:errors`, `rabbitmq:{queue}:messages`, `servicebus:{queue}:messages` and
+  `hosted-service:{type}`: conditions and alert rules refer to them. See
   [Naming sources](signals.md#naming-sources).
-- **JSON documents**: the answers of the status, history, coverage and alert endpoints, the audit log and webhook
+- **JSON documents**: the answers of the status, history, coverage, control and alert endpoints, the audit log and webhook
   events, the signal recording files, and the data written by the file and Redis stores (file format, Redis keys). A
   new version reads the data written by the previous ones of the same major version. Fields can be added; existing
-  fields keep their names, types and meaning, and enums stay written as names.
+  fields keep their names, types and meaning, and enums stay written as names. For the endpoints the JSON is the
+  contract: the .NET types that produce it are internal, so read it as JSON (or with your own types).
 - **Configuration keys** read by `AddConditionsFromConfiguration` and their meaning.
 - **Endpoint routes** and their default prefixes, **CLI commands, options and exit codes**, metric and activity
   names and tags.
@@ -70,4 +94,5 @@ changes, so stay on the latest minor version.
 - New .NET versions are supported as they are released; targets for them are added in minor versions.
 - A .NET version is no longer targeted once it has reached its end of support, and only in a major version.
 
-See [Platforms](platforms.md) for operating systems and client library versions.
+See also: [Platforms](platforms.md) for operating systems and client library versions ·
+[Packages](packages.md) · [Changelog](../CHANGELOG.md)

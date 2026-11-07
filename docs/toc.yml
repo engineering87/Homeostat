@@ -1,0 +1,79 @@
+# Table of contents of the documentation site (docfx). Keep it in the order of README.md.
+- name: Learn
+  items:
+  - name: "Why Homeostat"
+    href: why-homeostat.md
+  - name: "Getting started"
+    href: getting-started.md
+  - name: "Concepts"
+    href: concepts.md
+- name: Core
+  items:
+  - name: "Signals"
+    href: signals.md
+  - name: "Detectors"
+    href: detectors.md
+  - name: "Conditions"
+    href: conditions.md
+  - name: "Healing plans"
+    href: healing-plans.md
+  - name: "Actions"
+    href: actions.md
+  - name: "Guardrails"
+    href: guardrails.md
+  - name: "Persistence and clusters"
+    href: persistence-and-clusters.md
+- name: Integrations
+  items:
+  - name: "Integrations"
+    href: integrations.md
+  - name: "Message brokers"
+    href: messaging.md
+  - name: "Cloud and orchestrators"
+    href: cloud.md
+- name: Operations
+  items:
+  - name: "ASP.NET Core endpoints"
+    href: aspnetcore.md
+  - name: "Notifications and audit"
+    href: notifications.md
+  - name: "Observability"
+    href: observability.md
+  - name: "Tools"
+    href: tools.md
+  - name: "Security"
+    href: security.md
+- name: Advanced
+  items:
+  - name: "Learning and foresight"
+    href: intelligence.md
+  - name: "Configuration"
+    href: configuration.md
+  - name: "Testing"
+    href: testing.md
+  - name: "Trimming and Native AOT"
+    href: native-aot.md
+  - name: "Performance"
+    href: performance.md
+  - name: "Analyzers"
+    href: analyzers.md
+- name: Practice
+  items:
+  - name: "Recipes"
+    href: recipes.md
+  - name: "FAQ & troubleshooting"
+    href: faq.md
+- name: Project
+  items:
+  - name: "Packages"
+    href: packages.md
+  - name: "Versioning"
+    href: versioning.md
+  - name: "Platforms"
+    href: platforms.md
+  - name: "Roadmap"
+    href: ROADMAP.md
+  - name: "Design notes"
+    href: design.md
+  - name: "Design decisions"
+    href: decisions.md

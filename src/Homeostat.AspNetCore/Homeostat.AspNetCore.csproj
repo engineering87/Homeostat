@@ -6,6 +6,7 @@
     <EnableRequestDelegateGenerator>true</EnableRequestDelegateGenerator>
     <PackageId>Homeostat.AspNetCore</PackageId>
     <Description>ASP.NET Core endpoints for Homeostat: status and control endpoints, an embedded dashboard with one-click approvals, and alert ingestion from Prometheus Alertmanager, Grafana and Azure Monitor.</Description>
+    <PackageTags>$(PackageTags);aspnetcore;dashboard;minimal-api;alertmanager;grafana;azure-monitor;slack;teams</PackageTags>
   </PropertyGroup>
 
   <ItemGroup>

@@ -290,7 +290,7 @@ public class ProbeTests
             .AddProbe("ingest-backlog", (_, _) => Task.FromResult(Volatile.Read(ref depth)), p => p.UnhealthyAbove = 10_000)
             .AddCondition("backlog-high", c => c.ForSource("ingest-backlog").Heal(p => p
                 .With("scale-consumers", _ => Volatile.Write(ref depth, 10))
-                .VerifyWith<BuiltInActionTests.AlwaysHealed>())));
+                .UseVerifier<BuiltInActionTests.AlwaysHealed>())));
 
         var run = await host.WaitForRunAsync("backlog-high");
 

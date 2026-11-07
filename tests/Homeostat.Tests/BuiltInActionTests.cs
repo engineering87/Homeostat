@@ -15,7 +15,7 @@ public class BuiltInActionTests
 
     private static Task<HomeostatTestHost> StartAsync(Action<HealingPlanBuilder> plan, Action<IServiceCollection>? services = null)
         => HomeostatTestHost.StartAsync(
-            h => h.AddCondition(Condition, c => c.ForSource(Source).Heal(p => plan(p.VerifyWith<AlwaysHealed>()))),
+            h => h.AddCondition(Condition, c => c.ForSource(Source).Heal(p => plan(p.UseVerifier<AlwaysHealed>()))),
             services);
 
     [Fact]
@@ -196,9 +196,9 @@ public class BuiltInActionTests
         await using var host = await HomeostatTestHost.StartAsync(
             h => h
                 .AddBackgroundServiceSignals()
-                .AddCondition("worker-crashed", c => c.ForSource("service:RestartableWorker").Heal(p => p
+                .AddCondition("worker-crashed", c => c.ForSource("hosted-service:RestartableWorker").Heal(p => p
                     .RestartHostedService<RestartableWorker>()
-                    .VerifyWith<AlwaysHealed>())),
+                    .UseVerifier<AlwaysHealed>())),
             s => s.AddSingleton(new RestartableWorker { FailFirstRun = true }).AddHostedService(sp => sp.GetRequiredService<RestartableWorker>()));
         var worker = host.Services.GetRequiredService<RestartableWorker>();
 
@@ -245,7 +245,7 @@ public class BuiltInActionTests
     {
         await using var host = await HomeostatTestHost.StartAsync(h => h
             .AddObserver<CollectingObserver>()
-            .AddCondition(Condition, c => c.ForSource(Source).Heal(p => p.With("noop", _ => { }).VerifyWith<AlwaysHealed>())));
+            .AddCondition(Condition, c => c.ForSource(Source).Heal(p => p.With("noop", _ => { }).UseVerifier<AlwaysHealed>())));
 
         host.Publish(Source, SignalSeverity.Unhealthy);
         await host.WaitForRunAsync(Condition);

@@ -2,15 +2,16 @@
 
 Homeostat changes what a running application does: it can pause consumers, turn off features, restart processes,
 scale deployments and fail over. Treat its endpoints as administrative interfaces and its permissions as those of an
-operator. This page collects the hardening steps that the other pages describe one by one. To report a
-vulnerability, see the [security policy](../SECURITY.md).
+operator. This page collects, for the people who deploy and operate Homeostat, the hardening steps that the other
+pages describe one by one. To report a vulnerability, see the [security policy](../SECURITY.md).
 
 ## Checklist
 
 - [ ] Every Homeostat endpoint is mapped with a specific authorization policy (or a token, for alerts); none uses
       `allowAnonymous: true` outside development.
 - [ ] Slack and Teams endpoints have their signing secret or security token, and a list of allowed approvers.
-- [ ] Webhook, incident and chat secrets come from a secret store and travel in headers, not in URLs.
+- [ ] Webhook, incident and chat secrets come from a secret store; keys travel in headers wherever the destination
+      allows it (Slack and Teams incoming webhook URLs are secrets themselves).
 - [ ] Kubernetes and Azure permissions are limited to the actions the plans use, on the resources they target.
 - [ ] Plans ran in dry-run in a real environment before `DryRun = false`; risky steps keep `RequireApproval`.
 - [ ] The action budget and cooldowns are set for the worst case, not the average one.
@@ -24,12 +25,12 @@ vulnerability, see the [security policy](../SECURITY.md).
 without a policy (or, for alerts, a token) unless you pass `allowAnonymous: true`. The [analyzer](analyzers.md#homeo004)
 reports anonymous endpoints outside development.
 
-- Use a **specific** policy: an operations role or group, not "any authenticated user", especially in an application
+- Use a specific policy: an operations role or group, not "any authenticated user", especially in an application
   with end-user accounts. The status endpoint reveals condition names, error messages and approval ids; the control
   endpoints pause healing, approve failovers and flip switches.
 - Call `app.UseAuthorization()` and configure authentication (JWT bearer, cookies, Windows, certificates).
-- Map status, control and dashboard with the same prefix: the dashboard calls the other two with the user's
-  credentials. The simplest setup uses one policy for all three. When more people may read than act, give
+- Map status, control and dashboard with the same prefix (`/homeostat` by default): the dashboard calls the other two
+  with the user's credentials. The simplest setup uses one policy for all three. When more people may read than act, give
   `MapHomeostatControl` a stricter policy: users without it still see the dashboard, and their actions are refused
   with `403`.
 - The usual endpoint conventions apply to the returned `RouteGroupBuilder`: add rate limiting, restrict the hosts or
@@ -50,12 +51,22 @@ app.MapHomeostatControl("homeostat-operate");
 ### Cross-site request forgery
 
 The control endpoints require an `Authorization: Bearer` token or the `X-Requested-With` header on every request,
-and refuse requests that the browser marks as cross-site or same-site (`Sec-Fetch-Site`) with `403`. A page on another site
-cannot add those headers, so users signed in with cookies, Windows authentication, Basic or client certificates are
-protected. Do not remove the requirement with a proxy that adds `X-Requested-With` to every request.
+and refuse with `403` the requests that the browser marks as cross-site or same-site (`Sec-Fetch-Site`). A page on
+another site cannot add those headers, so users signed in with cookies, Windows authentication, Basic or client
+certificates are protected.
 
-The dashboard is served with a strict Content-Security-Policy (`default-src 'none'`, no framing) and renders every
-value as text.
+> [!WARNING]
+> Do not put the endpoints behind a proxy that adds `X-Requested-With` to every request: it removes this protection.
+
+The alert endpoints, which servers call, accept only `Content-Type: application/json` (`415` otherwise) and refuse
+requests marked cross-site or same-site with `403`: a form on another page cannot post an alert with an operator's
+cookies when the endpoints are protected by a policy rather than a token.
+
+The CLI and the dashboard do not follow redirects: a sign-in or access-denied redirect is reported as an error, never
+as a change that was made.
+
+The dashboard is served with a strict Content-Security-Policy (`default-src 'none'`, `frame-ancestors 'none'`), with
+`X-Content-Type-Options: nosniff` and `Referrer-Policy: no-referrer`, and renders every value as text.
 
 ### Alert ingestion
 
@@ -67,7 +78,8 @@ value as text.
 - Alert sources get the `alert:` prefix (`SourcePrefix`), so a sender cannot impersonate the signals of detectors and
   probes. Keep the prefix, and write conditions on `alert:` sources knowing that whoever holds the token can trigger
   them.
-- Size limits (`MaxRequestBodySize`, `MaxAlertsPerRequest`, `MaxTrackedSources`) bound what one sender can cost.
+- Size limits bound what one sender can cost: `MaxRequestBodySize` (1 MB by default), `MaxAlertsPerRequest` (500) and
+  `MaxTrackedSources` (1,000).
 
 ### Slack and Microsoft Teams
 
@@ -76,19 +88,21 @@ are mapped without an authorization policy:
 
 - Set `SlackInteractionOptions.SigningSecret` and `TeamsCommandOptions.SecurityToken` from a secret store. Requests
   without a valid HMAC-SHA256 signature are refused with `401`, with a constant-time comparison.
-- Requests older than `MaxRequestAge` (5 minutes) are refused, against replays; Teams message ids are also acted on
-  once per instance.
+- Requests older than `MaxRequestAge` (5 minutes by default) are refused, against replays; Teams message ids are also
+  acted on once per instance.
 - Name the approvers: `AllowedUserIds` (Slack user ids, Microsoft Entra object ids). `AllowAnyChannelMember` and
   `AllowAnyTeamMember` let everyone who can post in the channel approve a failover: use them only in small, closed
   channels.
 - Expose these endpoints over HTTPS only.
+- The Slack endpoint posts its replies only to Slack response URLs (`hooks.slack.com`, `hooks.slack-gov.com`), so a
+  forged payload cannot make the application call another address.
 
 See [ASP.NET Core endpoints](aspnetcore.md#slack-approvals).
 
 ### Tools that call the endpoints
 
-- The `homeostat` CLI sends its token only to the server in `--url`, and reads it from `HOMEOSTAT_TOKEN` so it stays
-  out of the shell history. Give pipelines a token with the narrowest role that their commands need.
+- The `homeostat` CLI sends its token only to the server in `--url`, and can read it from `HOMEOSTAT_TOKEN` so it
+  stays out of the shell history. Give pipelines a token with the narrowest role that their commands need.
 - The Aspire commands send a token only when `HomeostatResourceOptions.BearerToken` returns one; map the endpoints
   anonymously only in the development environment.
 
@@ -101,6 +115,8 @@ See [ASP.NET Core endpoints](aspnetcore.md#slack-approvals).
   links), but events still carry condition names and error messages: send them only to channels whose members may
   see that.
 - Use HTTPS for every destination; route through a proxy with `IHttpClientFactory` if your network requires it.
+  The notifiers do not follow redirects (a redirect is a failed delivery), so a destination cannot send their
+  headers, secrets included, to another host.
 
 ## Platform permissions
 
@@ -112,7 +128,7 @@ the least that the plans need.
 - Use a `Role` (namespace-scoped), with only the verbs of the actions you use, and `resourceNames` for deployments.
 - Prefer `ScaleDeployment` (`deployments/scale`) to `RolloutRestart` when it is enough: `patch` on `deployments`
   allows rewriting the pod template.
-- `delete` on `pods` covers every pod of the namespace: run the application in its own namespace.
+- `create` on `pods/eviction` covers every pod of the namespace: run the application in its own namespace (evictions still respect PodDisruptionBudgets).
 - `CordonNode` needs a `ClusterRole` on `nodes`; grant it only if you use it, with an admission policy that limits the
   change to `spec.unschedulable`.
 
@@ -134,7 +150,8 @@ The full role is in [Cloud and orchestrators](cloud.md#permissions).
 - Use a read-only monitoring user for Artemis management (Jolokia) and allow only the needed origin in
   `jolokia-access.xml`.
 - MongoDB replication lag needs `clusterMonitor`; ping and pool signals need no extra role.
-- Database probes run `SELECT 1`: the application's own login is enough.
+- Database probes run `SELECT 1` by default (`DatabaseProbeOptions.CommandText`): the application's own login is
+  enough.
 
 ## Rollout and blast radius
 
@@ -156,5 +173,7 @@ alert can make Homeostat do.
   `IncludeDetails`, signal messages and tags. Keep them on a volume that only the application can write, with the
   access rules of your logs. Recording files are created readable only by the application's user on Linux and
   macOS.
-- With the Redis store, use a dedicated `KeyPrefix`, authentication and TLS; anyone who can write those keys can
-  change cooldowns, holds and the budget.
+- With the Redis store, use a dedicated `KeyPrefix`, authentication and TLS. Anyone who can write those keys can
+  change cooldowns, holds, the budget, the pause and the switches.
+
+See also: [ASP.NET Core endpoints](aspnetcore.md), [Guardrails](guardrails.md), [Cloud and orchestrators](cloud.md).

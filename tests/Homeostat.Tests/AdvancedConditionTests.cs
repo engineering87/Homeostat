@@ -31,6 +31,18 @@ public class AdvancedConditionTests
     }
 
     [Fact]
+    public void Value_thresholds_are_not_cleared_by_a_signal_without_a_value()
+    {
+        var tracker = Create(c => c.ForSource("memory").WhenValueAbove(0.9));
+        Assert.Equal(ConditionTransition.Activated, tracker.Observe(Value(0, 0.95)));
+
+        // A healthy signal that carries no value (a probe that could not measure) says nothing about the value.
+        Assert.NotEqual(ConditionTransition.Cleared, tracker.Observe(new Signal("memory", SignalSeverity.Healthy, T0.AddSeconds(10))));
+        Assert.Equal(ConditionStatus.Active, tracker.Snapshot().Status);
+        Assert.Equal(ConditionTransition.Cleared, tracker.Observe(Value(20, 0.5)));
+    }
+
+    [Fact]
     public void Rising_trend_triggers_before_any_fixed_threshold()
     {
         // +2% per minute, sampled every 30 seconds, far below a 90% threshold.
@@ -154,7 +166,7 @@ public class AdvancedConditionTests
                 .AddCondition("cache-down", c => c.ForSource("cache"))
                 .AddCondition("platform-degraded", c => c
                     .WhenAllActive("db-slow", "cache-down")
-                    .Heal(p => p.With<EngineTests.RecordingAction>().VerifyWith<EngineTests.AlwaysHealedVerifier>()))
+                    .Heal(p => p.With<EngineTests.RecordingAction>().UseVerifier<EngineTests.AlwaysHealedVerifier>()))
                 .AddCondition("anything-down", c => c.WhenAnyActive("db-slow", "cache-down")),
             services => services.AddSingleton<EngineTests.Recorder>());
 

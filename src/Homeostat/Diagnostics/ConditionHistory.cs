@@ -23,6 +23,8 @@ internal sealed class ConditionHistory : IHostedService
     private readonly object _gate = new();
     private Task _loop = Task.CompletedTask;
     private bool _failing;
+    private const string ReadKey = "history";
+    private readonly Engine.InFlight<IReadOnlyList<ConditionEventRecord>> _reads = new();
 
     internal static readonly TimeSpan RetryInterval = TimeSpan.FromSeconds(30);
 
@@ -123,7 +125,15 @@ internal sealed class ConditionHistory : IHostedService
         IReadOnlyList<ConditionEventRecord> stored;
         try
         {
-            stored = await _store.GetConditionEventsAsync(_options.ConditionHistorySize, cancellationToken).ConfigureAwait(false);
+            // One read at a time: a read abandoned at its timeout and still running (a store that blocks a thread) is
+            // not started again by every request; until it ends, this instance's events are shown at once.
+            if (_reads.IsRunning(ReadKey))
+            {
+                throw new TimeoutException("The previous read of the condition history, abandoned at its timeout, has not returned yet.");
+            }
+
+            stored = await _reads.Start(ReadKey, () => _store.GetConditionEventsAsync(_options.ConditionHistorySize, cancellationToken).AsTask())
+                .WaitAsync(Engine.SharedControl.ReadTimeout, cancellationToken).ConfigureAwait(false);
         }
         catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
         {
@@ -131,21 +141,30 @@ internal sealed class ConditionHistory : IHostedService
             return recent;
         }
 
-        var missing = recent.Where(r => !stored.Any(s => Same(s, r)));
+        // This instance's events the store does not have yet (one lookup, not a scan per event).
+        var known = stored.Select(Key).ToHashSet();
+        var missing = recent.Where(r =>
+        {
+            var (condition, kind, instance, ms) = Key(r);
+            return !known.Contains((condition, kind, instance, ms)) && !known.Contains((condition, kind, instance, ms - 1))
+                && !known.Contains((condition, kind, instance, ms + 1));
+        });
         return [.. stored.Concat(missing).OrderByDescending(e => e.At).Take(_options.ConditionHistorySize)];
     }
 
-    /// <summary>The same event, read back from a store that may round timestamps to the millisecond.</summary>
-    internal static bool Same(ConditionEventRecord a, ConditionEventRecord b)
-        => a.Kind == b.Kind
-            && (a.At - b.At).Duration() < TimeSpan.FromMilliseconds(1)
-            && string.Equals(a.ConditionName, b.ConditionName, StringComparison.Ordinal)
-            && string.Equals(a.Instance, b.Instance, StringComparison.Ordinal);
+    // The identity of an event, at the millisecond (a store may round timestamps to it).
+    private static (string Condition, ConditionEventKind Kind, string? Instance, long Milliseconds) Key(ConditionEventRecord e)
+        => (e.ConditionName, e.Kind, e.Instance, e.At.UtcTicks / TimeSpan.TicksPerMillisecond);
 
     private async Task WriteLoopAsync()
     {
         // Events the store refused are kept (up to 1000, the oldest dropped) and retried, so an outage leaves no gap.
         var pending = new Queue<ConditionEventRecord>();
+
+        // The write of the oldest pending event, kept while it runs after its timeout: it is waited for again at the next
+        // retry instead of being started again, so a store that blocks a thread does not get one more every retry.
+        Task? appending = null;
+        ConditionEventRecord? appendingRecord = null;
         var reader = _queue.Reader;
         var completed = false;
         while (!completed || pending.Count > 0)
@@ -176,7 +195,38 @@ internal sealed class ConditionHistory : IHostedService
             {
                 try
                 {
-                    await _store.AppendConditionEventAsync(pending.Peek(), _options.ConditionHistorySize).ConfigureAwait(false);
+                    var next = pending.Peek();
+                    if (appending is not null && !ReferenceEquals(appendingRecord, next))
+                    {
+                        // Its event was dropped from the full queue meanwhile.
+                        if (!appending.IsCompleted)
+                        {
+                            throw new TimeoutException("The previous write of the condition history, abandoned at its timeout, has not returned yet.");
+                        }
+
+                        appending = null;
+                    }
+
+                    if (appending is null)
+                    {
+                        appending = Task.Run(() => _store.AppendConditionEventAsync(next, _options.ConditionHistorySize).AsTask(), CancellationToken.None);
+                        appendingRecord = next;
+                    }
+
+                    var current = appending;
+                    try
+                    {
+                        await current.WaitAsync(Engine.SharedControl.WriteTimeout).ConfigureAwait(false);
+                    }
+                    finally
+                    {
+                        if (current.IsCompleted)
+                        {
+                            // Ended, written or failed: a failed write is started again at the next retry.
+                            appending = null;
+                        }
+                    }
+
                     pending.Dequeue();
                     if (_failing)
                     {

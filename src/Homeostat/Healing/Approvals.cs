@@ -1,24 +1,37 @@
 namespace Homeostat.Healing;
 
 /// <summary>A step waiting for a person to approve it.</summary>
-/// <param name="Id">Identifier to pass to <see cref="IHomeostatApprovals.Approve"/> or <see cref="IHomeostatApprovals.Reject"/>.</param>
-/// <param name="ConditionName">Condition being healed.</param>
-/// <param name="Step">Zero-based index of the step.</param>
-/// <param name="StepName">Step name.</param>
-/// <param name="RequestedAt">When the request was created.</param>
-/// <param name="ExpiresAt">When the request expires; the run then stops with <see cref="HealingRunOutcome.NotApproved"/>.</param>
-/// <param name="TriggeringSignal">The signal that started the run, to give the approver some context.</param>
-public sealed record PendingApproval(
-    string Id,
-    string ConditionName,
-    int Step,
-    string StepName,
-    DateTimeOffset RequestedAt,
-    DateTimeOffset ExpiresAt,
-    Signals.Signal TriggeringSignal);
+public sealed record PendingApproval
+{
+    /// <summary>
+    /// Identifier to pass to <see cref="IHomeostatApprovals.ApproveAsync"/> or <see cref="IHomeostatApprovals.RejectAsync"/>.
+    /// </summary>
+    public required string Id { get; init; }
+
+    /// <summary>Condition being healed.</summary>
+    public required string ConditionName { get; init; }
+
+    /// <summary>Zero-based index of the step.</summary>
+    public required int Step { get; init; }
+
+    /// <summary>Step name.</summary>
+    public required string StepName { get; init; }
+
+    /// <summary>When the request was created.</summary>
+    public required DateTimeOffset RequestedAt { get; init; }
+
+    /// <summary>When the request expires; the run then stops with <see cref="HealingRunOutcome.NotApproved"/>.</summary>
+    public required DateTimeOffset ExpiresAt { get; init; }
+
+    /// <summary>The signal that started the run, to give the approver some context.</summary>
+    public required Signals.Signal TriggeringSignal { get; init; }
+}
 
 /// <summary>How an approval request ended.</summary>
-/// <remarks>Numbered from 1: the default value, 0, is none of them, so an unset value never reads as a success.</remarks>
+/// <remarks>
+/// Numbered from 1 on purpose: 0 (<c>default</c>) is deliberately not a member, so a value never set is caught as
+/// undefined and never reads as a success.
+/// </remarks>
 public enum ApprovalStatus
 {
     /// <summary>A person approved the step.</summary>
@@ -35,12 +48,17 @@ public enum ApprovalStatus
 }
 
 /// <summary>Outcome of an approval request.</summary>
-/// <param name="Request">The request.</param>
-/// <param name="Status">How it ended.</param>
-/// <param name="ResolvedBy">Who approved or rejected it, if provided; <c>null</c> when expired or canceled.</param>
-/// <param name="ResolvedAt">When it ended.</param>
-public sealed record ApprovalResolution(
-    PendingApproval Request,
-    ApprovalStatus Status,
-    string? ResolvedBy,
-    DateTimeOffset ResolvedAt);
+public sealed record ApprovalResolution
+{
+    /// <summary>The request.</summary>
+    public required PendingApproval Request { get; init; }
+
+    /// <summary>How it ended.</summary>
+    public required ApprovalStatus Status { get; init; }
+
+    /// <summary>Who approved or rejected it, if provided; <c>null</c> when expired or canceled.</summary>
+    public string? ResolvedBy { get; init; }
+
+    /// <summary>When it ended.</summary>
+    public required DateTimeOffset ResolvedAt { get; init; }
+}

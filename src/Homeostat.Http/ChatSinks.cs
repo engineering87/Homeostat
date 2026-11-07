@@ -8,7 +8,7 @@ namespace Homeostat.Http;
 /// <summary>Posts events to Slack with Block Kit, with optional approval buttons.</summary>
 internal sealed class SlackSink : HttpEventSink
 {
-    internal const string HttpClientName = "Homeostat.Slack";
+    internal const string HttpClientName = SlackOptions.HttpClientName;
     internal const string ApproveAction = "homeostat_approve";
     internal const string RejectAction = "homeostat_reject";
     private readonly SlackOptions _options;
@@ -16,18 +16,18 @@ internal sealed class SlackSink : HttpEventSink
     public SlackSink(
         IHttpClientFactory clients,
         IOptions<SlackOptions> slack,
-        IOptions<HomeostatOptions> options,
         TimeProvider timeProvider,
-        ILogger<SlackSink> logger)
-        : base(clients, HttpClientName, options.Value.ApplicationName, slack.Value.Events, timeProvider, logger)
+        ILogger<SlackSink> logger,
+        Microsoft.Extensions.Hosting.IHostApplicationLifetime? lifetime = null)
+        : base(clients, HttpClientName, slack.Value.Events, timeProvider, logger, lifetime)
         => _options = slack.Value;
 
     protected override TimeSpan Timeout => _options.Timeout;
 
     protected override int MaxAttempts => _options.MaxAttempts;
 
-    protected override Task WriteAsync(HomeostatEvent e, CancellationToken cancellationToken)
-        => SendAsync(HttpMethod.Post, _options.WebhookUrl!, Payload(e, _options), null, cancellationToken);
+    public override Task WriteAsync(HomeostatEvent e, CancellationToken cancellationToken)
+        => SendAsync(HttpMethod.Post, _options.Url!, Payload(e, _options), null, cancellationToken);
 
     internal static JsonObject Payload(HomeostatEvent e, SlackOptions options)
     {
@@ -118,24 +118,24 @@ internal sealed class SlackSink : HttpEventSink
 /// <summary>Posts events to Microsoft Teams as Adaptive Cards, through a Teams workflow webhook.</summary>
 internal sealed class TeamsSink : HttpEventSink
 {
-    internal const string HttpClientName = "Homeostat.Teams";
+    internal const string HttpClientName = TeamsOptions.HttpClientName;
     private readonly TeamsOptions _options;
 
     public TeamsSink(
         IHttpClientFactory clients,
         IOptions<TeamsOptions> teams,
-        IOptions<HomeostatOptions> options,
         TimeProvider timeProvider,
-        ILogger<TeamsSink> logger)
-        : base(clients, HttpClientName, options.Value.ApplicationName, teams.Value.Events, timeProvider, logger)
+        ILogger<TeamsSink> logger,
+        Microsoft.Extensions.Hosting.IHostApplicationLifetime? lifetime = null)
+        : base(clients, HttpClientName, teams.Value.Events, timeProvider, logger, lifetime)
         => _options = teams.Value;
 
     protected override TimeSpan Timeout => _options.Timeout;
 
     protected override int MaxAttempts => _options.MaxAttempts;
 
-    protected override Task WriteAsync(HomeostatEvent e, CancellationToken cancellationToken)
-        => SendAsync(HttpMethod.Post, _options.WebhookUrl!, Payload(e, _options), null, cancellationToken);
+    public override Task WriteAsync(HomeostatEvent e, CancellationToken cancellationToken)
+        => SendAsync(HttpMethod.Post, _options.Url!, Payload(e, _options), null, cancellationToken);
 
     internal static JsonObject Payload(HomeostatEvent e, TeamsOptions options)
     {
@@ -153,8 +153,8 @@ internal sealed class TeamsSink : HttpEventSink
             : new JsonArray();
 
         var body = ArrayOf(
-            ObjectOf(("type", "TextBlock"), ("text", $"{e.Application}: {e.Kind}"), ("weight", "Bolder"), ("size", "Medium"), ("wrap", true)),
-            ObjectOf(("type", "TextBlock"), ("text", e.Summary), ("wrap", true)),
+            ObjectOf(("type", "TextBlock"), ("text", $"{Plain(e.Application)}: {e.Kind}"), ("weight", "Bolder"), ("size", "Medium"), ("wrap", true)),
+            ObjectOf(("type", "TextBlock"), ("text", Plain(e.Summary)), ("wrap", true)),
             ObjectOf(("type", "FactSet"), ("facts", facts)));
         if (e.Kind == HomeostatEventKind.ApprovalRequested && options.ApprovalCommand is { Length: > 0 } command && e.ApprovalId is { } approvalId)
         {
@@ -178,5 +178,25 @@ internal sealed class TeamsSink : HttpEventSink
     }
 
     private static JsonObject? Fact(string title, string? value)
-        => value is null ? null : ObjectOf(("title", title), ("value", value));
+        => value is null ? null : ObjectOf(("title", title), ("value", Plain(value)));
+
+    /// <summary>
+    /// Adaptive Cards render Markdown in text: texts that can come from outside (alert summaries) are escaped, so they
+    /// cannot add links or formatting to the card.
+    /// </summary>
+    internal static string Plain(string value)
+    {
+        var text = new System.Text.StringBuilder(value.Length);
+        foreach (var c in value)
+        {
+            if (c is '\\' or '[' or ']' or '(' or ')' or '*' or '_' or '`' or '#' or '~' or '>' or '<' or '!' or '|')
+            {
+                text.Append('\\');
+            }
+
+            text.Append(c);
+        }
+
+        return text.ToString();
+    }
 }

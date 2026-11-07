@@ -1,7 +1,7 @@
 namespace Homeostat.Healing;
 
 /// <summary>Where a healing plan runs.</summary>
-public enum PlanScope
+internal enum PlanScope
 {
     /// <summary>Every instance heals its own condition independently (default).</summary>
     Instance = 0,

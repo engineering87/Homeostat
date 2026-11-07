@@ -28,8 +28,6 @@ public sealed class HealingPlanBuilder
     private readonly IServiceCollection _services;
     private readonly List<HealingStep> _steps = [];
     private Type? _verifierType;
-    private TimeSpan? _verificationTimeout;
-    private TimeSpan? _actionTimeout;
     private TimeSpan? _cooldown;
     private PlanScope _scope = PlanScope.Instance;
     private double _cooldownBackoff = 1;
@@ -178,26 +176,52 @@ public sealed class HealingPlanBuilder
 
     /// <summary>
     /// Appends a step that turns on a named switch in <see cref="IHomeostatSwitches"/>.
-    /// Your code checks the switch to change behavior, for example to serve cached data.
+    /// Your code checks the switch to change behavior, for example to serve cached data. In a plan that runs on every
+    /// instance the switch is on for this instance; in a plan that runs once per cluster (<see cref="OncePerCluster"/>)
+    /// it is an application switch, on for every instance.
     /// </summary>
     /// <param name="switchName">Name of the switch.</param>
     /// <param name="turnOffWhenCleared">
-    /// When <c>true</c>, the switch is turned off automatically when the condition clears. Make sure the switch
-    /// itself does not make the condition clear (for example by hiding the failing dependency from its health
-    /// check), otherwise the condition flaps; <see cref="Conditions.ConditionBuilder.ClearAfter"/> helps.
+    /// When <c>true</c> (the default), the switch is turned off automatically when the condition clears (for an
+    /// application switch, when it clears on any instance); with <c>false</c> it stays on until someone turns it off.
+    /// Make sure the switch itself does not make the condition clear (for example by hiding the failing dependency from
+    /// its health check), otherwise the condition flaps; <see cref="Conditions.ConditionBuilder.ClearAfter"/> helps.
     /// </param>
-    public HealingPlanBuilder TurnOnSwitch(string switchName, bool turnOffWhenCleared = false)
+    public HealingPlanBuilder TurnOnSwitch(string switchName, bool turnOffWhenCleared = true)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(switchName);
         _steps.Add(new HealingStep(
             $"Turn on switch '{switchName}'",
             sp => new TurnOnSwitchAction(
-                sp.GetRequiredService<IHomeostatSwitches>(),
+                sp.GetRequiredService<HomeostatSwitches>(),
                 switchName,
+                turnOffWhenCleared,
                 sp.GetRequiredService<ILogger<TurnOnSwitchAction>>()))
         {
             SwitchToResetOnClear = turnOffWhenCleared ? switchName : null,
         });
+        return this;
+    }
+
+    /// <summary>
+    /// Turns the switch of the step added just before this call (<see cref="TurnOnSwitch"/>, and the steps built on it
+    /// such as <c>PauseConsumer</c> and <c>IsolateCircuit</c>) off after <paramref name="maximum"/>, even if the condition
+    /// has not cleared; if it is still active then, the plan runs again after its cooldown. A safety net for a
+    /// degradation that could keep its own condition active (a circuit isolated by a condition on that circuit, consumers
+    /// paused by a condition on a backlog that cannot shrink while they are paused), or whose condition stops receiving
+    /// the signals that would clear it.
+    /// </summary>
+    /// <param name="maximum">Longest time the switch stays on.</param>
+    /// <example><code>.PauseConsumer("ingest").HoldAtMost(TimeSpan.FromMinutes(30))</code></example>
+    public HealingPlanBuilder HoldAtMost(TimeSpan maximum)
+    {
+        var step = LastStep(nameof(HoldAtMost));
+        if (step.SwitchToResetOnClear is null)
+        {
+            throw new InvalidOperationException("HoldAtMost applies to a step that turns on a switch turned off when the condition clears.");
+        }
+
+        step.MaxHold = Positive(maximum, nameof(maximum));
         return this;
     }
 
@@ -237,12 +261,13 @@ public sealed class HealingPlanBuilder
     // ---------------------------------------------------------------- verification and pacing
 
     /// <summary>
-    /// Verifies the steps with a custom <see cref="IHealingVerifier"/> instead of waiting for the condition to clear,
-    /// for example a direct check of the dependency. A verifier that throws or returns an undefined value counts as
-    /// <see cref="VerificationOutcome.Inconclusive"/>.
+    /// Verifies every step of the plan with a custom <see cref="IHealingVerifier"/> instead of waiting for the condition
+    /// to clear, for example a direct check of the dependency. A verifier that throws or returns an undefined value
+    /// counts as <see cref="VerificationOutcome.Inconclusive"/>. Unlike <see cref="VerificationTimeout"/>, this applies
+    /// to the whole plan, wherever it is called, and replaces the default implementation like the other <c>Use*</c> methods.
     /// </summary>
     /// <typeparam name="TVerifier">The verifier, resolved from the services (registered as transient if needed).</typeparam>
-    public HealingPlanBuilder VerifyWith<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] TVerifier>()
+    public HealingPlanBuilder UseVerifier<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] TVerifier>()
         where TVerifier : class, IHealingVerifier
     {
         _services.TryAddTransient<TVerifier>();
@@ -250,19 +275,33 @@ public sealed class HealingPlanBuilder
         return this;
     }
 
-    /// <summary>Time allowed for verification after each action (default <see cref="HomeostatOptions.DefaultVerificationTimeout"/>).</summary>
+    /// <summary>
+    /// Time allowed for verification after the step added just before this call (default
+    /// <see cref="HomeostatOptions.DefaultVerificationTimeout"/>), like <see cref="RequireApproval"/> and
+    /// <see cref="UndoWith{TAction}"/>.
+    /// </summary>
+    /// <param name="timeout">The timeout.</param>
+    /// <example><code>.Then&lt;RolloutRestartAction&gt;().ActionTimeout(TimeSpan.FromMinutes(5)).VerificationTimeout(TimeSpan.FromMinutes(10))</code></example>
     public HealingPlanBuilder VerificationTimeout(TimeSpan timeout)
     {
-        _verificationTimeout = Positive(timeout, nameof(timeout));
+        LastStep(nameof(VerificationTimeout)).VerificationTimeout = Positive(timeout, nameof(timeout));
         return this;
     }
 
-    /// <summary>Maximum duration of each action (default <see cref="HomeostatOptions.DefaultActionTimeout"/>).</summary>
+    /// <summary>
+    /// Maximum duration of the action of the step added just before this call, and of its compensating action (default
+    /// <see cref="HomeostatOptions.DefaultActionTimeout"/>).
+    /// </summary>
+    /// <param name="timeout">The timeout.</param>
     public HealingPlanBuilder ActionTimeout(TimeSpan timeout)
     {
-        _actionTimeout = Positive(timeout, nameof(timeout));
+        LastStep(nameof(ActionTimeout)).ActionTimeout = Positive(timeout, nameof(timeout));
         return this;
     }
+
+    private HealingStep LastStep(string modifier) => _steps.Count == 0
+        ? throw new InvalidOperationException($"{modifier} applies to the previous step: add a step first.")
+        : _steps[^1];
 
     /// <summary>
     /// Minimum time between the end of a run and the start of the next run of this plan (default
@@ -270,9 +309,9 @@ public sealed class HealingPlanBuilder
     /// </summary>
     public HealingPlanBuilder Cooldown(TimeSpan cooldown)
     {
-        if (cooldown < TimeSpan.Zero)
+        if (cooldown < TimeSpan.Zero || cooldown > Guardrails.TimerLimits.Max)
         {
-            throw new ArgumentOutOfRangeException(nameof(cooldown), "Cooldown cannot be negative.");
+            throw new ArgumentOutOfRangeException(nameof(cooldown), "Cooldown cannot be negative or longer than about 49 days.");
         }
 
         _cooldown = cooldown;
@@ -281,7 +320,7 @@ public sealed class HealingPlanBuilder
 
     /// <summary>
     /// Grows the cooldown after every run in a row that does not heal: cooldown × <paramref name="multiplier"/>^failures,
-    /// up to <paramref name="max"/>. A healed run or the condition clearing resets it.
+    /// up to <paramref name="max"/> (never shorter than the cooldown itself). A healed run or the condition clearing resets it.
     /// </summary>
     /// <param name="multiplier">Growth factor, at least 1.</param>
     /// <param name="max">Upper bound of the cooldown.</param>
@@ -340,9 +379,11 @@ public sealed class HealingPlanBuilder
     // ---------------------------------------------------------------- compensation
 
     /// <summary>
-    /// Compensating action for the step added just before this call: it runs when the step's action completed but
-    /// verification says <see cref="VerificationOutcome.NotHealed"/>, before escalating, so a change that did not help
-    /// is rolled back. It does not consume the action budget.
+    /// Compensating action for the step added just before this call: it runs, before escalating, when verification says
+    /// <see cref="VerificationOutcome.NotHealed"/> and also when the action timed out (part of it may have taken effect),
+    /// so a change that did not help is rolled back; not when the action threw (it may have refused on purpose). Write it so that it is harmless when there is nothing to
+    /// undo. It reverts what the run just changed, so the pause, the maintenance windows and the budget never block it;
+    /// it still counts in the budget.
     /// </summary>
     /// <typeparam name="TAction">The compensating action.</typeparam>
     /// <example><code>.Then&lt;SwitchToBackupProviderAction&gt;().UndoWith&lt;SwitchToPrimaryProviderAction&gt;()</code></example>
@@ -371,7 +412,7 @@ public sealed class HealingPlanBuilder
         }
 
         return new HealingPlan(
-            conditionName, _steps.ToArray(), _verifierType, _verificationTimeout, _actionTimeout, _cooldown,
+            conditionName, _steps.ToArray(), _verifierType, _cooldown,
             _scope, _cooldownBackoff, _maxCooldown)
         {
             AdaptiveMinimumAttempts = _adaptiveMinimumAttempts,

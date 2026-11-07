@@ -16,8 +16,9 @@ public class CachingTests
     {
         var services = new ServiceCollection().AddLogging();
         services.AddMemoryCache(o => o.TrackStatistics = true);
-        services.AddHomeostat(h => h.AddMemoryCacheSignals("lookup-cache", o =>
+        services.AddHomeostat(h => h.AddMemoryCacheSignals(o =>
         {
+            o.Source = "lookup-cache";
             o.DegradedBelow = 0.6;
             o.UnhealthyBelow = 0.2;
             o.MinimumLookups = 10;
@@ -83,10 +84,10 @@ public class CachingTests
     {
         new ServiceCollection().AddHomeostat(h =>
         {
-            h.AddMemoryCacheSignals("a");
-            Assert.Throws<InvalidOperationException>(() => h.AddMemoryCacheSignals("a"));
-            Assert.Throws<ArgumentException>(() => h.AddMemoryCacheSignals("b", o => o.DegradedBelow = 1.5));
-            Assert.Throws<ArgumentException>(() => h.AddMemoryCacheSignals("c", o => { o.DegradedBelow = 0.2; o.UnhealthyBelow = 0.5; }));
+            h.AddMemoryCacheSignals(o => o.Source = "a");
+            Assert.Throws<InvalidOperationException>(() => h.AddMemoryCacheSignals(o => o.Source = "a"));
+            Assert.Throws<ArgumentException>(() => h.AddMemoryCacheSignals(o => { o.Source = "b"; o.DegradedBelow = 1.5; }));
+            Assert.Throws<ArgumentException>(() => h.AddMemoryCacheSignals(o => { o.Source = "c"; o.DegradedBelow = 0.2; o.UnhealthyBelow = 0.5; }));
         });
     }
 
@@ -111,7 +112,7 @@ public class CachingTests
                 .RemoveHybridCacheKeys("regions")
                 .RemoveDistributedCacheKeys("reference:regions", "reference:units")
                 .CompactMemoryCache(0.5)
-                .VerifyWith<NeverHealed>())),
+                .UseVerifier<NeverHealed>())),
             s => s.AddSingleton<HybridCache>(hybrid).AddSingleton<IDistributedCache>(distributed).AddSingleton<IMemoryCache>(memory));
 
         host.Publish("reference", SignalSeverity.Unhealthy);

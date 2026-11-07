@@ -18,8 +18,8 @@ public static class HomeostatDashboardExtensions
     /// Maps <c>GET {prefix}/dashboard</c>: a page that shows conditions, pending approvals, switches, the action budget,
     /// recent runs, the condition history and the coverage of the last 24 hours, refreshed every 5 seconds, with buttons to approve or reject steps, pause and resume, and
     /// turn switches on and off. It reads <c>{prefix}/status</c> and calls the control endpoints, so map
-    /// <see cref="HomeostatEndpointRouteBuilderExtensions.MapHomeostatStatus"/> and
-    /// <see cref="HomeostatEndpointRouteBuilderExtensions.MapHomeostatControl"/> with the same prefix (without the
+    /// <see cref="HomeostatEndpointRouteBuilderExtensions.MapHomeostatStatus(IEndpointRouteBuilder, string?, string, bool)"/> and
+    /// <see cref="HomeostatEndpointRouteBuilderExtensions.MapHomeostatControl(IEndpointRouteBuilder, string?, string, bool)"/> with the same prefix (without the
     /// control endpoints, the dashboard is read-only). The page is self-contained (no external scripts, fonts or
     /// images) and served with a strict Content-Security-Policy.
     /// </summary>
@@ -27,7 +27,10 @@ public static class HomeostatDashboardExtensions
     /// <param name="policy">Authorization policy required to open the dashboard; use the same as the status and control endpoints.</param>
     /// <param name="prefix">Route prefix, the same as the status and control endpoints.</param>
     /// <param name="allowAnonymous"><c>true</c> maps the dashboard without authorization; only for local demos and tests.</param>
-    /// <exception cref="ArgumentException">Neither <paramref name="policy"/> nor <paramref name="allowAnonymous"/> was given.</exception>
+    /// <exception cref="ArgumentException">
+    /// Neither <paramref name="policy"/> nor <paramref name="allowAnonymous"/> was given, or <paramref name="policy"/>
+    /// starts with <c>/</c> (a route prefix passed by position).
+    /// </exception>
     /// <example>
     /// <code>
     /// app.MapHomeostatStatus("operations");
@@ -43,6 +46,7 @@ public static class HomeostatDashboardExtensions
     {
         ArgumentNullException.ThrowIfNull(endpoints);
         ArgumentException.ThrowIfNullOrWhiteSpace(prefix);
+        HomeostatEndpointRouteBuilderExtensions.RefuseRouteAsPolicy(policy, nameof(MapHomeostatDashboard));
         if (string.IsNullOrWhiteSpace(policy) && !allowAnonymous)
         {
             throw new ArgumentException(
@@ -98,5 +102,24 @@ public static class HomeostatDashboardExtensions
         using var copy = new MemoryStream();
         stream.CopyTo(copy);
         return (name, copy.ToArray(), contentType);
+    }
+
+    /// <summary>
+    /// Same as <see cref="MapHomeostatDashboard(IEndpointRouteBuilder, string?, string, bool)"/>, with the authorization policy built
+    /// inline instead of registered by name.
+    /// </summary>
+    /// <param name="endpoints">The endpoint route builder.</param>
+    /// <param name="configurePolicy">Builds the policy, for example <c>p => p.RequireRole("operations")</c>.</param>
+    /// <param name="prefix">Route prefix.</param>
+    /// <example><code>app.MapHomeostatDashboard(p => p.RequireRole("operations"));</code></example>
+    public static RouteGroupBuilder MapHomeostatDashboard(
+        this IEndpointRouteBuilder endpoints,
+        Action<Microsoft.AspNetCore.Authorization.AuthorizationPolicyBuilder> configurePolicy,
+        string prefix = "/homeostat")
+    {
+        ArgumentNullException.ThrowIfNull(configurePolicy);
+        var group = MapHomeostatDashboard(endpoints, policy: null, prefix, allowAnonymous: true);
+        group.RequireAuthorization(configurePolicy);
+        return group;
     }
 }

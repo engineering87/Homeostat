@@ -8,8 +8,7 @@ namespace Homeostat.Tests;
 /// <summary>Serialization paths that must not need reflection, so trimmed and Native AOT applications can use them.</summary>
 public class AotTests
 {
-    private static readonly HomeostatEvent Event = new(
-        HomeostatEventKind.ConditionActivated, DateTimeOffset.Parse("2026-11-02T08:00:00Z"), "weather-api", "feed-down", "Feed down & slow");
+    private static readonly HomeostatEvent Event = new HomeostatEvent { Kind = HomeostatEventKind.ConditionActivated, Timestamp = DateTimeOffset.Parse("2026-11-02T08:00:00Z"), Application = "weather-api", Condition = "feed-down", Summary = "Feed down & slow" };
 
     [Fact]
     public void Webhook_sends_the_event_without_reflection_with_enum_names_and_no_nulls()

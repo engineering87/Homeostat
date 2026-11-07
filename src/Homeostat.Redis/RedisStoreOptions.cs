@@ -1,7 +1,7 @@
 namespace Homeostat.Redis;
 
 /// <summary>Settings of the Redis store and coordinator.</summary>
-public sealed class RedisHomeostatOptions
+public sealed class RedisStoreOptions
 {
     /// <summary>
     /// Prefix of every key. Instances that share the prefix share cooldowns, budget, history and leases; use one
@@ -14,7 +14,10 @@ public sealed class RedisHomeostatOptions
     /// </summary>
     public bool ShareBudget { get; set; } = true;
 
-    /// <summary>How long plan state is kept after its last change; refreshed at every run. Defaults to 7 days.</summary>
+    /// <summary>
+    /// How long plan state is kept after its last change; refreshed at every run. A held plan is kept until its hold
+    /// ends. Defaults to 7 days.
+    /// </summary>
     public TimeSpan PlanStateRetention { get; set; } = TimeSpan.FromDays(7);
 
     /// <summary>

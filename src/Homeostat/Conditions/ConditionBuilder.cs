@@ -68,6 +68,7 @@ public sealed class ConditionBuilder
     {
         EnsureNotComposite(nameof(WhenSeverityAtLeast));
         _trigger = s => s.Severity >= severity;
+        _seriesClear = null;
         return this;
     }
 
@@ -77,6 +78,7 @@ public sealed class ConditionBuilder
         EnsureNotComposite(nameof(When));
         ArgumentNullException.ThrowIfNull(predicate);
         _trigger = predicate;
+        _seriesClear = null;
         return this;
     }
 
@@ -86,6 +88,10 @@ public sealed class ConditionBuilder
     {
         EnsureNotComposite(nameof(WhenValueAbove));
         _trigger = s => s.Value >= threshold;
+
+        // Cleared only by a value below the threshold: a signal without a value (a probe that failed or timed out)
+        // says nothing about the value, and must not clear the condition.
+        _seriesClear = s => s.Value < threshold;
         return this;
     }
 
@@ -95,6 +101,7 @@ public sealed class ConditionBuilder
     {
         EnsureNotComposite(nameof(WhenValueBelow));
         _trigger = s => s.Value <= threshold;
+        _seriesClear = s => s.Value > threshold;   // as above: a signal without a value does not clear it
         return this;
     }
 
@@ -247,9 +254,9 @@ public sealed class ConditionBuilder
     /// <summary>Requires triggering signals to persist for <paramref name="duration"/> before activating.</summary>
     public ConditionBuilder SustainedFor(TimeSpan duration)
     {
-        if (duration < TimeSpan.Zero)
+        if (duration < TimeSpan.Zero || duration > Guardrails.TimerLimits.Max)
         {
-            throw new ArgumentOutOfRangeException(nameof(duration), "Duration cannot be negative.");
+            throw new ArgumentOutOfRangeException(nameof(duration), "The duration must be between zero and about 49 days.");
         }
 
         _sustainFor = duration;
@@ -267,9 +274,9 @@ public sealed class ConditionBuilder
     /// </remarks>
     public ConditionBuilder ClearAfter(TimeSpan duration)
     {
-        if (duration < TimeSpan.Zero)
+        if (duration < TimeSpan.Zero || duration > Guardrails.TimerLimits.Max)
         {
-            throw new ArgumentOutOfRangeException(nameof(duration), "Duration cannot be negative.");
+            throw new ArgumentOutOfRangeException(nameof(duration), "The duration must be between zero and about 49 days.");
         }
 
         _clearAfter = duration;
@@ -484,6 +491,7 @@ public sealed class ConditionBuilder
         Func<Signal, bool> trigger = _trigger ?? DefaultTrigger;
         var recorders = new List<Action<Signal>>(_recorders);
 
+        Func<Signal, bool>? occurrencesClear = null;
         if (_occurrences is { } occurrences)
         {
             // Count the matches of the trigger rule within the window; trigger on the one that reaches the count.
@@ -496,6 +504,13 @@ public sealed class ConditionBuilder
                 if (lastMatched)
                 {
                     matches.Enqueue(s.Timestamp);
+
+                    // Only the latest `count` matches decide whether the count is reached: keeping every match of the
+                    // window would grow with the signal rate (millions for 1,000 failures a second over an hour).
+                    while (matches.Count > occurrences.Count)
+                    {
+                        matches.Dequeue();
+                    }
                 }
 
                 while (matches.Count > 0 && s.Timestamp - matches.Peek() > occurrences.Within)
@@ -506,10 +521,10 @@ public sealed class ConditionBuilder
             trigger = _ => lastMatched && matches.Count >= occurrences.Count;
 
             // Over only when the matches within the window drop below the count, not at the first good signal.
-            _clear ??= _ => matches.Count < occurrences.Count;
+            occurrencesClear = _ => matches.Count < occurrences.Count;
         }
 
-        Func<Signal, bool> clear = _clear ?? _seriesClear ?? (s => !trigger(s));
+        Func<Signal, bool> clear = _clear ?? occurrencesClear ?? _seriesClear ?? (s => !trigger(s));
         Action<Signal>? record = recorders.Count switch
         {
             0 => null,

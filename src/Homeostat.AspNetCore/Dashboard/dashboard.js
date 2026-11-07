@@ -42,7 +42,9 @@
   async function post(path, button) {
     if (button) button.disabled = true;
     try {
-      const response = await fetch(path, { method: "POST", credentials: "same-origin", headers: { "X-Requested-With": "homeostat-dashboard" } });
+      // A redirect (an expired session sent to the sign-in page) is not followed: it would look like a success.
+      const response = await fetch(path, { method: "POST", credentials: "same-origin", redirect: "manual", headers: { "X-Requested-With": "homeostat-dashboard" } });
+      if (response.type === "opaqueredirect") throw new Error("The session has expired: sign in again. Nothing was changed.");
       if (response.status === 401 || response.status === 403) throw new Error("You are not allowed to do this.");
       if (response.status === 404) throw new Error("Not found: the request may have been answered already, or the control endpoints are not mapped.");
       if (!response.ok) throw new Error(`The server answered ${response.status}.`);

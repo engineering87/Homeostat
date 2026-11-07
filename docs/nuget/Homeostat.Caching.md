@@ -8,7 +8,7 @@ Cache integration for Homeostat: the hit ratio of an `IMemoryCache` as a signal,
 dotnet add package Homeostat.Caching --prerelease
 ```
 
-The current version is a release candidate (`1.0.0-rc.1`): `--prerelease` is needed until 1.0.0 is published.
+This package is a **preview**: it works and is tested, but its API can still change in a minor version (see [Stable and preview packages](https://github.com/engineering87/Homeostat/blob/main/docs/versioning.md#stable-and-preview-packages)), so `--prerelease` stays needed after 1.0.0.
 
 ## Example
 
@@ -18,7 +18,7 @@ using Homeostat;
 builder.Services.AddMemoryCache(o => o.TrackStatistics = true);   // required for the hit ratio
 
 builder.Services.AddHomeostat(h => h
-    .AddMemoryCacheSignals(configure: o => o.DegradedBelow = 0.6)   // source "cache:memory"
+    .AddMemoryCacheSignals(o => o.DegradedBelow = 0.6)   // source "cache:memory"
     .AddMemoryPressureDetector()
     .AddCondition("memory-high", c => c
         .ForSource("memory")

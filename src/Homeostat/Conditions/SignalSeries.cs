@@ -12,6 +12,15 @@ internal sealed class SignalSeries(TimeSpan window)
 {
     private const int ExactRecomputeEvery = 4096;
 
+    /// <summary>
+    /// Points kept in a window at most (about): a source that publishes faster than one point every
+    /// window / <see cref="MaxPoints"/> keeps the latest value of each such interval, so memory per condition stays
+    /// bounded (about 128 KB) whatever the signal rate. 8,192 points remain far more than a trend or an anomaly needs.
+    /// </summary>
+    internal const int MaxPoints = 8192;
+
+    private readonly TimeSpan _spacing = window / MaxPoints;
+
     // Points from _start on are in the window; the ones before are expired and removed in bulk.
     private readonly List<(DateTimeOffset At, double Value)> _points = [];
     private int _start;
@@ -52,12 +61,24 @@ internal sealed class SignalSeries(TimeSpan window)
             _sum = _sumOfSquares = _sumX = _sumXX = _sumXY = 0;
         }
 
-        _points.Add((signal.Timestamp, value));
+        var largestExpired = 0d;
+        if (Count >= 2 && signal.Timestamp >= _points[^1].At && signal.Timestamp - _points[^2].At < _spacing)
+        {
+            // Too close to the point before the latest: the latest is replaced instead of a new point added (only by a
+            // newer one: a signal that arrives out of order never replaces the latest).
+            Accumulate(_points[^1], -1);
+            largestExpired = Math.Abs(_points[^1].Value - _shift);
+            _points[^1] = (signal.Timestamp, value);
+        }
+        else
+        {
+            _points.Add((signal.Timestamp, value));
+        }
+
         Accumulate(_points[^1], 1);
         _version++;
 
         var cutoff = signal.Timestamp - window;
-        var largestExpired = 0d;
         while (_start < _points.Count && _points[_start].At < cutoff)
         {
             Accumulate(_points[_start], -1);

@@ -22,8 +22,8 @@ builder.Services.AddHomeostat(h => h
     .AddCondition("forecast-api-failing", c => c
         .ForSource("http:forecast")
         .SustainedFor(TimeSpan.FromSeconds(30))
-        .Heal(p => p.TurnOnSwitch("serve-cached-forecast", turnOffWhenCleared: true)))
-    .AddSlackNotifications(o => o.WebhookUrl = new Uri(builder.Configuration["Slack:WebhookUrl"]!)));
+        .Heal(p => p.TurnOnSwitch("serve-cached-forecast")))
+    .AddSlackNotifications(o => o.Url = new Uri(builder.Configuration["Slack:Url"]!)));
 ```
 
 Notifiers: [Notifications and audit](https://github.com/engineering87/Homeostat/blob/main/docs/notifications.md).

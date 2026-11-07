@@ -1,13 +1,13 @@
 name: Commit lint
 
 # Commit messages and pull request titles must follow Conventional Commits (see commitlint.config.mjs).
-# The title matters because squash merges use it as the commit message on main.
+# The title matters because squash merges use it as the commit message on develop and main.
 
 on:
   pull_request:
     types: [ opened, edited, synchronize, reopened ]
   push:
-    branches: [ main ]
+    branches: [ main, develop ]
 
 permissions:
   contents: read
@@ -17,8 +17,10 @@ jobs:
   commits:
     name: Commit messages
     runs-on: ubuntu-latest
-    # Editing only the title or description does not change the commits.
-    if: github.event_name == 'push' || github.event.action != 'edited'
+    # Editing only the title or description does not change the commits. A release pull request (develop into main)
+    # is squash-merged under its title, which the other job checks; its commits were already checked when they were
+    # pushed to develop, and the range back to main can reach commits older than this check.
+    if: github.event_name == 'push' || (github.event.action != 'edited' && github.event.pull_request.base.ref != 'main')
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

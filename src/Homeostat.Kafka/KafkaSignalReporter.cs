@@ -53,9 +53,9 @@ public sealed class KafkaSignalReporter
         {
             ReportCore(statisticsJson);
         }
-        catch (Exception ex) when (ex is JsonException or InvalidOperationException or FormatException)
+        catch (Exception)
         {
-            // An unexpected document: skip it.
+            // An unexpected document, or anything else: skip it. The client would rethrow it from the next Consume.
         }
     }
 
@@ -68,20 +68,19 @@ public sealed class KafkaSignalReporter
             var severity = brokers.Up == 0 ? SignalSeverity.Unhealthy : brokers.Up < brokers.Used ? SignalSeverity.Degraded : SignalSeverity.Healthy;
 
             // A connection can be between a close and a reconnect at the moment of the statistics: a broker problem is
-            // reported only when two documents in a row show it.
+            // reported only when two documents in a row show it. The first one publishes nothing, rather than a
+            // better state than it saw (a Healthy signal would reset SustainedFor or satisfy ClearAfter).
             var previous = (SignalSeverity)Interlocked.Exchange(ref _lastBrokerSeverity, (int)severity);
-            if (severity > previous)
+            if (severity <= previous)
             {
-                severity = previous;
+                Publish($"{_source}:brokers", severity, brokers.Up, now, new() { ["used"] = Text(brokers.Used) });
             }
-
-            Publish($"{_source}:brokers", severity, brokers.Up, now, new() { ["used"] = Text(brokers.Used) });
         }
 
         if (statistics.Lag is { } lag)
         {
-            var severity = lag.Total > _options.LagUnhealthyAbove ? SignalSeverity.Unhealthy
-                : lag.Total > _options.LagDegradedAbove ? SignalSeverity.Degraded
+            var severity = lag.Total > _options.Lag.UnhealthyAbove ? SignalSeverity.Unhealthy
+                : lag.Total > _options.Lag.DegradedAbove ? SignalSeverity.Degraded
                 : SignalSeverity.Healthy;
             Publish($"{_source}:lag", severity, lag.Total, now, new()
             {
@@ -92,8 +91,8 @@ public sealed class KafkaSignalReporter
 
         if (statistics.QueueShare is { } share)
         {
-            var severity = share > _options.QueueUnhealthyAbove ? SignalSeverity.Unhealthy
-                : share > _options.QueueDegradedAbove ? SignalSeverity.Degraded
+            var severity = share > _options.Queue.UnhealthyAbove ? SignalSeverity.Unhealthy
+                : share > _options.Queue.DegradedAbove ? SignalSeverity.Degraded
                 : SignalSeverity.Healthy;
             Publish($"{_source}:queue", severity, share, now, []);
         }

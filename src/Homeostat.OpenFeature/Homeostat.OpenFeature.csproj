@@ -4,6 +4,8 @@
     <TargetFramework>net10.0</TargetFramework>
     <IsAotCompatible>true</IsAotCompatible>
     <PackageId>Homeostat.OpenFeature</PackageId>
+    <!-- Preview: not yet proven in production; its API can still change in a minor version (docs/versioning.md). -->
+    <HomeostatPreview>true</HomeostatPreview>
     <Description>OpenFeature integration for Homeostat: a provider that exposes Homeostat switches as boolean flags, alone or next to your flag provider, so healing plans degrade gracefully through OpenFeature.</Description>
     <PackageTags>$(PackageTags);feature-flags;openfeature;graceful-degradation</PackageTags>
   </PropertyGroup>

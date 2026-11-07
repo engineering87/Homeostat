@@ -9,13 +9,13 @@ namespace Homeostat.Polly;
 /// <c>circuit:{name}:isolated</c>: turning the switch on isolates every circuit breaker attached to the control,
 /// turning it off closes them.
 /// </summary>
-internal sealed class CircuitControlCatalog : IDisposable
+internal sealed class CircuitControlRegistry : IDisposable
 {
     private readonly ConcurrentDictionary<string, Entry> _controls = new(StringComparer.Ordinal);
     private readonly IHomeostatSwitches _switches;
-    private readonly ILogger<CircuitControlCatalog> _logger;
+    private readonly ILogger<CircuitControlRegistry> _logger;
 
-    public CircuitControlCatalog(IHomeostatSwitches switches, ILogger<CircuitControlCatalog> logger)
+    public CircuitControlRegistry(IHomeostatSwitches switches, ILogger<CircuitControlRegistry> logger)
     {
         _switches = switches;
         _logger = logger;

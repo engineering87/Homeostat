@@ -6,7 +6,7 @@ using Microsoft.Extensions.Options;
 namespace Homeostat.Detectors;
 
 /// <summary>Settings for the thread pool starvation detector.</summary>
-public sealed class ThreadPoolDetectorOptions
+public sealed class ThreadPoolStarvationDetectorOptions
 {
     /// <summary>Signal source name. Defaults to <c>"threadpool"</c>.</summary>
     public string Source { get; set; } = "threadpool";
@@ -28,10 +28,10 @@ public sealed class ThreadPoolDetectorOptions
 /// </remarks>
 internal sealed class ThreadPoolStarvationDetector : ISignalDetector
 {
-    private readonly ThreadPoolDetectorOptions _options;
+    private readonly ThreadPoolStarvationDetectorOptions _options;
     private readonly TimeProvider _timeProvider;
 
-    public ThreadPoolStarvationDetector(IOptions<ThreadPoolDetectorOptions> options, TimeProvider timeProvider)
+    public ThreadPoolStarvationDetector(IOptions<ThreadPoolStarvationDetectorOptions> options, TimeProvider timeProvider)
     {
         _options = options.Value;
         _timeProvider = timeProvider;
@@ -49,7 +49,7 @@ internal sealed class ThreadPoolStarvationDetector : ISignalDetector
         // Do not wait forever on a starved pool: past twice the unhealthy threshold the answer is clear.
         using (var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken))
         {
-            var giveUp = Task.Delay(_options.UnhealthyLatency * 2, cts.Token);
+            var giveUp = Task.Delay(Guardrails.TimerLimits.Clamp(_options.UnhealthyLatency * 2), cts.Token);
             await Task.WhenAny(ranAt.Task, giveUp).ConfigureAwait(false);
             cts.Cancel();
         }

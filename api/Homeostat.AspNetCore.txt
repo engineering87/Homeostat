@@ -1,10 +1,14 @@
 namespace Homeostat
   public static class HomeostatAlertEndpointExtensions
-    public static Microsoft.AspNetCore.Routing.RouteGroupBuilder MapHomeostatAlerts(this Microsoft.AspNetCore.Routing.IEndpointRouteBuilder endpoints, string? policy = null, string prefix = "/homeostat/alerts", System.Action<Homeostat.AspNetCore.AlertIngestionOptions>? configure = null, bool allowAnonymous = false)
+    public static Microsoft.AspNetCore.Routing.RouteGroupBuilder MapHomeostatAlerts(this Microsoft.AspNetCore.Routing.IEndpointRouteBuilder endpoints, System.Action<Microsoft.AspNetCore.Authorization.AuthorizationPolicyBuilder> configurePolicy, string prefix = "/homeostat/alerts", System.Action<Homeostat.AspNetCore.AlertIngestionOptions>? configure = null)
+    public static Microsoft.AspNetCore.Routing.RouteGroupBuilder MapHomeostatAlerts(this Microsoft.AspNetCore.Routing.IEndpointRouteBuilder endpoints, string? policy = null, string prefix = "/homeostat/alerts", bool allowAnonymous = false, System.Action<Homeostat.AspNetCore.AlertIngestionOptions>? configure = null)
   public static class HomeostatDashboardExtensions
+    public static Microsoft.AspNetCore.Routing.RouteGroupBuilder MapHomeostatDashboard(this Microsoft.AspNetCore.Routing.IEndpointRouteBuilder endpoints, System.Action<Microsoft.AspNetCore.Authorization.AuthorizationPolicyBuilder> configurePolicy, string prefix = "/homeostat")
     public static Microsoft.AspNetCore.Routing.RouteGroupBuilder MapHomeostatDashboard(this Microsoft.AspNetCore.Routing.IEndpointRouteBuilder endpoints, string? policy = null, string prefix = "/homeostat", bool allowAnonymous = false)
   public static class HomeostatEndpointRouteBuilderExtensions
+    public static Microsoft.AspNetCore.Routing.RouteGroupBuilder MapHomeostatControl(this Microsoft.AspNetCore.Routing.IEndpointRouteBuilder endpoints, System.Action<Microsoft.AspNetCore.Authorization.AuthorizationPolicyBuilder> configurePolicy, string prefix = "/homeostat")
     public static Microsoft.AspNetCore.Routing.RouteGroupBuilder MapHomeostatControl(this Microsoft.AspNetCore.Routing.IEndpointRouteBuilder endpoints, string? policy = null, string prefix = "/homeostat", bool allowAnonymous = false)
+    public static Microsoft.AspNetCore.Routing.RouteGroupBuilder MapHomeostatStatus(this Microsoft.AspNetCore.Routing.IEndpointRouteBuilder endpoints, System.Action<Microsoft.AspNetCore.Authorization.AuthorizationPolicyBuilder> configurePolicy, string prefix = "/homeostat")
     public static Microsoft.AspNetCore.Routing.RouteGroupBuilder MapHomeostatStatus(this Microsoft.AspNetCore.Routing.IEndpointRouteBuilder endpoints, string? policy = null, string prefix = "/homeostat", bool allowAnonymous = false)
   public static class HomeostatSlackEndpointExtensions
     public static Microsoft.AspNetCore.Builder.RouteHandlerBuilder MapHomeostatSlackInteractions(this Microsoft.AspNetCore.Routing.IEndpointRouteBuilder endpoints, System.Action<Homeostat.AspNetCore.SlackInteractionOptions> configure, string pattern = "/homeostat/slack/interactions")
@@ -24,120 +28,12 @@ namespace Homeostat.AspNetCore
     public string SourcePrefix { get; set; }
     public string? Token { get; set; }
     public System.Collections.Generic.ISet<string> UnhealthySeverities { get; }
-  public sealed record AlertIngestionResult
-    public AlertIngestionResult(int Accepted, int Skipped)
-    public int Accepted { get; init; }
-    public int Skipped { get; init; }
-    public void Deconstruct(out int Accepted, out int Skipped)
-    public bool Equals(Homeostat.AspNetCore.AlertIngestionResult? other)
-    public override bool Equals(object? obj)
-    public override int GetHashCode()
-    public override string ToString()
-    public static bool op_Equality(Homeostat.AspNetCore.AlertIngestionResult? left, Homeostat.AspNetCore.AlertIngestionResult? right)
-    public static bool op_Inequality(Homeostat.AspNetCore.AlertIngestionResult? left, Homeostat.AspNetCore.AlertIngestionResult? right)
-  public sealed record BudgetStatus
-    public BudgetStatus(int Used, int Limit, int Remaining, double WindowSeconds)
-    public int Limit { get; init; }
-    public int Remaining { get; init; }
-    public int Used { get; init; }
-    public double WindowSeconds { get; init; }
-    public void Deconstruct(out int Used, out int Limit, out int Remaining, out double WindowSeconds)
-    public bool Equals(Homeostat.AspNetCore.BudgetStatus? other)
-    public override bool Equals(object? obj)
-    public override int GetHashCode()
-    public override string ToString()
-    public static bool op_Equality(Homeostat.AspNetCore.BudgetStatus? left, Homeostat.AspNetCore.BudgetStatus? right)
-    public static bool op_Inequality(Homeostat.AspNetCore.BudgetStatus? left, Homeostat.AspNetCore.BudgetStatus? right)
-  public sealed record ConditionEventInfo
-    public ConditionEventInfo(string Condition, string Kind, System.DateTimeOffset At, string Instance, string? Source, string? Severity, double? Value, string? Message)
-    public System.DateTimeOffset At { get; init; }
-    public string Condition { get; init; }
-    public string Instance { get; init; }
-    public string Kind { get; init; }
-    public string? Message { get; init; }
-    public string? Severity { get; init; }
-    public string? Source { get; init; }
-    public double? Value { get; init; }
-    public void Deconstruct(out string Condition, out string Kind, out System.DateTimeOffset At, out string Instance, out string? Source, out string? Severity, out double? Value, out string? Message)
-    public bool Equals(Homeostat.AspNetCore.ConditionEventInfo? other)
-    public override bool Equals(object? obj)
-    public override int GetHashCode()
-    public override string ToString()
-    public static bool op_Equality(Homeostat.AspNetCore.ConditionEventInfo? left, Homeostat.AspNetCore.ConditionEventInfo? right)
-    public static bool op_Inequality(Homeostat.AspNetCore.ConditionEventInfo? left, Homeostat.AspNetCore.ConditionEventInfo? right)
-  public sealed record ConditionStatusInfo
-    public ConditionStatusInfo(string Name, string Status, System.DateTimeOffset? PendingSince, System.DateTimeOffset? ActiveSince, System.DateTimeOffset? ClearingSince, string? SuppressedBy, System.DateTimeOffset? LastSignalAt, string? LastSeverity, string? LastMessage)
-    public System.DateTimeOffset? ActiveSince { get; init; }
-    public System.DateTimeOffset? ClearingSince { get; init; }
-    public string? LastMessage { get; init; }
-    public string? LastSeverity { get; init; }
-    public System.DateTimeOffset? LastSignalAt { get; init; }
-    public string Name { get; init; }
-    public System.DateTimeOffset? PendingSince { get; init; }
-    public string Status { get; init; }
-    public string? SuppressedBy { get; init; }
-    public void Deconstruct(out string Name, out string Status, out System.DateTimeOffset? PendingSince, out System.DateTimeOffset? ActiveSince, out System.DateTimeOffset? ClearingSince, out string? SuppressedBy, out System.DateTimeOffset? LastSignalAt, out string? LastSeverity, out string? LastMessage)
-    public bool Equals(Homeostat.AspNetCore.ConditionStatusInfo? other)
-    public override bool Equals(object? obj)
-    public override int GetHashCode()
-    public override string ToString()
-    public static bool op_Equality(Homeostat.AspNetCore.ConditionStatusInfo? left, Homeostat.AspNetCore.ConditionStatusInfo? right)
-    public static bool op_Inequality(Homeostat.AspNetCore.ConditionStatusInfo? left, Homeostat.AspNetCore.ConditionStatusInfo? right)
-  public sealed record HomeostatStatus
-    public HomeostatStatus(string Application, string Instance, bool Paused, string? PauseReason, bool DryRun, Homeostat.AspNetCore.BudgetStatus? Budget, System.Collections.Generic.IReadOnlyList<Homeostat.AspNetCore.ConditionStatusInfo> Conditions, System.Collections.Generic.IReadOnlyCollection<string> Switches, System.Collections.Generic.IReadOnlyList<Homeostat.Healing.PendingApproval> PendingApprovals, System.Collections.Generic.IReadOnlyList<Homeostat.AspNetCore.RunInfo> RecentRuns, string? StoreError = null)
-    public string Application { get; init; }
-    public Homeostat.AspNetCore.BudgetStatus? Budget { get; init; }
-    public System.Collections.Generic.IReadOnlyList<Homeostat.AspNetCore.ConditionStatusInfo> Conditions { get; init; }
-    public bool DryRun { get; init; }
-    public string Instance { get; init; }
-    public string? PauseReason { get; init; }
-    public bool Paused { get; init; }
-    public System.Collections.Generic.IReadOnlyList<Homeostat.Healing.PendingApproval> PendingApprovals { get; init; }
-    public System.Collections.Generic.IReadOnlyList<Homeostat.AspNetCore.RunInfo> RecentRuns { get; init; }
-    public string? StoreError { get; init; }
-    public System.Collections.Generic.IReadOnlyCollection<string> Switches { get; init; }
-    public void Deconstruct(out string Application, out string Instance, out bool Paused, out string? PauseReason, out bool DryRun, out Homeostat.AspNetCore.BudgetStatus? Budget, out System.Collections.Generic.IReadOnlyList<Homeostat.AspNetCore.ConditionStatusInfo> Conditions, out System.Collections.Generic.IReadOnlyCollection<string> Switches, out System.Collections.Generic.IReadOnlyList<Homeostat.Healing.PendingApproval> PendingApprovals, out System.Collections.Generic.IReadOnlyList<Homeostat.AspNetCore.RunInfo> RecentRuns, out string? StoreError)
-    public bool Equals(Homeostat.AspNetCore.HomeostatStatus? other)
-    public override bool Equals(object? obj)
-    public override int GetHashCode()
-    public override string ToString()
-    public static bool op_Equality(Homeostat.AspNetCore.HomeostatStatus? left, Homeostat.AspNetCore.HomeostatStatus? right)
-    public static bool op_Inequality(Homeostat.AspNetCore.HomeostatStatus? left, Homeostat.AspNetCore.HomeostatStatus? right)
-  public sealed record RunInfo
-    public RunInfo(string Condition, string Outcome, System.DateTimeOffset StartedAt, System.DateTimeOffset CompletedAt, System.Collections.Generic.IReadOnlyList<Homeostat.AspNetCore.StepInfo> Steps, string Instance)
-    public System.DateTimeOffset CompletedAt { get; init; }
-    public string Condition { get; init; }
-    public string Instance { get; init; }
-    public string Outcome { get; init; }
-    public System.DateTimeOffset StartedAt { get; init; }
-    public System.Collections.Generic.IReadOnlyList<Homeostat.AspNetCore.StepInfo> Steps { get; init; }
-    public void Deconstruct(out string Condition, out string Outcome, out System.DateTimeOffset StartedAt, out System.DateTimeOffset CompletedAt, out System.Collections.Generic.IReadOnlyList<Homeostat.AspNetCore.StepInfo> Steps, out string Instance)
-    public bool Equals(Homeostat.AspNetCore.RunInfo? other)
-    public override bool Equals(object? obj)
-    public override int GetHashCode()
-    public override string ToString()
-    public static bool op_Equality(Homeostat.AspNetCore.RunInfo? left, Homeostat.AspNetCore.RunInfo? right)
-    public static bool op_Inequality(Homeostat.AspNetCore.RunInfo? left, Homeostat.AspNetCore.RunInfo? right)
   public sealed class SlackInteractionOptions
     public SlackInteractionOptions()
     public bool AllowAnyChannelMember { get; set; }
     public System.Collections.Generic.ISet<string> AllowedUserIds { get; }
     public System.TimeSpan MaxRequestAge { get; set; }
     public string? SigningSecret { get; set; }
-  public sealed record StepInfo
-    public StepInfo(string Name, bool Succeeded, string? Verification, string? Error, bool? UndoSucceeded)
-    public string? Error { get; init; }
-    public string Name { get; init; }
-    public bool Succeeded { get; init; }
-    public bool? UndoSucceeded { get; init; }
-    public string? Verification { get; init; }
-    public void Deconstruct(out string Name, out bool Succeeded, out string? Verification, out string? Error, out bool? UndoSucceeded)
-    public bool Equals(Homeostat.AspNetCore.StepInfo? other)
-    public override bool Equals(object? obj)
-    public override int GetHashCode()
-    public override string ToString()
-    public static bool op_Equality(Homeostat.AspNetCore.StepInfo? left, Homeostat.AspNetCore.StepInfo? right)
-    public static bool op_Inequality(Homeostat.AspNetCore.StepInfo? left, Homeostat.AspNetCore.StepInfo? right)
   public sealed class TeamsCommandOptions
     public TeamsCommandOptions()
     public bool AllowAnyTeamMember { get; set; }

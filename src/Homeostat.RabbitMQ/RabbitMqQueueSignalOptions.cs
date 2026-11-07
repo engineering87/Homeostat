@@ -12,7 +12,10 @@ public sealed class RabbitMqQueueSignalOptions
     /// </summary>
     public string? Source { get; set; }
 
-    /// <summary>How often the queue is read; defaults to 30 seconds.</summary>
+    /// <summary>
+    /// How often the queue is read; defaults to 30 seconds. An <c>Interval</c> set on <see cref="Messages"/>,
+    /// <see cref="Consumers"/> or <see cref="DeadLetter"/> wins over this one for that signal.
+    /// </summary>
     public TimeSpan Interval { get; set; } = TimeSpan.FromSeconds(30);
 
     /// <summary>Thresholds of the ready message count (the backlog), for example <c>UnhealthyAbove = 50_000</c>.</summary>

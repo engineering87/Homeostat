@@ -28,7 +28,9 @@ public class ConfigurationTests
 
         await using var host = await HomeostatTestHost.StartAsync(
             h => h
-                .MapAction<EngineTests.RecordingAction>("record")
+                // Escalation waits for the verification timeout in simulated time: short, so a slow machine still gets there.
+                .Configure(o => o.DefaultVerificationTimeout = TimeSpan.FromSeconds(10))
+                .AddAction<EngineTests.RecordingAction>("record")
                 .AddConditionsFromConfiguration(config.GetSection("Conditions")),
             services => services.AddSingleton<EngineTests.Recorder>());
 
@@ -66,7 +68,7 @@ public class ConfigurationTests
 
         await using var host = await HomeostatTestHost.StartAsync(
             h => h
-                .MapAction<EngineTests.RecordingAction>("record")
+                .AddAction<EngineTests.RecordingAction>("record")
                 .AddConditionsFromConfiguration(config.GetSection("Conditions")),
             services => services.AddSingleton<EngineTests.Recorder>());
 
@@ -106,7 +108,7 @@ public class ConfigurationTests
         });
 
         var error = await Assert.ThrowsAsync<InvalidOperationException>(() => HomeostatTestHost.StartAsync(h => h
-            .AddConditionsFromConfiguration(config.GetSection("Conditions"))));
+            .AddConditionsFromConfiguration(config.GetSection("Conditions"), failOnInvalid: true)));
         Assert.Contains(expected, error.Message);
     }
 
@@ -163,7 +165,7 @@ public class ConfigurationTests
         });
 
         var error = await Assert.ThrowsAsync<InvalidOperationException>(() => HomeostatTestHost.StartAsync(h => h
-            .AddConditionsFromConfiguration(config.GetSection("Conditions"))));
+            .AddConditionsFromConfiguration(config.GetSection("Conditions"), failOnInvalid: true)));
         Assert.Contains(expected, error.Message);
     }
 

@@ -7,6 +7,7 @@ namespace Homeostat.Guardrails;
 public sealed class MaintenanceWindow
 {
     private readonly HashSet<DayOfWeek> _days = [];
+    private bool _frozen;
 
     internal MaintenanceWindow(string name) => Name = name;
 
@@ -28,8 +29,10 @@ public sealed class MaintenanceWindow
     /// <summary>Every day from <paramref name="start"/> for <paramref name="duration"/>.</summary>
     /// <param name="start">Local start time.</param>
     /// <param name="duration">Length, more than zero and less than a week.</param>
+    /// <exception cref="InvalidOperationException">Called after <c>AddMaintenanceWindow</c> registered the window.</exception>
     public MaintenanceWindow Daily(TimeOnly start, TimeSpan duration)
     {
+        ThrowIfFrozen();
         if (duration <= TimeSpan.Zero || duration >= TimeSpan.FromDays(7))
         {
             throw new ArgumentOutOfRangeException(nameof(duration), "The duration must be positive and shorter than a week.");
@@ -42,8 +45,10 @@ public sealed class MaintenanceWindow
 
     /// <summary>Restricts the window to start only on the given days.</summary>
     /// <param name="days">Days of the week.</param>
+    /// <exception cref="InvalidOperationException">Called after <c>AddMaintenanceWindow</c> registered the window.</exception>
     public MaintenanceWindow On(params DayOfWeek[] days)
     {
+        ThrowIfFrozen();
         ArgumentNullException.ThrowIfNull(days);
         foreach (var day in days)
         {
@@ -55,10 +60,23 @@ public sealed class MaintenanceWindow
 
     /// <summary>Interprets <see cref="Start"/> in the given time zone (daylight saving time included).</summary>
     /// <param name="timeZone">The time zone, for example <c>TimeZoneInfo.FindSystemTimeZoneById("Europe/Rome")</c>.</param>
+    /// <exception cref="InvalidOperationException">Called after <c>AddMaintenanceWindow</c> registered the window.</exception>
     public MaintenanceWindow InTimeZone(TimeZoneInfo timeZone)
     {
+        ThrowIfFrozen();
         TimeZone = timeZone ?? throw new ArgumentNullException(nameof(timeZone));
         return this;
+    }
+
+    /// <summary>The schedule is fixed once registered: the window is read concurrently while Homeostat runs.</summary>
+    internal void Freeze() => _frozen = true;
+
+    private void ThrowIfFrozen()
+    {
+        if (_frozen)
+        {
+            throw new InvalidOperationException($"Maintenance window '{Name}' cannot change once registered.");
+        }
     }
 
     /// <summary>Whether the window is open at <paramref name="now"/>.</summary>

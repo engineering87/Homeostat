@@ -18,6 +18,9 @@ namespace Homeostat;
 /// <summary>Maps the endpoint of a Microsoft Teams outgoing webhook that answers approval requests from a channel.</summary>
 public static partial class HomeostatTeamsEndpointExtensions
 {
+    // Teams waits 5 seconds for the answer to an outgoing webhook: a store that does not answer gets a reply in time.
+    private static readonly TimeSpan StoreTimeout = TimeSpan.FromSeconds(4);
+
     private const int MaxBodySize = 64 * 1024;
 
     /// <summary>
@@ -115,12 +118,42 @@ public static partial class HomeostatTeamsEndpointExtensions
             return Reply("This message was already handled.");
         }
 
+        try
+        {
+            // Teams gives up after a few seconds: a store that does not answer gets a reply, not a hung request. The
+            // command runs without the request's token, so a disconnect does not cut an answer short; only the wait ends.
+            return await Task.Run(() => RunCommandAsync(message, approvals, options, logger, CancellationToken.None), CancellationToken.None).WaitAsync(StoreTimeout, http.RequestAborted);
+        }
+        catch (OperationCanceledException) when (http.RequestAborted.IsCancellationRequested)
+        {
+            // Teams is gone. The message stays marked as handled: the command may still complete.
+            return Results.Empty;
+        }
+        catch (Exception ex) when (StoreCall.IsOutcomeUnknown(ex))
+        {
+            // The command may still complete after this reply, so the message stays marked as handled: a replay of it
+            // must not apply it a second time. The person checks with 'pending' and sends a new command if needed.
+            logger.LogError(ex, "Teams command from {User}: the Homeostat store did not answer in time; it may still be carried out.", message.UserName);
+            return Reply("Homeostat's store did not answer in time: the command may still be carried out. Send 'pending' to check before sending it again.");
+        }
+        catch (Exception ex)
+        {
+            // Nothing changed: the same message may be sent again.
+            seen.Remove(id);
+            logger.LogError(ex, "Teams command from {User} not carried out: the Homeostat store is unavailable.", message.UserName);
+            return Reply("Homeostat cannot do this now (its store is unavailable); nothing was changed. Send the command again in a moment.");
+        }
+    }
+
+    private static async Task<IResult> RunCommandAsync(
+        TeamsMessage message, IHomeostatApprovals approvals, TeamsCommandOptions options, ILogger logger, CancellationToken cancellationToken)
+    {
         var words = message.Command.Split(' ', StringSplitOptions.RemoveEmptyEntries);
         var verb = words.Length > 0 ? words[0].ToLowerInvariant() : string.Empty;
         switch (verb)
         {
             case "pending" or "status" or "list":
-                return Reply(Pending(approvals.GetPending()));
+                return Reply(Pending(await approvals.GetPendingAsync(cancellationToken)));
 
             case "approve" or "reject" when words.Length == 2:
                 {
@@ -133,7 +166,9 @@ public static partial class HomeostatTeamsEndpointExtensions
                     }
 
                     var by = $"teams:{message.UserName} ({message.UserId ?? "unknown"})";
-                    var answered = approve ? approvals.Approve(approvalId, by) : approvals.Reject(approvalId, by);
+                    var answered = approve
+                        ? await approvals.ApproveAsync(approvalId, by, cancellationToken)
+                        : await approvals.RejectAsync(approvalId, by, cancellationToken);
                     logger.LogInformation("Teams user {User} {Decision} approval {ApprovalId}: {Result}.",
                         message.UserName, approve ? "approved" : "rejected", approvalId, answered ? "done" : "not pending");
                     return Reply(answered
@@ -275,5 +310,8 @@ public static partial class HomeostatTeamsEndpointExtensions
 
             return _seen.TryAdd(id, now);
         }
+
+        /// <summary>Forgets a message that could not be acted on, so sending it again works.</summary>
+        public void Remove(string id) => _seen.TryRemove(id, out _);
     }
 }

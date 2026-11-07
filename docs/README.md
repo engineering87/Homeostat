@@ -1,13 +1,17 @@
 # Homeostat documentation
 
-New to Homeostat? Read the pages in this order: each one builds on the previous.
+The map of Homeostat's documentation, for developers adding it to an application and for the people who operate
+it. If you are new to Homeostat, read the pages under Learn first, then the reference pages you need. The same pages,
+with search and the API reference generated from the XML documentation, are published at
+<https://engineering87.github.io/Homeostat/>.
 
 ## Learn
 
 | Step | Page | You will learn |
 |---|---|---|
-| 1 | [Getting started](getting-started.md) | Install, write your first action, watch the dry-run, then let it act; start from a preset |
-| 2 | [Concepts](concepts.md) | The mental model and the vocabulary used everywhere else |
+| 1 | [Why Homeostat](why-homeostat.md) | The gap it fills, how it compares with Polly, health checks and probes, platform auto-heal and incident automation, and when not to use it |
+| 2 | [Getting started](getting-started.md) | Install, write your first action, watch the dry-run, then let it act; start from a preset |
+| 3 | [Concepts](concepts.md) | The mental model and the vocabulary used everywhere else |
 
 ## Reference
 
@@ -21,7 +25,7 @@ New to Homeostat? Read the pages in this order: each one builds on the previous.
 | [Healing plans](healing-plans.md) | Escalation, human approval, compensation, backoff, once per cluster, verification, outcomes |
 | [Actions](actions.md) | Built-in actions, restartable background services, switches for degraded mode, inline lambdas, action classes |
 | [Guardrails](guardrails.md) | Dry-run, budget, cooldown, concurrency, timeouts, kill switch, maintenance windows, all options |
-| [Persistence and clusters](persistence-and-clusters.md) | File and Redis stores, several instances, plans that run once per cluster, custom stores and coordinators |
+| [Persistence and clusters](persistence-and-clusters.md) | File and Redis stores, shared pause, switches and approvals, several instances, plans that run once per cluster, custom stores and coordinators |
 
 ### Integrations
 
@@ -57,7 +61,7 @@ New to Homeostat? Read the pages in this order: each one builds on the previous.
 | Page | Covers |
 |---|---|
 | [Recipes](recipes.md) | Fail over (with approval), cached mode, shared failures, chat notifications, backlogs, configuration, deployments, testing |
-| [FAQ & troubleshooting](faq.md) | Why it did or did not act, scaling out, comparison with Polly |
+| [FAQ & troubleshooting](faq.md) | Why it did or did not act, scaling out, failures of Homeostat itself |
 
 ## Project
 
@@ -68,3 +72,4 @@ New to Homeostat? Read the pages in this order: each one builds on the previous.
 | [Platforms](platforms.md) | Supported .NET and operating systems, minimum client library versions, Native AOT per package |
 | [Roadmap](ROADMAP.md) | What is planned and what is out of scope |
 | [Design notes](design.md) | Architecture, pipeline, threading model and design principles |
+| [Design decisions](decisions.md) | Behavior chosen on purpose after reviews, why, and the tests that guard it: read before changing it |

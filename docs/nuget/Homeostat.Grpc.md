@@ -8,7 +8,7 @@ gRPC client integration for Homeostat. One line per client of the gRPC client fa
 dotnet add package Homeostat.Grpc --prerelease
 ```
 
-The current version is a release candidate (`1.0.0-rc.1`): `--prerelease` is needed until 1.0.0 is published.
+This package is a **preview**: it works and is tested, but its API can still change in a minor version (see [Stable and preview packages](https://github.com/engineering87/Homeostat/blob/main/docs/versioning.md#stable-and-preview-packages)), so `--prerelease` stays needed after 1.0.0.
 
 ## Example
 
@@ -22,7 +22,7 @@ builder.Services.AddHomeostat(h => h
     .AddCondition("forecasts-failing", c => c
         .ForSource("grpc:ForecastsClient")
         .SustainedFor(TimeSpan.FromMinutes(1))
-        .Heal(p => p.TurnOnSwitch("serve-cached-forecast", turnOffWhenCleared: true))));
+        .Heal(p => p.TurnOnSwitch("serve-cached-forecast"))));
 ```
 
 Use it instead of the HTTP-level `AddHomeostatSignals` of Homeostat.Http on the same client: that one sees only the response headers.

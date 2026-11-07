@@ -64,12 +64,15 @@ public sealed class HomeostatTestHost : IAsyncDisposable
 
     /// <summary>Creates and starts a host.</summary>
     /// <param name="configure">Homeostat configuration: conditions, plans, detectors, options.</param>
-    /// <param name="services">Your own services, such as the components your actions use.</param>
-    /// <param name="options">Host settings.</param>
+    /// <param name="configureServices">Registers your own services, such as the components your actions use.</param>
+    /// <param name="options">
+    /// Host settings. An object rather than a delegate on purpose: tests often share one instance (a start time, the
+    /// clock steps) across several hosts.
+    /// </param>
     /// <param name="cancellationToken">Cancels the start.</param>
     public static async Task<HomeostatTestHost> StartAsync(
         Action<HomeostatBuilder> configure,
-        Action<IServiceCollection>? services = null,
+        Action<IServiceCollection>? configureServices = null,
         HomeostatTestHostOptions? options = null,
         CancellationToken cancellationToken = default)
     {
@@ -82,7 +85,7 @@ public sealed class HomeostatTestHost : IAsyncDisposable
         var collection = new ServiceCollection();
         collection.AddLogging();
         collection.AddSingleton<TimeProvider>(time);
-        services?.Invoke(collection);
+        configureServices?.Invoke(collection);
         collection.AddHomeostat(h =>
         {
             h.Configure(o => o.DryRun = options.DryRun);
@@ -125,8 +128,12 @@ public sealed class HomeostatTestHost : IAsyncDisposable
     }
 
     /// <summary>Publishes a signal stamped with the simulated time.</summary>
-    public bool Publish(string source, SignalSeverity severity, string? message = null)
-        => Signals.TryPublish(source, severity, message);
+    /// <param name="source">Signal source.</param>
+    /// <param name="severity">Signal severity.</param>
+    /// <param name="message">Optional message.</param>
+    /// <param name="value">Optional measured value, for value, trend, anomaly, projection and seasonal rules.</param>
+    public bool Publish(string source, SignalSeverity severity, string? message = null, double? value = null)
+        => Signals.TryPublish(source, severity, message, value);
 
     /// <summary>
     /// Waits for a run of <paramref name="conditionName"/> to complete and returns its result.
@@ -183,6 +190,13 @@ public sealed class HomeostatTestHost : IAsyncDisposable
         }
 
         cancellationToken.ThrowIfCancellationRequested();
+
+        // Once more: the status may have been reached while the last delay was being canceled.
+        if (GetCondition(conditionName)?.Status == status)
+        {
+            return;
+        }
+
         throw new TimeoutException(
             $"Condition '{conditionName}' did not reach {status} within {limit} (real time). Current state: {Describe(conditionName)}.");
     }
@@ -203,8 +217,7 @@ public sealed class HomeostatTestHost : IAsyncDisposable
 
         while (!cts.IsCancellationRequested)
         {
-            var pending = Approvals.GetPending().FirstOrDefault(a => a.ConditionName == conditionName);
-            if (pending is not null)
+            if (await FindApprovalAsync(conditionName).ConfigureAwait(false) is { } pending)
             {
                 return pending;
             }
@@ -220,32 +233,44 @@ public sealed class HomeostatTestHost : IAsyncDisposable
         }
 
         cancellationToken.ThrowIfCancellationRequested();
+
+        // Once more: the request may have been made while the last delay was being canceled.
+        if (await FindApprovalAsync(conditionName).ConfigureAwait(false) is { } late)
+        {
+            return late;
+        }
+
         throw new TimeoutException(
             $"No approval request for condition '{conditionName}' within {limit} (real time). Condition state: {Describe(conditionName)}.");
     }
+
+    private async Task<PendingApproval?> FindApprovalAsync(string conditionName)
+        => (await Approvals.GetPendingAsync(CancellationToken.None).ConfigureAwait(false)).FirstOrDefault(a => a.ConditionName == conditionName);
 
     /// <summary>Stops the services and releases the host.</summary>
     public async ValueTask DisposeAsync()
     {
         // Stop the services first, while simulated time still moves, so anything waiting on it can finish;
-        // bound the wait so a misbehaving action or verifier cannot hang the test.
+        // bound the wait so a misbehaving action or verifier cannot hang the test. A service that throws does not keep
+        // the others running: its error is reported once everything is stopped and disposed.
+        var errors = new List<Exception>();
         using (var stopCts = new CancellationTokenSource(_options.DefaultTimeout))
         {
             // Enumerable.Reverse explicitly: on C# 14 array.Reverse() binds to the in-place span overload.
             var reversed = Enumerable.Reverse(_hostedServices).ToArray();
             foreach (var lifecycle in reversed.OfType<IHostedLifecycleService>())
             {
-                await StopSafelyAsync(() => lifecycle.StoppingAsync(stopCts.Token)).ConfigureAwait(false);
+                await StopSafelyAsync(() => lifecycle.StoppingAsync(stopCts.Token), errors).ConfigureAwait(false);
             }
 
             foreach (var hosted in reversed)
             {
-                await StopSafelyAsync(() => hosted.StopAsync(stopCts.Token)).ConfigureAwait(false);
+                await StopSafelyAsync(() => hosted.StopAsync(stopCts.Token), errors).ConfigureAwait(false);
             }
 
             foreach (var lifecycle in reversed.OfType<IHostedLifecycleService>())
             {
-                await StopSafelyAsync(() => lifecycle.StoppedAsync(stopCts.Token)).ConfigureAwait(false);
+                await StopSafelyAsync(() => lifecycle.StoppedAsync(stopCts.Token), errors).ConfigureAwait(false);
             }
         }
 
@@ -261,9 +286,14 @@ public sealed class HomeostatTestHost : IAsyncDisposable
 
         await _provider.DisposeAsync().ConfigureAwait(false);
         _autoAdvance.Dispose();
+
+        if (errors.Count > 0)
+        {
+            throw new AggregateException("Some services failed to stop.", errors);
+        }
     }
 
-    private static async Task StopSafelyAsync(Func<Task> stop)
+    private static async Task StopSafelyAsync(Func<Task> stop, List<Exception> errors)
     {
         try
         {
@@ -272,6 +302,10 @@ public sealed class HomeostatTestHost : IAsyncDisposable
         catch (OperationCanceledException)
         {
             // Shutdown timeout reached; keep stopping the others.
+        }
+        catch (Exception ex)
+        {
+            errors.Add(ex);
         }
     }
 

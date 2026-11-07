@@ -179,7 +179,7 @@ public class HistoryAndSeasonalityTests
         }).Build();
         await Assert.ThrowsAnyAsync<Exception>(async () =>
         {
-            await using var _ = await HomeostatTestHost.StartAsync(h => h.AddConditionsFromConfiguration(invalid.GetSection("Conditions")));
+            await using var _ = await HomeostatTestHost.StartAsync(h => h.AddConditionsFromConfiguration(invalid.GetSection("Conditions"), failOnInvalid: true));
         });
     }
 
@@ -226,6 +226,24 @@ public class HistoryAndSeasonalityTests
         public ValueTask AppendRunAsync(HealingRunRecord run, int maxRuns, CancellationToken cancellationToken = default) => _inner.AppendRunAsync(run, maxRuns, cancellationToken);
 
         public ValueTask<IReadOnlyList<HealingRunRecord>> GetRecentRunsAsync(int maxRuns, CancellationToken cancellationToken = default) => _inner.GetRecentRunsAsync(maxRuns, cancellationToken);
+
+        public ValueTask<ControlState> GetControlStateAsync(CancellationToken cancellationToken = default) => _inner.GetControlStateAsync(cancellationToken);
+
+        public ValueTask<bool> TrySetPauseAsync(PauseState? pause, DateTimeOffset decidedAt, CancellationToken cancellationToken = default) => _inner.TrySetPauseAsync(pause, decidedAt, cancellationToken);
+
+        public ValueTask<bool> TrySetSwitchAsync(string name, SwitchState? state, DateTimeOffset decidedAt, CancellationToken cancellationToken = default) => _inner.TrySetSwitchAsync(name, state, decidedAt, cancellationToken);
+
+        public ValueTask<bool> TryClaimSwitchAsync(SwitchState state, CancellationToken cancellationToken = default) => _inner.TryClaimSwitchAsync(state, cancellationToken);
+
+        public ValueTask<bool> TryReleaseSwitchAsync(string name, string condition, string? instance, DateTimeOffset decidedAt, CancellationToken cancellationToken = default)
+            => _inner.TryReleaseSwitchAsync(name, condition, instance, decidedAt, cancellationToken);
+
+        public ValueTask AddApprovalAsync(ApprovalRecord approval, CancellationToken cancellationToken = default) => _inner.AddApprovalAsync(approval, cancellationToken);
+
+        public ValueTask<bool> TryResolveApprovalAsync(string id, Homeostat.Healing.ApprovalStatus status, string? resolvedBy, CancellationToken cancellationToken = default)
+            => _inner.TryResolveApprovalAsync(id, status, resolvedBy, cancellationToken);
+
+        public ValueTask RemoveApprovalAsync(string id, CancellationToken cancellationToken = default) => _inner.RemoveApprovalAsync(id, cancellationToken);
     }
 
     [Fact]
@@ -267,11 +285,13 @@ public class HistoryAndSeasonalityTests
     public async Task File_store_keeps_condition_history_and_documents()
     {
         var path = Path.Combine(Directory.CreateTempSubdirectory("homeostat-store-").FullName, "state.json");
-        var store = new FileHomeostatStore(path);
-        await store.AppendConditionEventAsync(new ConditionEventRecord { ConditionName = "feed-down", Kind = ConditionEventKind.Activated, At = Monday, Instance = "web-1", Value = 3.5 }, 10);
-        await store.SetDocumentAsync("baseline:x", "{\"a\":1}");
+        using (var store = new FileHomeostatStore(path))
+        {
+            await store.AppendConditionEventAsync(new ConditionEventRecord { ConditionName = "feed-down", Kind = ConditionEventKind.Activated, At = Monday, Instance = "web-1", Value = 3.5 }, 10);
+            await store.SetDocumentAsync("baseline:x", "{\"a\":1}");
+        }
 
-        var reopened = new FileHomeostatStore(path);
+        using var reopened = new FileHomeostatStore(path);
         var e = Assert.Single(await reopened.GetConditionEventsAsync(10));
         Assert.Equal(("feed-down", ConditionEventKind.Activated, 3.5), (e.ConditionName, e.Kind, e.Value!.Value));
         Assert.Equal("{\"a\":1}", await reopened.GetDocumentAsync("baseline:x"));
@@ -282,7 +302,7 @@ public class HistoryAndSeasonalityTests
     public async Task Redis_store_keeps_condition_history_and_documents()
     {
         using var redis = RedisFixture.Connect();
-        var store = new RedisHomeostatStore(redis, Options.Create(new RedisHomeostatOptions { KeyPrefix = RedisFixture.Prefix() }), Options.Create(new HomeostatOptions()));
+        var store = new RedisHomeostatStore(redis, Options.Create(new RedisStoreOptions { KeyPrefix = RedisFixture.Prefix() }), Options.Create(new HomeostatOptions()));
 
         Assert.True(((IHomeostatStore)store).SupportsConditionHistory);
         for (var i = 0; i < 4; i++)
@@ -337,8 +357,8 @@ public class HistoryAndSeasonalityTests
     {
         var start = new DateTimeOffset(2026, 11, 1, 8, 0, 0, TimeSpan.Zero);
         var lines = Enumerable.Range(0, 13)
-            .Select(i => new RecordedSignal(start.AddSeconds(i * 10), "weather-feed", SignalSeverity.Unhealthy, Message: "timeout"))
-            .Append(new RecordedSignal(start.AddSeconds(130), "weather-feed", SignalSeverity.Healthy))
+            .Select(i => new RecordedSignal { Timestamp = start.AddSeconds(i * 10), Source = "weather-feed", Severity = SignalSeverity.Unhealthy, Message = "timeout" })
+            .Append(new RecordedSignal { Timestamp = start.AddSeconds(130), Source = "weather-feed", Severity = SignalSeverity.Healthy })
             .Select(s => JsonSerializer.Serialize(s, RecordedSignal.Json));
         var file = Path.Combine(directory, "signals-web-1-2026-11-01.jsonl");
         await File.WriteAllLinesAsync(file, lines);
@@ -425,7 +445,7 @@ public class HistoryAndSeasonalityTests
             .Configure(o => o.DryRun = false)
             .AddCondition("feed-down", c => c.ForSource("feed").Heal(p => p
                 .With("failover", _ => { }).RequireApproval(TimeSpan.FromMinutes(5))
-                .VerifyWith<BuiltInActionTests.AlwaysHealed>())));
+                .UseVerifier<BuiltInActionTests.AlwaysHealed>())));
         var app = builder.Build();
         app.MapHomeostatTeamsCommands(o =>
         {
@@ -522,9 +542,7 @@ public class HistoryAndSeasonalityTests
     [Fact]
     public void Teams_approval_cards_say_how_to_answer_from_the_channel()
     {
-        var e = new Notifications.HomeostatEvent(
-            Notifications.HomeostatEventKind.ApprovalRequested, DateTimeOffset.UnixEpoch, "weather-api", "feed-down", "Approval needed.")
-        { ApprovalId = "a1b2" };
+        var e = new Notifications.HomeostatEvent { Kind = Notifications.HomeostatEventKind.ApprovalRequested, Timestamp = DateTimeOffset.UnixEpoch, Application = "weather-api", Condition = "feed-down", Summary = "Approval needed.", ApprovalId = "a1b2" };
 
         var with = JsonDocument.Parse(TeamsSink.Payload(e, new TeamsOptions { ApprovalCommand = "Homeostat" }).ToJsonString(HttpEventSink.Json)).RootElement;
         var without = JsonDocument.Parse(TeamsSink.Payload(e, new TeamsOptions()).ToJsonString(HttpEventSink.Json)).RootElement;
@@ -576,6 +594,24 @@ public class HistoryAndSeasonalityTests
 
         public ValueTask<IReadOnlyList<ConditionEventRecord>> GetConditionEventsAsync(int maxEvents, CancellationToken cancellationToken = default)
             => Failing ? throw new IOException("store down") : _inner.GetConditionEventsAsync(maxEvents, cancellationToken);
+
+        public ValueTask<ControlState> GetControlStateAsync(CancellationToken cancellationToken = default) => _inner.GetControlStateAsync(cancellationToken);
+
+        public ValueTask<bool> TrySetPauseAsync(PauseState? pause, DateTimeOffset decidedAt, CancellationToken cancellationToken = default) => _inner.TrySetPauseAsync(pause, decidedAt, cancellationToken);
+
+        public ValueTask<bool> TrySetSwitchAsync(string name, SwitchState? state, DateTimeOffset decidedAt, CancellationToken cancellationToken = default) => _inner.TrySetSwitchAsync(name, state, decidedAt, cancellationToken);
+
+        public ValueTask<bool> TryClaimSwitchAsync(SwitchState state, CancellationToken cancellationToken = default) => _inner.TryClaimSwitchAsync(state, cancellationToken);
+
+        public ValueTask<bool> TryReleaseSwitchAsync(string name, string condition, string? instance, DateTimeOffset decidedAt, CancellationToken cancellationToken = default)
+            => _inner.TryReleaseSwitchAsync(name, condition, instance, decidedAt, cancellationToken);
+
+        public ValueTask AddApprovalAsync(ApprovalRecord approval, CancellationToken cancellationToken = default) => _inner.AddApprovalAsync(approval, cancellationToken);
+
+        public ValueTask<bool> TryResolveApprovalAsync(string id, Homeostat.Healing.ApprovalStatus status, string? resolvedBy, CancellationToken cancellationToken = default)
+            => _inner.TryResolveApprovalAsync(id, status, resolvedBy, cancellationToken);
+
+        public ValueTask RemoveApprovalAsync(string id, CancellationToken cancellationToken = default) => _inner.RemoveApprovalAsync(id, cancellationToken);
     }
 
     [Fact]
@@ -641,14 +677,14 @@ public class HistoryAndSeasonalityTests
         {
             var start = new DateTimeOffset(2026, 11, 1, 8, 0, 0, TimeSpan.Zero);
             async Task WriteAsync(string name, params int[] seconds) => await File.WriteAllLinesAsync(Path.Combine(directory, name),
-                seconds.Select(s => JsonSerializer.Serialize(new RecordedSignal(start.AddSeconds(s), "feed", SignalSeverity.Unhealthy), RecordedSignal.Json)));
+                seconds.Select(s => JsonSerializer.Serialize(new RecordedSignal { Timestamp = start.AddSeconds(s), Source = "feed", Severity = SignalSeverity.Unhealthy }, RecordedSignal.Json)));
             await WriteAsync("signals-a-2026-11-01.jsonl", 30, 40);
             await WriteAsync("signals-b-2026-11-01.jsonl", 0, 10, 20);
 
             var report = await HomeostatReplay.RunFilesAsync(Directory.GetFiles(directory), h => h
                 .AddCondition("feed-down", c => c.ForSource("feed").SustainedFor(TimeSpan.FromSeconds(30))));
 
-            Assert.Equal(start, report.From);
+            Assert.Equal(start, report.Since);
             Assert.Equal(start.AddSeconds(30), Assert.Single(report.Events).At);
         }
         finally
@@ -663,8 +699,8 @@ public class HistoryAndSeasonalityTests
         var start = new DateTimeOffset(2026, 11, 1, 8, 0, 0, TimeSpan.Zero);
         var signals = new[] { 0, 600 }.SelectMany(offset => new[]
         {
-            new RecordedSignal(start.AddSeconds(offset), "feed", SignalSeverity.Unhealthy),
-            new RecordedSignal(start.AddSeconds(offset + 60), "feed", SignalSeverity.Healthy),
+            new RecordedSignal { Timestamp = start.AddSeconds(offset), Source = "feed", Severity = SignalSeverity.Unhealthy },
+            new RecordedSignal { Timestamp = start.AddSeconds(offset + 60), Source = "feed", Severity = SignalSeverity.Healthy },
         }).ToList();
         var config = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
         {

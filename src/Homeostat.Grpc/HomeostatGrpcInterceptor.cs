@@ -132,7 +132,17 @@ public sealed class HomeostatGrpcInterceptor : Interceptor
                 return;
             }
 
-            var failed = owner._isFailure(status);
+            // A classifier that throws must not reach the application's call: it counts as not failed.
+            bool failed;
+            try
+            {
+                failed = owner._isFailure(status);
+            }
+            catch
+            {
+                failed = false;
+            }
+
             if (started is { } timestamp)
             {
                 owner._recorder.Record(failed, owner._timeProvider.GetElapsedTime(timestamp));
@@ -160,22 +170,35 @@ public sealed class HomeostatGrpcInterceptor : Interceptor
 
         public async Task<bool> MoveNext(CancellationToken cancellationToken)
         {
+            bool more;
             try
             {
-                var more = await inner.MoveNext(cancellationToken).ConfigureAwait(false);
-                if (!more)
-                {
-                    // The stream ended: the final status (from the trailers) is available now.
-                    call.Complete(status().StatusCode);
-                }
-
-                return more;
+                more = await inner.MoveNext(cancellationToken).ConfigureAwait(false);
             }
             catch (Exception ex)
             {
                 call.Fail(ex);
                 throw;
             }
+
+            if (!more)
+            {
+                // The stream ended: the final status (from the trailers) is available now. Reading it must not turn
+                // the caller's normal end of stream into an exception.
+                StatusCode final;
+                try
+                {
+                    final = status().StatusCode;
+                }
+                catch (InvalidOperationException)
+                {
+                    final = StatusCode.Unknown;
+                }
+
+                call.Complete(final);
+            }
+
+            return more;
         }
     }
 }

@@ -8,10 +8,10 @@ public sealed class AzureOptions
 
     /// <summary>
     /// Obtains an access token for Resource Manager. Required. With Azure.Identity and a managed identity:
-    /// <c>o.AccessToken = async ct => (await credential.GetTokenAsync(new TokenRequestContext(["https://management.azure.com/.default"]), ct)).Token</c>.
+    /// <c>o.AccessToken = async (services, ct) => (await credential.GetTokenAsync(new TokenRequestContext(["https://management.azure.com/.default"]), ct)).Token</c>.
     /// The credential library caches and refreshes tokens; this delegate is called for every request.
     /// </summary>
-    public Func<CancellationToken, ValueTask<string>>? AccessToken { get; set; }
+    public Func<IServiceProvider, CancellationToken, ValueTask<string>>? AccessToken { get; set; }
 
     /// <summary>Resource Manager endpoint; change it for sovereign clouds (for example <c>https://management.usgovcloudapi.net/</c>).</summary>
     public Uri ResourceManager { get; set; } = PublicCloud;

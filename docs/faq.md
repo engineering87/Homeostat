@@ -1,5 +1,8 @@
 # FAQ & troubleshooting
 
+Answers to the questions that come up when Homeostat does something you did not expect, or does nothing, and to
+common questions about production use.
+
 ## Troubleshooting
 
 ### Nothing happens when the problem occurs
@@ -16,47 +19,50 @@ Work through this list in order:
 | Does the condition have a plan? | Without `Heal(...)` a condition is only observed. |
 | Is Homeostat paused? | `IHomeostatControl.IsPaused`. |
 | Is the condition suppressed? | `SuppressedBy` in the status endpoint or `GetConditions()`: its cause is active. |
-| Is a step waiting for approval? | `pendingApprovals` in the status endpoint, or `IHomeostatApprovals.GetPending()`. |
+| Is a step waiting for approval? | `pendingApprovals` in the status endpoint, or `await IHomeostatApprovals.GetPendingAsync()`. |
 | Cooldown or budget? | Cooldown skips are logged at `Debug` (enable `Debug` for the `Homeostat` category); budget exhaustion is logged as an `Error`. |
 
 ### It ran the first step but did not escalate
 
-The verification was probably **inconclusive**: no new signal arrived during the verification
-timeout. Either make signals more frequent or extend the timeout:
+The verification was probably **inconclusive**: the condition was still active, but no new signal arrived during the
+verification timeout (1 minute by default, `DefaultVerificationTimeout`). The log says
+`verification after ... was inconclusive; not escalating further`. Make signals more frequent or extend the timeout:
 
 ```csharp
 .Heal(p => p
     .With<RenewFeedClientAction>()
-    .Then<SwitchToBackupProviderAction>()
-    .VerificationTimeout(TimeSpan.FromMinutes(2)))
+        .VerificationTimeout(TimeSpan.FromMinutes(2))   // applies to the step before it
+    .Then<SwitchToBackupProviderAction>())
 ```
 
 ### The same action runs again after a few minutes
 
-The condition is still active. After the cooldown, the next triggering signal starts a new run.
-This is intended: a problem that is not fixed is retried at a controlled pace, within the budget.
-Increase the cooldown or lower the budget if it is too frequent.
+The condition is still active. After the cooldown (5 minutes by default), the next triggering signal starts a new
+run. This is intended: a problem that is not fixed is retried at a controlled pace, within the budget. Increase the
+cooldown, add `CooldownBackoff`, or lower the budget if it is too frequent.
 
 ### The application fails at startup with an `InvalidOperationException`
 
 The message says what is wrong. Common causes: two conditions with the same name, a condition with
-neither `ForSource` nor `ClearWhen`, a plan with no actions.
+neither `ForSource` nor `ClearWhen`, a plan with no actions, a `SuppressedBy` or composite condition that names a
+condition that is not registered, or a cycle between them.
 
 ## Questions
 
 ### Is this a replacement for Polly?
 
-No. Polly and `Microsoft.Extensions.Resilience` protect **individual calls** (retry, timeout, circuit
-breaker). Homeostat reacts to problems that **persist** at application level and verifies recovery.
-Use both.
+No, they work together. See [Why Homeostat](why-homeostat.md) for a comparison with Polly and other tools, and an
+example that combines them.
 
 ### Is it safe to use in production?
 
-That is the goal of the defaults: dry-run on, budget, cooldown, timeouts, one run at a time, kill
+The defaults are chosen for that: dry-run on, budget, cooldown, timeouts, one run at a time, kill
 switch, and no escalation without evidence. Start in dry-run, review the decisions, then enable
 actions one plan at a time, and review the [security guide](security.md). The current version is a release
 candidate for 1.0: the public API changes before 1.0.0 only if a problem found in the release candidate requires
-it, and from 1.0.0 it follows semantic versioning (see [Versioning](versioning.md)).
+it, and from 1.0.0 the stable packages follow semantic versioning. Preview packages (gRPC, Entity Framework Core,
+caching, feature flags, Azure, Aspire) can still change in a minor version (see
+[Stable and preview packages](versioning.md#stable-and-preview-packages)).
 
 ### What happens with several instances of my application?
 
@@ -65,9 +71,20 @@ its own, which is right for problems local to the instance (its clients, caches,
 use a shared store and mark the plan `OncePerCluster()`: one instance acts, the cooldown is shared, and budget and
 history cover the whole cluster. See [Persistence and clusters](persistence-and-clusters.md).
 
-Approval requests, switches and the kill switch are still per instance: the approval endpoints act on the
-instance that receives the request. Behind a load balancer, call each instance directly (for example through its
-pod address), or use the webhook notifier, whose events carry the application name.
+The pause, the application switches and the approval requests are kept in the store too: with a shared store, a pause,
+a switch or an answer given on any instance applies to every instance within `ControlRefreshInterval` (5 seconds by
+default), so behind a load balancer any instance can take the request. Switches turned on with
+`scope=instance` stay on the instance that took the request. See
+[Shared control state](persistence-and-clusters.md#shared-control-state).
+
+### What if Homeostat itself, or its store, fails?
+
+The application keeps running and serving: Homeostat stops acting, not the application. A store that does not answer
+delays startup by 5 seconds at most and never blocks a request, a health check or the shutdown; Homeostat fails
+closed (no new interventions) while it cannot check cooldowns and budget; a pause or a switch turned off still applies
+at once; switches it turned on are turned off when their condition clears, when they reach `HoldAtMost`, or by another
+instance when the one that turned them on is gone. The full list is in
+[What Homeostat does when it is the problem](guardrails.md#what-homeostat-does-when-it-is-the-problem).
 
 ### How do I see what Homeostat is doing right now?
 
@@ -80,8 +97,8 @@ Yes. Actions return a `Task`, and each step runs in its own DI scope.
 
 ### Do I need OpenTelemetry?
 
-No. Homeostat uses `System.Diagnostics` types from the BCL. OpenTelemetry is only needed if you want
-to export traces and metrics.
+No. Homeostat uses `System.Diagnostics` types from the BCL. You need OpenTelemetry only to export the traces and
+metrics.
 
 ### Which .NET versions are supported?
 
@@ -92,3 +109,5 @@ and [Versioning](versioning.md) for how new .NET versions are adopted.
 ### Where does the name come from?
 
 From *homeostasis*: the ability of a living system to return to a stable state after a disturbance.
+
+See also: [Guardrails](guardrails.md) · [Observability](observability.md) · [Recipes](recipes.md)

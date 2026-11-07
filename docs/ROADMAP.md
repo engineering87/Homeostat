@@ -1,9 +1,9 @@
 # Roadmap
 
-Homeostat aims to be the reference self-healing library for .NET. The roadmap is organized in waves. Everything
-checked below ships in 1.0.0, now available as a release candidate (`1.0.0-rc.1`); later waves arrive in minor
-versions under the compatibility rules of [Versioning](versioning.md). The roadmap is indicative and changes with
-feedback: open an issue to discuss priorities.
+What ships in Homeostat 1.0 and what is planned after it, organized in waves. Everything checked below ships in
+1.0.0, now available as a release candidate (`1.0.0-rc.1`); unchecked items arrive in minor versions under the
+compatibility rules of [Versioning](versioning.md). The roadmap is indicative and changes with feedback: open an issue
+to discuss priorities.
 
 ## Core (1.0)
 
@@ -28,7 +28,7 @@ feedback: open an issue to discuss priorities.
 ## Wave 2: integrations where .NET applications break
 
 - [x] Probes: any number or round trip as a signal, concurrent, with timeouts and no pile-up (`AddProbe`, `AddLatencyProbe`)
-- [x] Databases (`Homeostat.Data`): connectivity and latency probes for any ADO.NET provider, transient error tagging, pool reset actions
+- [x] Databases (in the core package): connectivity and latency probes for any ADO.NET provider, transient error tagging, pool reset actions
 - [x] Redis client health signals: ping round trip and connection events
 - [x] Caches (`Homeostat.Caching`): memory cache hit ratio; HybridCache, distributed and memory cache purge actions
 - [x] Feature flags as degradation (`Homeostat.FeatureManagement`, `Homeostat.OpenFeature`), driven by switches with change events
@@ -69,7 +69,7 @@ feedback: open an issue to discuss priorities.
 
 - [x] Adaptive plans: steps ordered by measured success, approval steps as barriers (`Adaptive()`)
 - [x] Predictive healing from trends (`WhenProjectedAbove`, `WhenProjectedBelow`, also from configuration)
-- [x] Signal recording (`RecordSignals`) and replay (`HomeostatReplay`): "what would the plans have done yesterday?"
+- [x] Signal recording (`AddSignalRecording`) and replay (`HomeostatReplay`): "what would the plans have done yesterday?"
 - [x] Coverage reports for game days (`GetCoverageAsync`, `GET /homeostat/coverage`, `homeostat coverage --fail-below`)
 - [x] Seasonality-aware anomalies (`WhenSeasonallyHigh`, `WhenSeasonallyLow`): daily and weekly baselines kept in the store
 - [x] Replay from the command line (`homeostat replay`) and coverage in the dashboard
@@ -83,6 +83,8 @@ feedback: open an issue to discuss priorities.
 - [x] Source names, status JSON with enums as names, `Canceled` spelling: last breaking adjustments before 1.0
 - [x] Templates built in CI; Native AOT smoke test covering the Slack and Teams endpoints and the PagerDuty and Opsgenie notifiers
 - [x] Adoption: starter presets (`AddWebApiDefaults`, `AddWorkerDefaults`) with observe-only conditions for the usual problems
+- [x] Trusted publishing to nuget.org: short-lived keys from the release workflow's identity, no stored API key
+- [x] [Stable and preview packages](versioning.md#stable-and-preview-packages): gRPC, Entity Framework Core, caching, feature flag, Azure and Aspire packages ship with a `-preview` suffix until they are proven in production
 - [ ] Package validation baseline set to the first stable version, once it is published
 - [ ] .NET Foundation application
 

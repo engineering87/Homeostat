@@ -1,13 +1,18 @@
+using Homeostat.Healing;
+
 namespace Homeostat.Persistence;
 
 /// <summary>
-/// Where Homeostat keeps the state that must outlive a run: plan state (cooldowns, backoff, holds), the action
-/// budget and the run history. The default store is in memory; a shared store (for example
-/// <c>Homeostat.Redis</c>) makes cooldowns, budget and history survive restarts and span every instance.
+/// Where Homeostat keeps the state that must outlive a run or be the same on every instance: plan state (cooldowns,
+/// backoff, holds), the action budget, the run and condition history, and the control state (pause, application
+/// switches, approval requests). The default store is in memory; a shared store (for example <c>Homeostat.Redis</c>)
+/// makes that state survive restarts and span every instance.
 /// </summary>
 /// <remarks>
 /// Implementations must be thread-safe. When the store fails, Homeostat <b>fails closed</b>: it does not start
-/// a run whose cooldown or budget it cannot check.
+/// a run whose cooldown or budget it cannot check. Members added after 1.0 will have default implementations, with a
+/// <c>Supports*</c> property when the default does nothing (as <see cref="SupportsConditionHistory"/> and
+/// <see cref="SupportsDocuments"/>), so stores written for 1.0 keep compiling and Homeostat knows what they keep.
 /// </remarks>
 public interface IHomeostatStore
 {
@@ -71,6 +76,12 @@ public interface IHomeostatStore
         => ValueTask.FromResult<IReadOnlyList<ConditionEventRecord>>([]);
 
     /// <summary>
+    /// Whether the store keeps documents (<see cref="GetDocumentAsync"/>, <see cref="SetDocumentAsync"/>). Without them,
+    /// seasonal baselines are learned again after every restart, and Homeostat logs it once at startup.
+    /// </summary>
+    bool SupportsDocuments => false;
+
+    /// <summary>
     /// Returns a small document that a feature keeps between restarts (for example the learned baseline of a seasonal
     /// rule), or <c>null</c> when there is none. A store that does not support documents returns <c>null</c>.
     /// </summary>
@@ -85,4 +96,81 @@ public interface IHomeostatStore
     /// <param name="cancellationToken">Cancellation token.</param>
     ValueTask SetDocumentAsync(string key, string document, CancellationToken cancellationToken = default)
         => ValueTask.CompletedTask;
+
+    /// <summary>The pause, the application switches and the approval requests.</summary>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    ValueTask<ControlState> GetControlStateAsync(CancellationToken cancellationToken = default);
+
+    // The pause and the switches are written in decision order: every write carries the time the decision was taken,
+    // and the store applies it only if no later decision about the same pause or switch is recorded. A write that
+    // timed out on the caller's side but that the store runs afterwards then cannot undo a newer decision. On a tie, a
+    // decision that makes Homeostat do less (a pause, a switch off, a release) is accepted, one that lets it act (a
+    // resume, a switch on, a claim) is not. Each operation is atomic.
+
+    /// <summary>Sets the pause, or removes it with <c>null</c> (a resume), <b>in decision order</b>.</summary>
+    /// <param name="pause">The pause, or <c>null</c> to resume.</param>
+    /// <param name="decidedAt">When the decision was taken (<see cref="PauseState.At"/> for a pause).</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns><c>true</c> if applied; <c>false</c> if a later decision about the pause is already in the store.</returns>
+    ValueTask<bool> TrySetPauseAsync(PauseState? pause, DateTimeOffset decidedAt, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Turns an application switch on (replacing its previous state) or, with <c>null</c>, off, <b>in decision order</b>:
+    /// decisions about a switch include turning it on or off and a condition claiming or releasing it.
+    /// </summary>
+    /// <param name="name">Name of the switch.</param>
+    /// <param name="state">The switch, or <c>null</c> to turn it off.</param>
+    /// <param name="decidedAt">When the decision was taken.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns><c>true</c> if applied; <c>false</c> if a later decision about the switch is already in the store.</returns>
+    ValueTask<bool> TrySetSwitchAsync(string name, SwitchState? state, DateTimeOffset decidedAt, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Turns an application switch on for a condition's cluster plan <b>atomically</b>, in decision order
+    /// (<see cref="SwitchState.At"/> is the decision): only if it is owned by the same condition and not claimed later
+    /// since, or off and not decided about at or after the claim. A switch a person turned on, or that another condition
+    /// owns, is left as it is. A <b>renewal</b> (<see cref="SwitchState.RenewedAt"/> differs from
+    /// <see cref="SwitchState.At"/>) only updates the claim it renews: still there, made by the same instance at the same
+    /// <see cref="SwitchState.At"/>. A renewal is not a decision: it keeps the claim's decision time, so a person's change
+    /// decided after the claim still applies, and it records <see cref="SwitchState.RenewedAt"/>, so that a release decided
+    /// before the renewal is refused (see <see cref="TryReleaseSwitchAsync"/>).
+    /// </summary>
+    /// <param name="state">The switch, with <see cref="SwitchState.Condition"/> set.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns><c>true</c> if the switch is now owned by the condition.</returns>
+    ValueTask<bool> TryClaimSwitchAsync(SwitchState state, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Turns an application switch off <b>atomically</b>, in decision order, only if it is still owned by the condition
+    /// (and, when <paramref name="instance"/> is given, was turned on by that instance): a switch a person took over, or
+    /// that the condition claimed or renewed after <paramref name="decidedAt"/>, stays on.
+    /// </summary>
+    /// <param name="name">Name of the switch.</param>
+    /// <param name="condition">The owning condition.</param>
+    /// <param name="instance">The instance that turned it on, or <c>null</c> for any.</param>
+    /// <param name="decidedAt">When the release was decided.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns><c>true</c> if the switch was turned off.</returns>
+    ValueTask<bool> TryReleaseSwitchAsync(string name, string condition, string? instance, DateTimeOffset decidedAt, CancellationToken cancellationToken = default);
+
+    /// <summary>Adds a pending approval request.</summary>
+    /// <param name="approval">The request.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    ValueTask AddApprovalAsync(ApprovalRecord approval, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Answers a request <b>atomically</b>, only if it is still pending: of two answers given at the same time on two
+    /// instances, exactly one wins.
+    /// </summary>
+    /// <param name="id">Request identifier.</param>
+    /// <param name="status">The answer.</param>
+    /// <param name="resolvedBy">Who answered, when known.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns><c>true</c> if this call answered the request.</returns>
+    ValueTask<bool> TryResolveApprovalAsync(string id, ApprovalStatus status, string? resolvedBy, CancellationToken cancellationToken = default);
+
+    /// <summary>Removes a request, once the waiting instance has collected the answer.</summary>
+    /// <param name="id">Request identifier.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    ValueTask RemoveApprovalAsync(string id, CancellationToken cancellationToken = default);
 }

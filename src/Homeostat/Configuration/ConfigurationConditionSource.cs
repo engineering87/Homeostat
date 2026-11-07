@@ -37,12 +37,12 @@ internal sealed class ConfigurationConditionSource
 
     private static readonly HashSet<string> PlanKeys = new(StringComparer.OrdinalIgnoreCase)
     {
-        "Steps", "Cooldown", "CooldownBackoff", "ActionTimeout", "VerificationTimeout", "Scope", "Adaptive",
+        "Steps", "Cooldown", "CooldownBackoff", "Scope", "Adaptive",
     };
 
     private static readonly HashSet<string> StepKeys = new(StringComparer.OrdinalIgnoreCase)
     {
-        "Action", "RequireApproval", "ApprovalTimeout", "UndoAction", "TurnOffWhenCleared",
+        "Action", "RequireApproval", "ApprovalTimeout", "UndoAction", "TurnOffWhenCleared", "HoldAtMost", "ActionTimeout", "VerificationTimeout",
     };
 
     private readonly ConfiguredActions _actions;
@@ -59,6 +59,9 @@ internal sealed class ConfigurationConditionSource
     }
 
     public IConfiguration Section { get; }
+
+    /// <summary>Whether an invalid configuration at startup stops the application (otherwise it is logged and left out).</summary>
+    public bool FailOnInvalid { get; init; }
 
     public IReadOnlyList<ConditionDefinition> Load()
     {
@@ -101,7 +104,7 @@ internal sealed class ConfigurationConditionSource
     {
         var name = section.Key;
 
-        // Action classes are registered by MapAction; the builder needs a collection, not the live container.
+        // Action classes are registered by AddAction; the builder needs a collection, not the live container.
         var builder = new ConditionBuilder(name, new ServiceCollection());
 
         try
@@ -112,6 +115,11 @@ internal sealed class ConfigurationConditionSource
             if (composite && TriggerKeys.Concat(["Source", "ClearWhenHealthy", "Occurrences"]).Any(k => section.GetSection(k).Exists()))
             {
                 throw new InvalidOperationException("a composite condition (AllActive or AnyActive) cannot have a Source or trigger and clear rules.");
+            }
+
+            if (section.GetSection("AllActive").Exists() && section.GetSection("AnyActive").Exists())
+            {
+                throw new InvalidOperationException("use only one of AllActive, AnyActive.");
             }
 
             if (TriggerKeys.Count(k => section.GetSection(k).Exists()) > 1)
@@ -135,7 +143,7 @@ internal sealed class ConfigurationConditionSource
 
             if (section["Severity"] is { Length: > 0 } severity)
             {
-                builder.WhenSeverityAtLeast(Enum.Parse<SignalSeverity>(severity, ignoreCase: true));
+                builder.WhenSeverityAtLeast(EnumValue<SignalSeverity>(section, "Severity", severity));
             }
 
             if (Double(section, "ValueAbove") is { } above)
@@ -307,6 +315,35 @@ internal sealed class ConfigurationConditionSource
             {
                 builder.RequireApproval(Duration(step, "ApprovalTimeout"));
             }
+            else if (step.GetSection("ApprovalTimeout").Exists())
+            {
+                throw new InvalidOperationException($"'{step.Path}:ApprovalTimeout' needs \"RequireApproval\": true.");
+            }
+
+            if (step.GetSection("TurnOffWhenCleared").Exists() && !action.StartsWith("switch:", StringComparison.OrdinalIgnoreCase))
+            {
+                throw new InvalidOperationException($"'{step.Path}:TurnOffWhenCleared' applies only to a 'switch:<name>' action.");
+            }
+
+            if (Duration(step, "HoldAtMost") is { } hold)
+            {
+                if (!action.StartsWith("switch:", StringComparison.OrdinalIgnoreCase) || Bool(step, "TurnOffWhenCleared") == false)
+                {
+                    throw new InvalidOperationException($"'{step.Path}:HoldAtMost' applies only to a 'switch:<name>' action turned off when the condition clears.");
+                }
+
+                builder.HoldAtMost(hold);
+            }
+
+            if (Duration(step, "ActionTimeout") is { } actionTimeout)
+            {
+                builder.ActionTimeout(actionTimeout);
+            }
+
+            if (Duration(step, "VerificationTimeout") is { } verificationTimeout)
+            {
+                builder.VerificationTimeout(verificationTimeout);
+            }
 
             if (step["UndoAction"] is { Length: > 0 } undo)
             {
@@ -348,27 +385,31 @@ internal sealed class ConfigurationConditionSource
                 Duration(backoff, "Max") ?? throw Missing(backoff, "Max"));
         }
 
-        if (Duration(plan, "ActionTimeout") is { } actionTimeout)
-        {
-            builder.ActionTimeout(actionTimeout);
-        }
-
-        if (Duration(plan, "VerificationTimeout") is { } verificationTimeout)
-        {
-            builder.VerificationTimeout(verificationTimeout);
-        }
-
-        if (plan["Scope"] is { Length: > 0 } scope && Enum.Parse<PlanScope>(scope, ignoreCase: true) == PlanScope.Cluster)
+        if (plan["Scope"] is { Length: > 0 } scope && EnumValue<PlanScope>(plan, "Scope", scope) == PlanScope.Cluster)
         {
             builder.OncePerCluster();
         }
+    }
+
+    // Names only: Enum.Parse would also take numbers ("7") and lists ("Degraded,Unhealthy") that mean nothing here.
+    private static TEnum EnumValue<TEnum>(IConfigurationSection section, string key, string value)
+        where TEnum : struct, Enum
+    {
+        if (value.Length > 0 && char.IsLetter(value[0]) && !value.Contains(',', StringComparison.Ordinal)
+            && Enum.TryParse<TEnum>(value, ignoreCase: true, out var parsed) && Enum.IsDefined(parsed))
+        {
+            return parsed;
+        }
+
+        throw new InvalidOperationException(
+            $"'{section.Path}:{key}' is '{value}'; expected one of {string.Join(", ", Enum.GetNames<TEnum>())}.");
     }
 
     private void AddAction(IConfigurationSection step, string action, HealingPlanBuilder builder)
     {
         if (action.StartsWith("switch:", StringComparison.OrdinalIgnoreCase))
         {
-            builder.TurnOnSwitch(action["switch:".Length..], Bool(step, "TurnOffWhenCleared") == true);
+            builder.TurnOnSwitch(action["switch:".Length..], Bool(step, "TurnOffWhenCleared") != false);
         }
         else if (string.Equals(action, "reload-configuration", StringComparison.OrdinalIgnoreCase))
         {
@@ -387,7 +428,7 @@ internal sealed class ConfigurationConditionSource
     private InvalidOperationException Unknown(IConfigurationSection step, string action)
         => new($"Configuration '{step.Path}': unknown action '{action}'. Known actions: switch:<name>, reload-configuration" +
             (_actions.Names.Any() ? ", " + string.Join(", ", _actions.Names.Order()) : string.Empty) +
-            ". Map action classes with MapAction<T>(name).");
+            ". Map action classes with AddAction<T>(name).");
 
     private static InvalidOperationException Missing(IConfigurationSection section, string key)
         => new($"Configuration '{section.Path}:{key}' is required.");

@@ -4,6 +4,8 @@
     <TargetFramework>net10.0</TargetFramework>
     <IsAotCompatible>true</IsAotCompatible>
     <PackageId>Homeostat.Grpc</PackageId>
+    <!-- Preview: not yet proven in production; its API can still change in a minor version (docs/versioning.md). -->
+    <HomeostatPreview>true</HomeostatPreview>
     <Description>gRPC clients for Homeostat: the failure ratio and latency of the calls of a client from the gRPC client factory as a signal, judged on the gRPC status of every call, streaming calls included (Grpc.Net.ClientFactory).</Description>
     <PackageTags>$(PackageTags);grpc</PackageTags>
   </PropertyGroup>

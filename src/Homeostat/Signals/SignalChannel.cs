@@ -30,10 +30,10 @@ internal sealed class SignalChannel : ISignalPublisher
         return _channel.Writer.TryWrite(signal);
     }
 
-    public bool TryPublish(string source, SignalSeverity severity, string? message = null)
+    public bool TryPublish(string source, SignalSeverity severity, string? message = null, double? value = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(source);
-        return TryPublish(new Signal(source, severity, _timeProvider.GetUtcNow()) { Message = message });
+        return TryPublish(new Signal(source, severity, _timeProvider.GetUtcNow()) { Message = message, Value = value });
     }
 
     public void Complete() => _channel.Writer.TryComplete();

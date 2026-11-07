@@ -23,11 +23,11 @@ builder.Services.AddHomeostat(h => h
         .AddCondition("weather-feed-down", c => c
             .ForSource("weather-feed")
             .SustainedFor(TimeSpan.FromSeconds(30))
-            .Heal(p => p.TurnOnSwitch("serve-cached-forecast", turnOffWhenCleared: true))))
-    .AddHealthCheckSignals(period: TimeSpan.FromSeconds(10));
+            .Heal(p => p.TurnOnSwitch("serve-cached-forecast"))))
+    .AddHealthCheckSignals(o => o.Interval = TimeSpan.FromSeconds(10));
 ```
 
-`period` sets `HealthCheckPublisherOptions.Period`, which applies to every health check publisher of the application.
+`Interval` sets `HealthCheckPublisherOptions.Period`, which applies to every health check publisher of the application.
 
 ## Documentation
 

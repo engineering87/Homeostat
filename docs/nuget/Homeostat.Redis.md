@@ -1,6 +1,6 @@
 # Homeostat.Redis
 
-Redis for Homeostat. `UseRedis` stores cooldowns, the action budget, the run and condition history and learned baselines in Redis, shared by every instance of the application, and coordinates plans marked `OncePerCluster()` with leases. `AddRedisSignals` watches a Redis client: `PING` round trip and lost or restored connections.
+Redis for Homeostat. `UseRedis` stores cooldowns, the action budget, the run and condition history, learned baselines and the control state (pause, application switches, approval requests) in Redis, shared by every instance of the application, and coordinates plans marked `OncePerCluster()` with leases. `AddRedisSignals` watches a Redis client: `PING` round trip and lost or restored connections.
 
 ## Install
 
@@ -17,12 +17,12 @@ using Homeostat;
 
 builder.Services.AddHomeostat(h => h
     .UseRedis("redis:6379", o => o.KeyPrefix = "weather-api:homeostat:")   // one prefix per application and environment
-    .AddRedisSignals("redis:session-cache", o => o.DegradedAbove = 50)           // milliseconds of PING
+    .AddRedisSignals(o => { o.Source = "redis:session-cache"; o.DegradedLatency = TimeSpan.FromMilliseconds(50); })   // PING round trip
     .AddCondition("forecast-provider-down", c => c
         .ForSource("http:forecast")
         .SustainedFor(TimeSpan.FromSeconds(30))
         .Heal(p => p
-            .TurnOnSwitch("serve-cached-forecast", turnOffWhenCleared: true)
+            .TurnOnSwitch("serve-cached-forecast")
             .OncePerCluster())));                                          // one instance acts, shared cooldown
 ```
 

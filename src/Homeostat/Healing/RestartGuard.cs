@@ -1,6 +1,7 @@
 using Homeostat.Healing.Actions;
 using Homeostat.Persistence;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
 namespace Homeostat.Healing;
@@ -8,7 +9,8 @@ namespace Homeostat.Healing;
 /// <summary>Limits of actions that restart the application (its process, its pod).</summary>
 /// <param name="MinimumUptime">Least time since this instance started: a process that fails right after starting is not restarted again.</param>
 /// <param name="MaxRestarts">Most restarts of the application within <paramref name="Window"/>, counted in the store, across instances and processes.</param>
-/// <param name="Window">Window of <paramref name="MaxRestarts"/>.</param>
+/// <param name="Window">Window of <paramref name="MaxRestarts"/>: fixed windows of this length, aligned on UTC time; any period of this length
+/// lies within two consecutive windows, and the two together never allow more than <paramref name="MaxRestarts"/> restarts.</param>
 public sealed record RestartLimits(TimeSpan MinimumUptime, int MaxRestarts, TimeSpan Window)
 {
     /// <summary>10 minutes of uptime, at most 3 restarts per hour.</summary>
@@ -58,26 +60,46 @@ public static class RestartGuard
                 "restarting now could loop. Escalate instead.");
         }
 
-        // One counter per application, shared by its instances through the store: LastRunEndedAt is the start of the
-        // window, ConsecutiveFailures the restarts in it. The read and the update are separate: the limit is approximate
-        // when instances restart at the same moment.
+        // Counted per application and fixed window of the configured length, shared by the instances through the store
+        // (ConsecutiveFailures is the count). Each attempt is counted first, atomically, and allowed only if the attempts
+        // of this window so far plus the restarts allowed in the previous one stay within the limit: any period of one
+        // window length lies within two consecutive windows, so it never holds more than MaxRestarts restarts, and when
+        // every replica of a fleet tries at the same moment at most MaxRestarts of them restart. No counter is ever reset,
+        // so no reset can race with a count. Refused attempts count against their own window only (the next window looks
+        // at the restarts allowed), so a condition that keeps trying cannot block restarts for good.
         var store = services.GetRequiredService<IHomeostatStore>();
-        var key = $"restarts/{services.GetRequiredService<IOptions<HomeostatOptions>>().Value.ApplicationName}";
-        var state = await store.GetPlanStateAsync(key, cancellationToken).ConfigureAwait(false);
-        if (state.LastRunEndedAt is not { } windowStart || now - windowStart >= limits.Window)
+        if (store is InMemoryHomeostatStore)
         {
-            await store.UpdatePlanStateAsync(key, new PlanStateUpdate { LastRunEndedAt = now, Failures = FailureCountChange.Reset }, cancellationToken)
-                .ConfigureAwait(false);
-            state = PlanState.Empty;
+            services.GetService<ILoggerFactory>()?.CreateLogger("Homeostat.Restarts").LogWarning(
+                "Restart limits are counted in the in-memory store, which a restart empties: the limit is per process only. "
+                + "Use UseFileStore or UseRedis to count restarts across restarts and instances.");
         }
 
-        if (state.ConsecutiveFailures >= limits.MaxRestarts)
+        var application = services.GetRequiredService<IOptions<HomeostatOptions>>().Value.ApplicationName;
+        var window = now.UtcTicks / limits.Window.Ticks;
+        string Key(string what, long index) => $"restarts/{application}/{what}/{index.ToString(System.Globalization.CultureInfo.InvariantCulture)}";
+        // Each counter records, as its end, the moment it stops being read (attempts: the end of their window; restarts
+        // allowed: the end of the next window), so the store's plan state retention removes it afterwards instead of
+        // keeping one entry per window for good.
+        DateTimeOffset EndOfWindow(long index) => index + 1 > DateTimeOffset.MaxValue.UtcTicks / limits.Window.Ticks
+            ? DateTimeOffset.MaxValue
+            : new DateTimeOffset((index + 1) * limits.Window.Ticks, TimeSpan.Zero);
+
+        var attempts = await store.UpdatePlanStateAsync(
+            Key("attempts", window), new PlanStateUpdate { Failures = FailureCountChange.Increment, LastRunEndedAt = EndOfWindow(window) },
+            cancellationToken).ConfigureAwait(false);
+        var allowedBefore = await store.GetPlanStateAsync(Key("allowed", window - 1), cancellationToken).ConfigureAwait(false);
+        if (attempts.ConsecutiveFailures + allowedBefore.ConsecutiveFailures <= limits.MaxRestarts)
+        {
+            await store.UpdatePlanStateAsync(
+                Key("allowed", window), new PlanStateUpdate { Failures = FailureCountChange.Increment, LastRunEndedAt = EndOfWindow(window + 1) },
+                cancellationToken).ConfigureAwait(false);
+        }
+        else
         {
             throw new InvalidOperationException(
-                $"The application already restarted {state.ConsecutiveFailures} times in the last {limits.Window.TotalMinutes:0.#} minutes " +
+                $"The application already restarted {limits.MaxRestarts} times in the last {limits.Window.TotalMinutes:0.#} minutes " +
                 $"(limit {limits.MaxRestarts}): restarting again would not help. A person should look at it.");
         }
-
-        await store.UpdatePlanStateAsync(key, new PlanStateUpdate { Failures = FailureCountChange.Increment }, cancellationToken).ConfigureAwait(false);
     }
 }

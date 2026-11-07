@@ -294,7 +294,7 @@ public class AlertIngestionTests
             .Configure(o => o.DryRun = false)
             .AddCondition("disk-almost-full", c => c.ForSource("alert:DiskAlmostFull").WhenSeverityAtLeast(SignalSeverity.Degraded).Heal(p => p
                 .With("prune-temp-files", _ => healed.TrySetResult())
-                .VerifyWith<BuiltInActionTests.AlwaysHealed>())));
+                .UseVerifier<BuiltInActionTests.AlwaysHealed>())));
         var app = builder.Build();
         app.MapHomeostatAlerts(allowAnonymous: true);
         await app.StartAsync();

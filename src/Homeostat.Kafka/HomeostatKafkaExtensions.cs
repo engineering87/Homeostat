@@ -53,7 +53,7 @@ public static class HomeostatKafkaExtensions
     /// <example>
     /// <code>
     /// var consumer = new ConsumerBuilder&lt;string, byte[]&gt;(new ConsumerConfig { GroupId = "telemetry", StatisticsIntervalMs = 30_000, ... })
-    ///     .SetHomeostatSignals(sp, "telemetry", o => o.LagUnhealthyAbove = 100_000)
+    ///     .SetHomeostatSignals(sp, "telemetry", o => o.Lag.UnhealthyAbove = 100_000)
     ///     .Build();
     /// </code>
     /// </example>

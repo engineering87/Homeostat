@@ -18,7 +18,7 @@ public class CliTests
             .Configure(o => { o.DryRun = false; o.ApplicationName = "weather-api"; })
             .AddCondition("feed-down", c => c.ForSource("alert:feed").Heal(p => p
                 .With("failover", _ => { }).RequireApproval(TimeSpan.FromMinutes(5))
-                .VerifyWith<BuiltInActionTests.AlwaysHealed>())));
+                .UseVerifier<BuiltInActionTests.AlwaysHealed>())));
         var app = builder.Build();
         app.MapHomeostatStatus(allowAnonymous: true);
         app.MapHomeostatControl(allowAnonymous: true);

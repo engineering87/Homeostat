@@ -8,7 +8,7 @@ using Microsoft.Extensions.Options;
 namespace Homeostat.Notifications;
 
 /// <summary>Appends every event as one JSON object per line.</summary>
-internal sealed class AuditLogSink : HomeostatEventSink
+internal sealed class AuditLogSink : IHomeostatEventSink
 {
     internal static readonly JsonSerializerOptions Json = HomeostatJsonContext.CreateOptions(o =>
     {
@@ -20,20 +20,18 @@ internal sealed class AuditLogSink : HomeostatEventSink
 
     private readonly string _pathTemplate;
 
-    public AuditLogSink(
-        IOptions<AuditLogOptions> audit,
-        IOptions<HomeostatOptions> options,
-        TimeProvider timeProvider,
-        ILogger<AuditLogSink> logger)
-        : base(options.Value.ApplicationName, audit.Value.Events, timeProvider, logger)
+    public AuditLogSink(IOptions<AuditLogOptions> audit)
     {
         _pathTemplate = audit.Value.Path;
+        Events = audit.Value.Events.ToArray();
     }
 
-    protected override async Task WriteAsync(HomeostatEvent homeostatEvent, CancellationToken cancellationToken)
+    public IReadOnlyCollection<HomeostatEventKind>? Events { get; }
+
+    public async Task WriteAsync(HomeostatEvent homeostatEvent, CancellationToken cancellationToken)
     {
         var path = System.IO.Path.GetFullPath(
-            _pathTemplate.Replace("{date}", homeostatEvent.Timestamp.UtcDateTime.ToString("yyyy-MM-dd"), StringComparison.Ordinal));
+            _pathTemplate.Replace("{date}", homeostatEvent.Timestamp.UtcDateTime.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture), StringComparison.Ordinal));
 
         var directory = System.IO.Path.GetDirectoryName(path);
         if (!string.IsNullOrEmpty(directory))

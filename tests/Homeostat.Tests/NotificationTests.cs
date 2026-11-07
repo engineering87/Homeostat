@@ -20,7 +20,7 @@ public class NotificationTests
             .Configure(o => o.ApplicationName = "weather-api")
             .AddCondition("feed-down", c => c
                 .ForSource("feed")
-                .Heal(p => p.With("renew", _ => { }).VerifyWith<EngineTests.AlwaysHealedVerifier>()))
+                .Heal(p => p.With("renew", _ => { }).UseVerifier<EngineTests.AlwaysHealedVerifier>()))
             .AddAuditLog(path)))
         {
             host.Publish("feed", SignalSeverity.Unhealthy);
@@ -81,7 +81,7 @@ public class NotificationTests
             h => h
                 .AddCondition("feed-down", c => c
                     .ForSource("feed")
-                    .Heal(p => p.With("renew", _ => { }).VerifyWith<EngineTests.AlwaysHealedVerifier>()))
+                    .Heal(p => p.With("renew", _ => { }).UseVerifier<EngineTests.AlwaysHealedVerifier>()))
                 .AddWebhookNotifications(o =>
                 {
                     o.Url = new Uri("https://hooks.example/homeostat");

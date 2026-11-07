@@ -5,7 +5,7 @@ internal readonly record struct HttpWindowSample(int Total, int Failures, TimeSp
 /// <summary>Collects request outcomes for one client between two detector samples.</summary>
 internal sealed class HttpClientWindow
 {
-    private const int MaxLatencySamples = 2048;
+    internal const int MaxLatencySamples = 2048;
 
     private readonly object _gate = new();
     private readonly List<double> _latenciesMs = [];
@@ -29,6 +29,13 @@ internal sealed class HttpClientWindow
     {
         lock (_gate)
         {
+            // Saturating: a window never collected (signals added without AddHomeostat) must never overflow into the
+            // application's request.
+            if (_total == int.MaxValue)
+            {
+                return;
+            }
+
             _total++;
             if (failed)
             {

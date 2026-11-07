@@ -96,7 +96,7 @@ internal sealed class EventCounterSignalListener : EventListener
             return;
         }
 
-        var interval = registrations.Min(r => r.Options.IntervalSeconds);
+        var interval = (int)registrations.Min(r => r.Options.Interval).TotalSeconds;
         EnableEvents(source, EventLevel.Critical, EventKeywords.None, new Dictionary<string, string?>
         {
             ["EventCounterIntervalSec"] = interval.ToString(CultureInfo.InvariantCulture),

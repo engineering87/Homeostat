@@ -1,3 +1,4 @@
+using System.ComponentModel;
 using Homeostat.Calls;
 using Homeostat.Detectors;
 using Microsoft.Extensions.DependencyInjection;
@@ -27,7 +28,7 @@ public static class HomeostatCallSignalExtensions
     /// public sealed class Geocoder(GeocodingSdk sdk, [FromKeyedServices("geocoding:api")] CallRecorder calls)
     /// {
     ///     public Task&lt;Coordinates&gt; LookupAsync(string address, CancellationToken ct)
-    ///         => calls.TrackAsync(token => sdk.GeocodeAsync(address, token), ct);
+    ///         => calls.TrackAsync(token => sdk.GeocodeAsync(address, token), cancellationToken: ct);
     /// }
     /// </code>
     /// </example>
@@ -47,6 +48,12 @@ public static class HomeostatCallSignalExtensions
     /// <param name="origin">Value of the <c>origin</c> tag of the signals, naming the integration (for example <c>"grpc-client"</c>).</param>
     /// <param name="configure">Thresholds; optional.</param>
     /// <returns>The service collection.</returns>
+    /// <remarks>
+    /// For integration packages (Homeostat.Grpc, Homeostat.EntityFrameworkCore and the like), hidden from IntelliSense:
+    /// applications call <see cref="AddCallSignals(HomeostatBuilder, string, Action{CallSignalOptions}?)"/>. Public
+    /// rather than internal so the integration packages do not depend on the internals of an exact Homeostat version.
+    /// </remarks>
+    [EditorBrowsable(EditorBrowsableState.Never)]
     public static IServiceCollection AddCallSignals(this IServiceCollection services, string source, string origin, Action<CallSignalOptions>? configure = null)
     {
         ArgumentNullException.ThrowIfNull(services);
@@ -59,7 +66,7 @@ public static class HomeostatCallSignalExtensions
         services.AddKeyedSingleton(source, (sp, _) => new CallRecorder(source, options, sp.GetService<TimeProvider>()));
         services.AddSingleton(new CallSignalRegistration(source, origin));
         services.TryAddSingleton(TimeProvider.System);
-        services.AddSignalDetector<CallSignalDetector>();
+        services.AddHomeostatDetector<CallSignalDetector>();
         return services;
     }
 }

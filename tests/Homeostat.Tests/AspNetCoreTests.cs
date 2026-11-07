@@ -117,7 +117,7 @@ public class AspNetCoreTests
     {
         var (app, client) = await StartAsync(h => h.AddCondition("feed-down", c => c
             .ForSource("feed")
-            .Heal(p => p.With("renew", _ => { }).RequireApproval().VerifyWith<EngineTests.AlwaysHealedVerifier>())));
+            .Heal(p => p.With("renew", _ => { }).RequireApproval().UseVerifier<EngineTests.AlwaysHealedVerifier>())));
         await using var _ = app;
         using var __ = client;
 
@@ -152,6 +152,41 @@ public class AspNetCoreTests
     }
 
     [Fact]
+    public async Task Changes_that_would_let_Homeostat_act_answer_503_when_the_store_is_unavailable_and_safe_ones_apply_here()
+    {
+        var (app, client) = await StartAsync(h => h
+            .UseStore(_ => new BrokenStore())
+            .AddCondition("feed-down", c => c.ForSource("feed")));
+        await using var _ = app;
+        using var __ = client;
+
+        // Resuming and turning a switch on need the store; pausing and turning a switch off apply here at once.
+        Assert.Equal(HttpStatusCode.ServiceUnavailable, (await client.PostAsync("/homeostat/resume", null)).StatusCode);
+        Assert.Equal(HttpStatusCode.ServiceUnavailable, (await client.PostAsync("/homeostat/switches/serve-cached/on", null)).StatusCode);
+        Assert.Equal(HttpStatusCode.NoContent, (await client.PostAsync("/homeostat/pause", null)).StatusCode);
+        Assert.Equal(HttpStatusCode.NoContent, (await client.PostAsync("/homeostat/switches/serve-cached/off", null)).StatusCode);
+        Assert.Equal(HttpStatusCode.ServiceUnavailable, (await client.PostAsync("/homeostat/approvals/abc/approve", null)).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await client.PostAsync("/homeostat/approvals/%20/approve", null)).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await client.PostAsync("/homeostat/conditions/%20/release", null)).StatusCode);
+    }
+
+    [Fact]
+    public async Task Holds_are_released_and_switches_scoped_through_the_control_endpoints()
+    {
+        var (app, client) = await StartAsync(h => h.AddCondition("feed-down", c => c.ForSource("feed").Heal(p => p.With("renew", _ => { }))));
+        await using var _ = app;
+        using var __ = client;
+
+        Assert.Equal(HttpStatusCode.NoContent, (await client.PostAsync("/homeostat/conditions/feed-down/release", null)).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await client.PostAsync("/homeostat/conditions/unknown/release", null)).StatusCode);
+
+        Assert.Equal(HttpStatusCode.NoContent, (await client.PostAsync("/homeostat/switches/verbose-tracing/on?scope=instance", null)).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await client.PostAsync("/homeostat/switches/verbose-tracing/on?scope=galaxy", null)).StatusCode);
+        Assert.True(app.Services.GetRequiredService<IHomeostatSwitches>().IsOn("verbose-tracing"));
+        Assert.Empty((await app.Services.GetRequiredService<Homeostat.Persistence.IHomeostatStore>().GetControlStateAsync()).Switches);
+    }
+
+    [Fact]
     public async Task Status_survives_an_unavailable_store()
     {
         var (app, client) = await StartAsync(h => h
@@ -161,7 +196,9 @@ public class AspNetCoreTests
         using var __ = client;
 
         var status = await GetStatusAsync(client);
-        Assert.Equal("store down", status.GetProperty("storeError").GetString());
+        // The type of the error, never its message (which can carry connection details).
+        Assert.Contains(nameof(InvalidOperationException), status.GetProperty("storeError").GetString());
+        Assert.False(status.GetProperty("storeError").GetString()!.Contains("store down", StringComparison.Ordinal));
         Assert.Equal(JsonValueKind.Null, status.GetProperty("budget").ValueKind);
         Assert.Single(status.GetProperty("conditions").EnumerateArray().ToList());
     }
@@ -181,6 +218,22 @@ public class AspNetCoreTests
         public ValueTask AppendRunAsync(Homeostat.Persistence.HealingRunRecord run, int maxRuns, CancellationToken cancellationToken = default) => throw Down;
 
         public ValueTask<IReadOnlyList<Homeostat.Persistence.HealingRunRecord>> GetRecentRunsAsync(int maxRuns, CancellationToken cancellationToken = default) => throw Down;
+
+        public ValueTask<Homeostat.Persistence.ControlState> GetControlStateAsync(CancellationToken cancellationToken = default) => throw Down;
+
+        public ValueTask<bool> TrySetPauseAsync(Homeostat.Persistence.PauseState? pause, DateTimeOffset decidedAt, CancellationToken cancellationToken = default) => throw Down;
+
+        public ValueTask<bool> TrySetSwitchAsync(string name, Homeostat.Persistence.SwitchState? state, DateTimeOffset decidedAt, CancellationToken cancellationToken = default) => throw Down;
+
+        public ValueTask<bool> TryClaimSwitchAsync(Homeostat.Persistence.SwitchState state, CancellationToken cancellationToken = default) => throw Down;
+
+        public ValueTask<bool> TryReleaseSwitchAsync(string name, string condition, string? instance, DateTimeOffset decidedAt, CancellationToken cancellationToken = default) => throw Down;
+
+        public ValueTask AddApprovalAsync(Homeostat.Persistence.ApprovalRecord approval, CancellationToken cancellationToken = default) => throw Down;
+
+        public ValueTask<bool> TryResolveApprovalAsync(string id, Homeostat.Healing.ApprovalStatus status, string? resolvedBy, CancellationToken cancellationToken = default) => throw Down;
+
+        public ValueTask RemoveApprovalAsync(string id, CancellationToken cancellationToken = default) => throw Down;
     }
 
     [Fact]

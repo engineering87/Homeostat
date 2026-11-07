@@ -9,6 +9,8 @@ using Homeostat.Signals;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 
 namespace Homeostat;
 
@@ -48,7 +50,7 @@ public static class HomeostatServiceCollectionExtensions
             .Validate(o => o.MaxActionsPerWindow > 0, "MaxActionsPerWindow must be positive.")
             .Validate(o => o.ActionBudgetWindow > TimeSpan.Zero, "ActionBudgetWindow must be positive.")
             .Validate(o => o.MaxConcurrentHealings > 0, "MaxConcurrentHealings must be positive.")
-            .Validate(o => o.DefaultCooldown >= TimeSpan.Zero, "DefaultCooldown cannot be negative.")
+            .Validate(o => o.DefaultCooldown >= TimeSpan.Zero && o.DefaultCooldown <= Guardrails.TimerLimits.Max, "DefaultCooldown cannot be negative or longer than about 49 days.")
             .Validate(o => Guardrails.TimerLimits.IsValid(o.DefaultActionTimeout), "DefaultActionTimeout must be positive and at most about 49 days.")
             .Validate(o => Guardrails.TimerLimits.IsValid(o.DefaultVerificationTimeout), "DefaultVerificationTimeout must be positive and at most about 49 days.")
             .Validate(o => Guardrails.TimerLimits.IsValid(o.VerificationPollInterval), "VerificationPollInterval must be positive and at most about 49 days.")
@@ -58,20 +60,26 @@ public static class HomeostatServiceCollectionExtensions
             .Validate(o => o.ConditionHistorySize >= 0, "ConditionHistorySize cannot be negative.")
             .Validate(o => !string.IsNullOrWhiteSpace(o.InstanceId), "InstanceId cannot be empty.")
             .Validate(o => Guardrails.TimerLimits.IsValid(o.ClusterLeaseDuration) && o.ClusterLeaseDuration >= TimeSpan.FromSeconds(1), "ClusterLeaseDuration must be at least one second.")
-            .Validate(o => Guardrails.TimerLimits.IsValid(o.DetectionInterval), "DetectionInterval must be positive and at most about 49 days.");
+            .Validate(o => Guardrails.TimerLimits.IsValid(o.DetectionInterval) && o.DetectionInterval >= TimeSpan.FromMilliseconds(1), "DetectionInterval must be at least one millisecond and at most about 49 days.")
+            .Validate(o => Guardrails.TimerLimits.IsValid(o.ControlRefreshInterval), "ControlRefreshInterval must be positive and at most about 49 days.")
+            .ValidateOnStart();
 
         services.TryAddSingleton(TimeProvider.System);
         services.TryAddSingleton<SignalChannel>();
         services.TryAddSingleton<ISignalPublisher>(sp => sp.GetRequiredService<SignalChannel>());
         services.TryAddSingleton(sp => new ConditionSet(
             sp.GetServices<ConditionDefinition>()
-                .Concat(sp.GetServices<Configuration.ConfigurationConditionSource>().SelectMany(s => s.Load()))));
+                .Concat(sp.GetServices<Configuration.ConfigurationConditionSource>().SelectMany(s => LoadAtStartup(s, sp))),
+            sp.GetRequiredService<TimeProvider>()));
         services.TryAddSingleton<IHomeostatStore, InMemoryHomeostatStore>();
         services.TryAddSingleton<MaintenanceWindows>();
         services.TryAddSingleton<IHomeostatCoordinator, InMemoryCoordinator>();
         services.TryAddSingleton<HomeostatControl>();
         services.TryAddSingleton<IHomeostatControl>(sp => sp.GetRequiredService<HomeostatControl>());
-        services.TryAddSingleton<IHomeostatSwitches, HomeostatSwitches>();
+        services.TryAddSingleton<SharedControl>();
+        services.TryAddSingleton<PlanStateCache>();
+        services.TryAddSingleton<HomeostatSwitches>();
+        services.TryAddSingleton<IHomeostatSwitches>(sp => sp.GetRequiredService<HomeostatSwitches>());
         HomeostatConsumerExtensions.AddConsumerServices(services);
         services.TryAddSingleton<ObserverNotifier>();
         services.TryAddSingleton<SwitchOwnership>();
@@ -80,9 +88,14 @@ public static class HomeostatServiceCollectionExtensions
         services.TryAddSingleton<HealingRunner>();
         services.TryAddSingleton<Healing.Actions.ApplicationClock>();
         services.TryAddSingleton<Diagnostics.ActivationLog>();
-        services.TryAddTransient<ConditionClearedVerifier>();
+        // A factory, since the constructor is internal (activation needs a public one).
+        services.TryAddTransient(sp => new ConditionClearedVerifier(
+            sp.GetRequiredService<TimeProvider>(), sp.GetRequiredService<IOptions<HomeostatOptions>>()));
         services.TryAddSingleton<Diagnostics.ConditionHistory>();
         services.TryAddSingleton<Conditions.SeasonalBaselineKeeper>();
+
+        // First, so the pause and the switches set before this instance started apply from its first signal.
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IHostedService, SharedControlRefresher>());
 
         // Registered before the engine, so they stop after it: the last events and baselines are written.
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IHostedService, Diagnostics.ConditionHistory>(sp => sp.GetRequiredService<Diagnostics.ConditionHistory>()));
@@ -94,5 +107,22 @@ public static class HomeostatServiceCollectionExtensions
         var builder = new HomeostatBuilder(services);
         configure?.Invoke(builder);
         return builder;
+    }
+
+    // A configuration error at startup must not keep the application from starting (a typo pushed to the configuration
+    // would otherwise stop every new instance): its conditions are left out, loudly, unless asked to fail.
+    private static IEnumerable<ConditionDefinition> LoadAtStartup(Configuration.ConfigurationConditionSource source, IServiceProvider services)
+    {
+        try
+        {
+            return source.Load();
+        }
+        catch (Exception ex) when (!source.FailOnInvalid)
+        {
+            services.GetService<Microsoft.Extensions.Logging.ILoggerFactory>()?.CreateLogger("Homeostat.Configuration").LogCritical(
+                ex, "The Homeostat conditions in the configuration are invalid and are left out until the configuration is fixed; "
+                + "the conditions defined in code apply.");
+            return [];
+        }
     }
 }

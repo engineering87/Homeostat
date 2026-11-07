@@ -8,7 +8,7 @@ Entity Framework Core integration for Homeostat, for any relational provider. `A
 dotnet add package Homeostat.EntityFrameworkCore --prerelease
 ```
 
-The current version is a release candidate (`1.0.0-rc.1`): `--prerelease` is needed until 1.0.0 is published.
+This package is a **preview**: it works and is tested, but its API can still change in a minor version (see [Stable and preview packages](https://github.com/engineering87/Homeostat/blob/main/docs/versioning.md#stable-and-preview-packages)), so `--prerelease` stays needed after 1.0.0.
 
 ## Example
 
@@ -20,11 +20,11 @@ builder.Services.AddDbContext<ReportsDbContext>(o => o.UseSqlServer(builder.Conf
 
 builder.Services.AddHomeostat(h => h
     .AddDbContextSignals<ReportsDbContext>(o => o.UnhealthyLatency = TimeSpan.FromSeconds(3))   // source "efcore:ReportsDbContext"
-    .AddDbContextProbe<ReportsDbContext>(configure: p => p.DegradedAbove = 200)                // source "efcore:ReportsDbContext:ping"
+    .AddDbContextProbe<ReportsDbContext>(p => p.DegradedLatency = TimeSpan.FromMilliseconds(200))                           // source "efcore:ReportsDbContext:ping"
     .AddCondition("reports-db-failing", c => c
         .ForSource("efcore:ReportsDbContext")
         .SustainedFor(TimeSpan.FromMinutes(1))
-        .Heal(p => p.TurnOnSwitch("reports-read-only", turnOffWhenCleared: true))));
+        .Heal(p => p.TurnOnSwitch("reports-read-only"))));
 
 public sealed class ReportsDbContext(DbContextOptions<ReportsDbContext> options) : DbContext(options);
 ```

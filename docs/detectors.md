@@ -1,7 +1,8 @@
 # Detectors
 
-Detectors produce signals **without you writing any code**. They sample part of the application at a
-fixed interval and publish one signal per sample, ready to be used by [conditions](conditions.md).
+Detectors produce signals without code of your own. They sample part of the application at a fixed interval and
+publish one signal per sample, ready to be used by [conditions](conditions.md). This page lists the built-in detectors,
+the starter presets, metric and call signals, and how to write a detector.
 
 | Detector | Package | Default source | Watches |
 |---|---|---|---|
@@ -9,27 +10,33 @@ fixed interval and publish one signal per sample, ready to be used by [condition
 | Memory pressure | `Homeostat` | `memory` | Memory in use vs. memory available |
 | Exception rate | `Homeostat` | `exceptions` | Exceptions thrown per second |
 | HTTP clients | `Homeostat.Http` | `http:{client name}` | Failure ratio and p95 latency of each client |
-| gRPC clients | `Homeostat.Grpc` | `grpc:{client name}` | Failure ratio and p95 latency of each client, judged on the gRPC status. See [Integrations](integrations.md#grpc-clients) |
-| Entity Framework Core | `Homeostat.EntityFrameworkCore` | `efcore:{context type name}` | Failure ratio and p95 latency of the commands of a `DbContext`. See [Integrations](integrations.md#entity-framework-core) |
+| gRPC clients | `Homeostat.Grpc` (preview) | `grpc:{client name}` | Failure ratio and p95 latency of each client, judged on the gRPC status. See [Integrations](integrations.md#grpc-clients) |
+| Entity Framework Core | `Homeostat.EntityFrameworkCore` (preview) | `efcore:{context type name}` | Failure ratio and p95 latency of the commands of a `DbContext`. See [Integrations](integrations.md#entity-framework-core) |
 | Call signals | `Homeostat` | your choice | Failure ratio and p95 latency of calls you record, for any client. See [Call signals](#signals-from-any-client-call-signals) |
 | Circuit breakers | `Homeostat.Polly` | your choice | State of Polly v8 circuit breakers |
 | Metrics | `Homeostat` | `metric:{instrument}` or your choice | Any `System.Diagnostics.Metrics` instrument: ASP.NET Core, HttpClient, Kestrel, runtime, your own |
 | Health checks | `Homeostat.HealthChecks` | health check name | See [Signals](signals.md#health-checks-as-signals) |
 | Probes | `Homeostat` | your choice | Any number or round trip you can fetch: backlogs, lag, free space, pings. See [Integrations](integrations.md#probes-any-number-as-a-signal) |
-| Databases | `Homeostat.Data` | your choice | Connection round trip and transient errors of any ADO.NET provider |
+| Databases | `Homeostat` | your choice | Connection round trip and transient errors of any ADO.NET provider (`AddDatabaseProbe`) |
 | Redis client | `Homeostat.Redis` | `redis` | `PING` round trip and lost connections |
-| Memory cache | `Homeostat.Caching` | `cache:memory` | Hit ratio of an `IMemoryCache` |
+| Memory cache | `Homeostat.Caching` (preview) | `cache:memory` | Hit ratio of an `IMemoryCache` |
 | Alerts | `Homeostat.AspNetCore` | `alert:{alert name}` | Alertmanager, Grafana and Azure Monitor notifications. See [Integrations](integrations.md#alerts-from-your-monitoring) |
 
-All detectors except health checks (which follow the `AddHealthCheckSignals` period) run every
-`DetectionInterval` (default **10 seconds**):
+Preview packages carry a `-preview` suffix even on stable releases (see
+[Versioning](versioning.md#stable-and-preview-packages)).
+
+Most detectors take a sample every `DetectionInterval` (default 10 seconds, at least 1 ms). These have their own
+interval: health checks follow the `AddHealthCheckSignals` period; probes that set their own `Interval`; the Service
+Bus, RabbitMQ, Artemis and MongoDB signals (`Interval`, default 30 seconds); and event counters (`Interval`, default
+10 seconds). To change the detection interval:
 
 ```csharp
 .AddHomeostat(h => h.Configure(o => o.DetectionInterval = TimeSpan.FromSeconds(5)))
 ```
 
-> Remember the rule from [Conditions](conditions.md#how-long-sustainedfor): keep `SustainedFor`
-> longer than the detection interval.
+> [!TIP]
+> Keep `SustainedFor` longer than the detection interval (see
+> [Conditions](conditions.md#how-long-sustainedfor)): a slow signal period delays activation.
 
 ---
 
@@ -45,7 +52,7 @@ builder.Services.AddHomeostat(h => h.AddWorkerDefaults());     // worker service
 `AddWebApiDefaults` registers the thread pool, memory and exception detectors, the
 [server error rate and latency signals](#ready-made-server-errors-and-latency), and these conditions.
 `AddWorkerDefaults` registers the runtime detectors and their conditions, plus the state of every
-`RestartableBackgroundService` (`AddBackgroundServiceSignals`, sources `service:{type name}`) without a condition.
+`RestartableBackgroundService` (`AddBackgroundServiceSignals`, sources `hosted-service:{type name}`) without a condition.
 
 | Condition | Property | Source | Active when | Sustained for | Web API | Worker | Suppressed by |
 |---|---|---|---|---|---|---|---|
@@ -61,8 +68,8 @@ conditions wait while those causes are active instead of acting on the symptom (
 [`SuppressedBy`](conditions.md#causes-and-symptoms-suppressedby)); a cause that is turned off is not used for
 suppression. The server signals need ASP.NET Core, and publish nothing in intervals with fewer than 20 requests.
 
-**The conditions only observe.** They are tracked, logged and shown by the endpoints and the dashboard, and none
-acts until you give it a plan. Watch their activations first, then add plans one at a time. The
+The preset conditions **only observe**. They are tracked, logged and shown by the endpoints and the dashboard, and
+none acts until you give it a plan. Watch their activations first, then add plans one at a time. The
 `HomeostatDefaults` object passed to `configure` has one `DefaultCondition` per row of the table:
 
 ```csharp
@@ -71,7 +78,7 @@ builder.Services.AddHomeostat(h => h.AddWebApiDefaults(d =>
     d.MemoryPressure.Enabled = false;                          // no condition and no detector
     d.ServerLatency.SustainedFor = TimeSpan.FromMinutes(5);    // the problem must last longer
     d.ExceptionRate.Configure(c => c.ClearAfter(TimeSpan.FromMinutes(2)));   // any other condition setting
-    d.ServerErrors.Heal(p => p.TurnOnSwitch("serve-cached-forecast", turnOffWhenCleared: true));   // a plan
+    d.ServerErrors.Heal(p => p.TurnOnSwitch("serve-cached-forecast"));   // a plan
 }));
 ```
 
@@ -113,9 +120,9 @@ seconds. Only one preset can be added to an application: a second `AddWebApiDefa
         .SustainedFor(TimeSpan.FromSeconds(30))))
 ```
 
-At each sample the detector queues a tiny work item and measures how long it waits before running.
-When the pool is starved, typically by blocking calls such as `.Result` or `.Wait()` on async code,
-that wait grows and every request in the application slows down with it.
+At each sample the detector queues a tiny work item and measures how long it waits before running. When the pool is
+starved, typically by blocking calls such as `.Result` or `.Wait()` on async code, that wait grows and every request
+in the application slows down with it. The signal's `Value` is the wait in milliseconds.
 
 | Option | Default | Meaning |
 |---|---|---|
@@ -125,11 +132,11 @@ that wait grows and every request in the application slows down with it.
 
 Tags: `latency_ms`, `threads`, `pending`; `origin` = `detector`.
 
-If the work item has not run after twice `UnhealthyLatency`, the sample is reported as `Unhealthy`.
-Latency uses the real clock, even in the test host.
+If the work item has not run after twice `UnhealthyLatency`, the sample is reported as `Unhealthy`. Latency uses the
+real clock, even in the test host.
 
-Thread pool starvation is usually a code problem that no action can truly fix. A common use is an
-**observe-only condition** (no `Heal(...)`) that makes the problem visible in logs and metrics.
+Thread pool starvation is usually a code problem that no action can fix. A common use is an observe-only condition
+(no `Heal(...)`) that makes the problem visible in logs and metrics.
 
 ---
 
@@ -139,8 +146,9 @@ Thread pool starvation is usually a code problem that no action can truly fix. A
 .AddMemoryPressureDetector(o => o.UnhealthyLoad = 0.9)
 ```
 
-Reports memory load as seen by the garbage collector: physical memory in use on the machine (or in the
-container, when it has a memory limit) relative to the memory available, so other processes count too.
+Reports memory load as seen by the garbage collector: physical memory in use on the machine (or in the container,
+when it has a memory limit) relative to the memory available, so other processes count too. The signal's `Value` is
+the load, from 0 to 1.
 
 | Option | Default | Meaning |
 |---|---|---|
@@ -150,8 +158,8 @@ container, when it has a memory limit) relative to the memory available, so othe
 
 Tags: `load`, `heap_bytes`, `gc_pause_percent`; `origin` = `detector`.
 
-Values refresh at each garbage collection; until the first collection, no signal is published.
-Typical actions: clear an in-memory cache, turn on a switch that reduces batch sizes.
+Values refresh at each garbage collection; until the first collection, no signal is published. Typical actions:
+clear an in-memory cache, turn on a switch that reduces batch sizes.
 
 ---
 
@@ -165,8 +173,8 @@ Typical actions: clear an in-memory cache, turn on a switch that reduces batch s
 })
 ```
 
-Counts every exception thrown in the process (first-chance, including handled ones) and reports the
-rate since the previous sample.
+Counts every exception thrown in the process (first-chance, including handled ones) and reports the rate per second
+since the previous sample as the signal's `Value`.
 
 | Option | Default | Meaning |
 |---|---|---|
@@ -176,8 +184,8 @@ rate since the previous sample.
 
 Tags: `rate_per_second`; `origin` = `detector`.
 
-Every application has its own normal baseline: watch it in dry-run first and **tune the thresholds
-before acting on them**.
+Every application has its own normal baseline: watch it in dry-run first and tune the thresholds before acting on
+them.
 
 ---
 
@@ -208,8 +216,8 @@ At each sample the detector looks at the requests sent since the previous one:
 | Situation | Signal |
 |---|---|
 | No requests | None (nothing to judge) |
-| Fewer than `MinimumRequests`, none failed | `Healthy` (latency is not considered) |
-| Fewer than `MinimumRequests`, some failed | None (too few to judge) |
+| Fewer than `MinimumCalls`, none failed | `Healthy` (latency is not considered) |
+| Fewer than `MinimumCalls`, some failed | None (too few to judge) |
 | Otherwise | By failure ratio, raised by p95 latency if thresholds are set |
 
 | Option | Default | Meaning |
@@ -219,21 +227,28 @@ At each sample the detector looks at the requests sent since the previous one:
 | `UnhealthyFailureRatio` | 0.5 | Failure ratio at or above which the signal is `Unhealthy` |
 | `DegradedLatency` | none | p95 latency at or above which the signal is at least `Degraded` |
 | `UnhealthyLatency` | none | p95 latency at or above which the signal is `Unhealthy` |
-| `MinimumRequests` | 10 | Requests needed to judge a ratio |
-| `IsFailure` | 5xx, 408, 429, failed gRPC calls | Which responses count as failures |
+| `MinimumCalls` | 10 | Requests needed to judge a ratio |
+| `IsFailure` | `HttpClientSignalOptions.IsServiceFailure`: 5xx, 408, 429, failed gRPC calls | Which responses count as failures. Combine the default with your own rule: `o.IsFailure = r => HttpClientSignalOptions.IsServiceFailure(r) \|\| r.StatusCode == HttpStatusCode.Conflict` |
 | `CountCancellationsAsFailures` | `true` | Whether canceled requests (including `HttpClient` timeouts) count as failures |
 
-Exceptions always count as failures. Canceled requests count as failures too, because `HttpClient`
-reports its own timeout as a cancellation and the two cannot be told apart from inside the handler;
-set `CountCancellationsAsFailures = false` if your callers often cancel requests for unrelated reasons.
-Tags: `requests`, `failures`, `failure_ratio`, `p95_ms`; `origin` = `http-client`.
+`AddHomeostatSignals` refuses settings that could never give a meaningful signal: ratios outside (0, 1] or a
+degraded ratio above the unhealthy one, latency thresholds that are not positive, `MinimumCalls` below 1, or a
+null `IsFailure`.
 
-> When traffic stops, no signal is published: a condition stays as it was. If the verification of a
-> plan depends on these signals, expect `Inconclusive` outcomes during quiet periods.
+Exceptions always count as failures. Canceled requests count as failures too, because `HttpClient` reports its own
+timeout as a cancellation and the two cannot be told apart from inside the handler; set
+`CountCancellationsAsFailures = false` if your callers often cancel requests for unrelated reasons.
+
+The signal's `Value` is the failure ratio (0 to 1). Tags: `requests`, `failures`, `failure_ratio`, `p95_ms`;
+`origin` = `http-client`.
+
+> [!NOTE]
+> When traffic stops, no signal is published and a condition stays as it was. If the verification of a plan depends
+> on these signals, expect `Inconclusive` outcomes during quiet periods.
 
 ### gRPC clients
 
-For gRPC clients, prefer the `Homeostat.Grpc` package and its `AddHomeostatGrpcSignals()`: it judges every call on
+For gRPC clients, prefer the `Homeostat.Grpc` package (preview) and its `AddHomeostatGrpcSignals()`: it judges every call on
 its gRPC status, including the status that a streaming call reports in the trailers, and measures the duration of
 unary calls. See [Integrations](integrations.md#grpc-clients). Do not use both on the same client.
 
@@ -278,12 +293,12 @@ builder.Services.AddHomeostat(h => h
     .AddCondition("geocoding-failing", c => c
         .ForSource("geocoding:api")
         .SustainedFor(TimeSpan.FromMinutes(1))
-        .Heal(p => p.TurnOnSwitch("use-cached-coordinates", turnOffWhenCleared: true))));
+        .Heal(p => p.TurnOnSwitch("use-cached-coordinates"))));
 
 public sealed class Geocoder(GeocodingSdk sdk, [FromKeyedServices("geocoding:api")] CallRecorder calls)
 {
     public Task<Coordinates> LookupAsync(string address, CancellationToken ct)
-        => calls.TrackAsync(token => sdk.GeocodeAsync(address, token), ct);
+        => calls.TrackAsync(token => sdk.GeocodeAsync(address, token), cancellationToken: ct);
 }
 ```
 
@@ -293,11 +308,14 @@ source as its key: inject it with `[FromKeyedServices(source)]`, or resolve it w
 
 | Method | Records |
 |---|---|
-| `TrackAsync(ct => call(ct), cancellationToken, isFailure)` | Runs the call and records its duration; an exception counts as a failure and is rethrown. A cancellation requested through `cancellationToken` is not recorded at all. `isFailure` (optional) decides which exceptions count, for example `ex => ex is not ArgumentException` |
+| `TrackAsync(ct => call(ct), isFailure, cancellationToken)` | Runs the call and records its duration; an exception counts as a failure and is rethrown. A cancellation requested through `cancellationToken` is not recorded at all. `isFailure` (optional) decides which exceptions count, for example `ex => ex is not ArgumentException` |
 | `Record(failed, duration)` | One call whose outcome you measured yourself; `failed` should mean a failure of the dependency, not a wrong request |
+| `Record(failed)` | One call without a duration: it counts for the failure ratio, not for the p95. For calls whose duration says nothing about the dependency, such as a stream kept open by the caller |
 
-`TrackAsync` has an overload for calls without a result. Recording is thread-safe and cheap: `Record` takes a short
-lock and allocates nothing in most calls. To unit test code that records calls, create a recorder yourself:
+Pass the token by name (`cancellationToken: ct`), as in the example: the second parameter is `isFailure`.
+`TrackAsync` has an overload for calls without a result. If `isFailure` throws, the call counts as failed and your
+own exception still reaches the caller. Recording is thread-safe and cheap: `Record` takes a short lock and allocates
+nothing in most calls. To unit test code that records calls, create a recorder yourself:
 `new CallRecorder("geocoding:api")`.
 
 At each sample the signal follows the same rules as the [HTTP clients](#http-clients): no calls, no signal; fewer
@@ -313,7 +331,8 @@ failure ratio, raised by p95 latency if latency thresholds are set.
 | `MinimumCalls` | 10 | Calls needed in an interval to judge the failure ratio |
 
 The signal's `Value` is the failure ratio (0 to 1). Tags: `calls`, `failures`, `failure_ratio`, `p95_ms`; `origin` =
-`calls`. The p95 comes from up to 2048 durations per interval, sampled evenly across it.
+`calls`. The p95 comes from up to 2,048 durations per interval, sampled at random across it (reservoir sampling), so
+it reflects the whole interval and not only its beginning.
 
 `Homeostat.Grpc` and `Homeostat.EntityFrameworkCore` are built on call signals. An integration package of your own
 can do the same with `services.AddCallSignals(source, origin, configure)` on the `IServiceCollection`, where `origin`
@@ -328,10 +347,12 @@ source, the last one wins.
 dotnet add package Homeostat.Polly --prerelease
 ```
 
-Homeostat publishes the state of the circuit breakers you choose. Enable the integration and attach a
-tracked state provider to each circuit breaker:
+Homeostat publishes the state of the circuit breakers you choose. Enable the integration and attach a tracked state
+provider to each circuit breaker:
 
 ```csharp
+using Homeostat.Polly;   // TrackCircuitBreaker
+
 builder.Services.AddHomeostat(h => h
     .AddCircuitBreakerSignals()
     .AddCondition("forecast-circuit-open", c => c
@@ -354,29 +375,35 @@ builder.Services.AddResiliencePipeline("forecast", (pipeline, context) =>
 
 Tags: `state`; `origin` = `circuit-breaker`.
 
-No signal is published for a circuit breaker until its pipeline is built, which usually happens on
-first use.
+Until its pipeline is built (usually on first use), Polly reports the circuit as Closed, so the signal is `Healthy`.
+
+A source can follow several pipeline instances: it reports the worst state among them (Open or Isolated, then
+HalfOpen, then Closed), so with keyed or dynamic pipelines (`AddResiliencePipeline<string, ...>`, a resilience handler
+that selects a pipeline per authority) one open circuit is enough to make the source `Unhealthy`. To tell the instances
+apart, give each its own source, for example `TrackCircuitBreaker($"forecast-circuit:{context.PipelineKey}")`. A
+pipeline rebuilt on reload gets a new provider; the previous one is dropped when Polly disposes the old pipeline. At
+most 32 providers are kept per source (the most recent ones), so pipelines rebuilt without being disposed cannot grow
+the list without bound. A pipeline you rebuild yourself without disposing the old one keeps the old breaker's last
+state in the source (an open breaker nobody calls again stays open): dispose the old pipeline, or give each pipeline
+instance its own source.
 
 Notes:
 
-- `AddResiliencePipeline` comes from the `Polly.Extensions` package; with HTTP clients the same pattern
-  works inside `AddResilienceHandler` (`Microsoft.Extensions.Http.Resilience`), whose context also
-  exposes `ServiceProvider`.
-- State is sampled at each detection interval: a circuit that opens and closes between two samples is
-  not seen. This is intended: Homeostat reacts to circuits that **stay** open.
-- Use **one source per circuit breaker**. If several pipelines track the same source (for example keyed
-  pipelines), the last one built replaces the others.
-- A circuit breaker that keeps opening is a strong hint that retries alone are not enough, which is
-  exactly where a healing plan helps.
+- `AddResiliencePipeline` comes from the `Polly.Extensions` package; with HTTP clients the same pattern works inside
+  `AddResilienceHandler` (`Microsoft.Extensions.Http.Resilience`), whose context also exposes `ServiceProvider`.
+- State is sampled at each detection interval: a circuit that opens and closes between two samples is not seen.
+  This is intended: Homeostat reacts to circuits that stay open.
+- A circuit breaker that keeps opening is a strong hint that retries alone are not enough, which is where a healing
+  plan helps.
 
 ---
 
 ## Metrics
 
-.NET libraries publish their metrics through `System.Diagnostics.Metrics`, the API underneath OpenTelemetry
-metrics: ASP.NET Core (`http.server.request.duration`), HttpClient (`http.client.request.duration`), Kestrel,
-the runtime, Entity Framework Core, and your own meters. Homeostat can listen to any instrument and turn it into
-a signal, **without OpenTelemetry**:
+.NET libraries publish their metrics through `System.Diagnostics.Metrics`, the API underneath OpenTelemetry metrics:
+ASP.NET Core (`http.server.request.duration`), HttpClient (`http.client.request.duration`), Kestrel, the runtime,
+Entity Framework Core, and your own meters. Homeostat can listen to any instrument and turn it into a signal, without
+OpenTelemetry:
 
 ```csharp
 .AddMetricSignal("http.client.request.duration", m => m
@@ -394,7 +421,7 @@ thresholds and published as a signal whose `Value` is the statistic.
 | Statistic | Meaning |
 |---|---|
 | `Mean`, `Min`, `Max`, `Sum`, `Count` | Over the measurements of the interval |
-| `P50`, `P90`, `P95`, `P99` | Percentiles (from up to 4096 sampled measurements) |
+| `P50`, `P90`, `P95`, `P99` | Percentiles (from up to 4,096 sampled measurements) |
 | `Rate` | Sum per second: increments of a counter per second |
 | `CountRate` | Measurements per second: for example requests per second from a duration histogram |
 | `Last` | Latest value: for gauges and observable instruments |
@@ -404,21 +431,36 @@ thresholds and published as a signal whose `Value` is the statistic.
 |---|---|
 | `FromMeter(name)` | Only the instrument of this meter (by default any meter with an instrument of that name) |
 | `Where(tag, value)`, `Where(predicate)` | Only measurements with these tags |
-| `RatioOf((value, tags) => ...)` | Uses `Ratio`, counting the matching measurements |
-| `DegradedAbove`, `UnhealthyAbove`, `DegradedBelow`, `UnhealthyBelow` | Thresholds (at least one is required) |
-| `MinimumCount(n)` | No signal for intervals with fewer measurements (default 1) |
-| `Scale(factor)` | Multiplies the statistic before the thresholds and the published value (default 1), for example `Scale(1.0 / maxPoolSize)` to turn a count into a share, or `Scale(1000)` for milliseconds |
+| `RatioOf((value, tags) => ...)` | Uses `Ratio`, counting the matching measurements. Calling `Statistic(...)` with another statistic after it is refused at startup (`InvalidOperationException`), since the match would be ignored |
+| `Statistic(statistic)` | Statistic compared with the thresholds (default `Mean`) |
+| `DegradedAbove`, `UnhealthyAbove`, `DegradedBelow`, `UnhealthyBelow` | Thresholds (at least one is required), inclusive: a value at or above (at or below) the threshold reaches it. They must be finite, with `DegradedAbove` at most `UnhealthyAbove` and `DegradedBelow` at least `UnhealthyBelow`; otherwise registration fails (`InvalidOperationException`) |
+| `MinimumCount(n)` | No signal for intervals with fewer measurements (default 1, at least 1) |
+| `Scale(factor)` | Multiplies the statistic before the thresholds and the published value (default 1; finite and not zero), for example `Scale(1.0 / 200)` (a pool of 200 connections) to turn a count into a share, or `Scale(1000)` for milliseconds |
 | `Source(name)` | Signal source (default `metric:{instrument}`) |
 
 ### Ready-made: server errors and latency
 
 ```csharp
 .AddServerErrorRateSignal()      // source "http-server:errors": share of 5xx; Degraded ≥ 1%, Unhealthy ≥ 5%
-.AddServerLatencySignal()        // source "http-server:latency": p95 in seconds; Degraded ≥ 0.5, Unhealthy ≥ 2
+.AddServerLatencySignal()        // source "http-server:latency": p95 in seconds; Degraded ≥ 500 ms, Unhealthy ≥ 2 s
 ```
 
-Both read ASP.NET Core's `http.server.request.duration` and publish nothing in intervals with fewer than 20
-requests; every threshold is a parameter.
+Both read ASP.NET Core's `http.server.request.duration` and publish nothing in intervals with fewer than
+`MinimumRequests` requests (20 by default). Change the source, the thresholds and the minimum with the options:
+
+```csharp
+.AddServerErrorRateSignal(o => { o.DegradedErrorRatio = 0.02; o.UnhealthyErrorRatio = 0.1; })   // ServerErrorRateSignalOptions
+.AddServerLatencySignal(o => o.UnhealthyLatency = TimeSpan.FromSeconds(1))                       // ServerLatencySignalOptions
+```
+
+| Option | Error rate default | Latency default | Meaning |
+|---|---|---|---|
+| `Source` | `http-server:errors` | `http-server:latency` | Signal source |
+| `DegradedErrorRatio`, `DegradedLatency` | 0.01 | 500 ms | Share of 5xx responses (error rate), or p95 as a `TimeSpan` (latency), from which the signal is `Degraded` |
+| `UnhealthyErrorRatio`, `UnhealthyLatency` | 0.05 | 2 s | Same, for `Unhealthy` |
+| `MinimumRequests` | 20 | 20 | Intervals with fewer requests publish no signal |
+
+Both types are in the `Homeostat.Metrics` namespace. The latency signal still publishes the p95 in seconds.
 
 Things to know:
 
@@ -429,7 +471,9 @@ Things to know:
   Homeostat turns into increments (so `Rate` and `Sum` mean "since the previous interval").
 - For up-down counters (such as active requests) and observable up-down counters, `Last` is the current
   **level**; for gauges it is the latest value. For instruments with several series (tag combinations), filter
-  with `Where` to the series you mean.
+  with `Where` to the series you mean. At most 10,000 series are tracked per instrument (a tag such as a user or a
+  URL could otherwise grow memory without limit): further series are not counted, and the signal's message says so.
+  Series that stop reporting are forgotten after 10 intervals.
 - Filters and ratio rules run inside the code that records the metric; Homeostat catches their exceptions, so a
   faulty filter only skips measurements. Keep them cheap: they run for every measurement.
 - The listener starts with the application; measurements recorded before it are not seen.
@@ -445,15 +489,22 @@ library's tracing events:
 h.AddEventCounterSignal("Microsoft.Data.SqlClient.EventSource", "hard-connects", o =>
 {
     o.Source = "sql-reconnects";
-    o.IntervalSeconds = 30;
+    o.Interval = TimeSpan.FromSeconds(30);
     o.DegradedAbove = 5;
 });
 ```
 
-Polling counters (a level, such as connections in use) publish their value; incrementing counters (events, such as
-connections opened) publish a **rate per second**, so thresholds hold whatever interval the event source reports at.
+| `EventCounterSignalOptions` | Default | Meaning |
+|---|---|---|
+| `Source` | `counter:{eventSource}:{counter}` | Signal source |
+| `Interval` | 10 seconds | How often the counter is reported, in whole seconds from 1 second to 1 hour. The event source reports at the shortest interval any listener asks for, so signals can come more often |
+| `Transform` | none | Turns the counter value into the signal value, for example a share of a maximum |
+| `DegradedAbove`, `UnhealthyAbove`, `DegradedBelow`, `UnhealthyBelow` | none | Thresholds, inclusive: a value at or above (at or below) the threshold reaches it |
 
-`AddSqlClientPoolSignal()` (package `Homeostat.Data`) is the ready-made one for SqlClient pool exhaustion, and
+Polling counters (a level, such as connections in use) publish their value; incrementing counters (events, such as
+connections opened) publish a rate per second, so thresholds hold whatever interval the event source reports at.
+
+`AddSqlClientPoolSignal()` (in the core package) is the ready-made one for SqlClient pool exhaustion, and
 `AddNpgsqlPoolSignal()` the one for Npgsql, from its metrics: see [Integrations](integrations.md#pool-exhaustion).
 
 ## Writing your own detector
@@ -488,9 +539,15 @@ public sealed class DiskSpaceDetector(TimeProvider time) : ISignalDetector
 .AddHomeostat(h => h.AddDetector<DiskSpaceDetector>())
 ```
 
-Detectors are singletons. Exceptions are logged and the next sample runs as usual. Prefer a detector
+Detectors are singletons and run every `DetectionInterval`, concurrently: a slow detector does not delay the others.
+An exception is logged once when the detector starts failing (and again when it works again), and the next sample
+runs as usual. A call that takes longer than the interval, or 30 seconds if that is longer, is abandoned and the
+detector is skipped until it returns. Prefer a detector
 over a hand-written background loop: it shares the interval, the logging and the testing support.
 
 A library that has only an `IServiceCollection` (an extension method of your own package, for example) registers a
-detector with `services.AddSignalDetector<DiskSpaceDetector>()`, the method `AddDetector<T>()` calls. It needs
+detector with `services.AddHomeostatDetector<DiskSpaceDetector>()`, the method `AddDetector<T>()` calls. It needs
 `AddHomeostat` too, and registering the same detector type twice has no effect.
+
+See also: [Signals](signals.md), [Conditions](conditions.md), [Integrations](integrations.md),
+[Performance](performance.md).

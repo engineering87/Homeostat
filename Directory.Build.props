@@ -10,15 +10,21 @@
 
   <!-- Package metadata -->
   <PropertyGroup>
-    <VersionPrefix>1.0.0</VersionPrefix>
-    <VersionSuffix>rc.1</VersionSuffix>
+    <!--
+      The version of the release, shared by every package; the release workflow sets it from the tag
+      (-p:HomeostatVersion=1.2.0). Preview packages (HomeostatPreview in their project) get "-preview" on a stable
+      version: see Directory.Build.targets and docs/versioning.md.
+    -->
+    <HomeostatVersion Condition="'$(HomeostatVersion)' == ''">1.0.0-rc.1</HomeostatVersion>
+    <Version>$(HomeostatVersion)</Version>
     <Authors>Francesco Del Re</Authors>
     <Copyright>Copyright (c) 2026 Francesco Del Re</Copyright>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageProjectUrl>https://github.com/engineering87/Homeostat</PackageProjectUrl>
     <RepositoryUrl>https://github.com/engineering87/Homeostat</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
-    <PackageTags>self-healing;resilience;remediation;health-checks;autonomic;dotnet</PackageTags>
+    <PackageTags>self-healing;auto-remediation;auto-healing;resilience;remediation;health-checks;sre;autonomic;dotnet</PackageTags>
+    <PackageReleaseNotes>https://github.com/engineering87/Homeostat/blob/main/CHANGELOG.md</PackageReleaseNotes>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <PackageIcon>icon.png</PackageIcon>
     <IncludeSymbols>true</IncludeSymbols>

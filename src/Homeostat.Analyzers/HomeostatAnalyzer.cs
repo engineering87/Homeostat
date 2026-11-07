@@ -14,10 +14,12 @@ public sealed class HomeostatAnalyzer : DiagnosticAnalyzer
     private static readonly ImmutableHashSet<string> SelectingMethods =
         ImmutableHashSet.Create("ForSource", "Where", "WhenAllActive", "WhenAnyActive");
 
-    private static readonly ImmutableHashSet<string> EndpointTypes = ImmutableHashSet.Create(
+    private static readonly string[] EndpointTypeNames =
+    [
         "Homeostat.HomeostatEndpointRouteBuilderExtensions",
         "Homeostat.HomeostatDashboardExtensions",
-        "Homeostat.HomeostatAlertEndpointExtensions");
+        "Homeostat.HomeostatAlertEndpointExtensions",
+    ];
 
     /// <inheritdoc />
     public override ImmutableArray<DiagnosticDescriptor> SupportedDiagnostics { get; } = ImmutableArray.Create(
@@ -46,7 +48,10 @@ public sealed class HomeostatAnalyzer : DiagnosticAnalyzer
                 start.Compilation.GetTypeByMetadataName("System.Threading.Tasks.ValueTask"),
                 start.Compilation.GetTypeByMetadataName("System.Threading.Tasks.ValueTask`1"),
                 start.Compilation.GetTypeByMetadataName("Microsoft.Extensions.Hosting.BackgroundService"),
-                start.Compilation.GetTypeByMetadataName("Homeostat.RestartableBackgroundService"));
+                start.Compilation.GetTypeByMetadataName("Homeostat.RestartableBackgroundService"),
+                // Resolved once per compilation: each invocation then compares symbols instead of formatting names.
+                EndpointTypeNames.Select(start.Compilation.GetTypeByMetadataName).OfType<INamedTypeSymbol>()
+                    .ToImmutableHashSet<INamedTypeSymbol>(SymbolEqualityComparer.Default));
 
             start.RegisterOperationAction(c => AnalyzeInvocation(c, planBuilder, homeostatBuilder, types), OperationKind.Invocation);
             if (healingAction is not null)
@@ -103,7 +108,10 @@ public sealed class HomeostatAnalyzer : DiagnosticAnalyzer
         if (SymbolEqualityComparer.Default.Equals(method.ContainingType, homeostatBuilder) && method.Name == "AddCondition"
             && invocation.Arguments.Length == 2 && Lambda(invocation.Arguments[1].Value) is { } configure)
         {
+            // Only calls on the condition builder select signals: a LINQ Where inside ClearWhen(...) does not.
+            var model = context.Operation.SemanticModel;
             var calls = configure.Syntax.DescendantNodes().OfType<InvocationExpressionSyntax>()
+                .Where(i => OnConditionBuilder(i, model, context.CancellationToken))
                 .Select(i => i.Expression is MemberAccessExpressionSyntax m ? m.Name.Identifier.ValueText : null);
 
             // The builder handed to a helper method (c => ConfigureFeed(c)) is configured where this rule cannot see.
@@ -120,7 +128,7 @@ public sealed class HomeostatAnalyzer : DiagnosticAnalyzer
             return;
         }
 
-        if (method.ContainingType is { } container && EndpointTypes.Contains(container.ToDisplayString()))
+        if (method.ContainingType is { } container && types.EndpointTypes.Contains(container))
         {
             var anonymous = invocation.Arguments.FirstOrDefault(a => a.Parameter?.Name == "allowAnonymous");
             if (anonymous is { ArgumentKind: ArgumentKind.Explicit, Value.ConstantValue: { HasValue: true, Value: true } }
@@ -129,6 +137,18 @@ public sealed class HomeostatAnalyzer : DiagnosticAnalyzer
                 context.ReportDiagnostic(Diagnostic.Create(Descriptors.AnonymousEndpoints, anonymous.Syntax.GetLocation(), method.Name));
             }
         }
+    }
+
+    private static bool OnConditionBuilder(InvocationExpressionSyntax invocation, SemanticModel? model, CancellationToken cancellationToken)
+    {
+        // Unresolved (code that does not compile yet): trust the name, so the rule never reports a false positive.
+        if (model?.GetSymbolInfo(invocation, cancellationToken).Symbol is not IMethodSymbol method)
+        {
+            return true;
+        }
+
+        var receiver = method.ReceiverType ?? method.ContainingType;
+        return receiver is { Name: "ConditionBuilder", ContainingNamespace: { Name: "Conditions", ContainingNamespace: { Name: "Homeostat", ContainingNamespace.IsGlobalNamespace: true } } };
     }
 
     private static void AnalyzeMethod(SyntaxNodeAnalysisContext context, INamedTypeSymbol healingAction, KnownTypes types)
@@ -222,9 +242,12 @@ public sealed class HomeostatAnalyzer : DiagnosticAnalyzer
         INamedTypeSymbol? valueTask,
         INamedTypeSymbol? valueTaskOfT,
         INamedTypeSymbol? backgroundService,
-        INamedTypeSymbol? restartable)
+        INamedTypeSymbol? restartable,
+        ImmutableHashSet<INamedTypeSymbol> endpointTypes)
     {
         public INamedTypeSymbol? ServiceProvider { get; } = serviceProvider;
+
+        public ImmutableHashSet<INamedTypeSymbol> EndpointTypes { get; } = endpointTypes;
 
         public INamedTypeSymbol? CancellationToken { get; } = cancellationToken;
 

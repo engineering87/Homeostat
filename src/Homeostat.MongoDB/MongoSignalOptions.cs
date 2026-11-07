@@ -9,8 +9,14 @@ public sealed class MongoSignalOptions
     /// <summary>Returns the client; by default the <see cref="IMongoClient"/> registered in the services.</summary>
     public Func<IServiceProvider, IMongoClient>? Client { get; set; }
 
+    /// <summary>
+    /// Source prefix of the signals: <c>{prefix}:ping</c>, <c>{prefix}:primary</c>, <c>{prefix}:pool</c> and
+    /// <c>{prefix}:replication-lag</c>. Defaults to <c>mongodb:{name}</c>.
+    /// </summary>
+    public string? Source { get; set; }
+
     /// <summary>Thresholds of the ping round trip, in milliseconds (<c>mongodb:{name}:ping</c>).</summary>
-    public ProbeOptions Ping { get; } = new();
+    public LatencyProbeOptions Ping { get; } = new();
 
     /// <summary>
     /// Publishes the replication lag of the replica set, in seconds (<c>mongodb:{name}:replication-lag</c>): how far
@@ -35,6 +41,9 @@ public sealed class MongoSignalOptions
     /// </summary>
     public int PoolTimeoutsUnhealthyAbove { get; set; }
 
-    /// <summary>How often the probes run and the event-based signals are published; defaults to 30 seconds.</summary>
+    /// <summary>
+    /// How often the probes run and the event-based signals are published; defaults to 30 seconds. An <c>Interval</c>
+    /// set on <see cref="Ping"/> or <see cref="Lag"/> wins over this one for that probe.
+    /// </summary>
     public TimeSpan Interval { get; set; } = TimeSpan.FromSeconds(30);
 }

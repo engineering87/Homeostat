@@ -1,3 +1,4 @@
+using System.ComponentModel;
 using Homeostat.Signals;
 
 namespace Homeostat.Probes;
@@ -95,10 +96,16 @@ public class ProbeOptions
     }
 
     /// <summary>
-    /// Copies the probe settings of this instance to <paramref name="target"/>. Integration packages whose options
-    /// derive from <see cref="ProbeOptions"/> use it to register a probe with their settings.
+    /// Copies the probe settings of this instance (the members of <see cref="ProbeOptions"/> only, not those of a
+    /// derived class) to <paramref name="target"/>. Integration packages whose options derive from
+    /// <see cref="ProbeOptions"/> use it to register a probe with their settings.
     /// </summary>
     /// <param name="target">The settings to overwrite.</param>
+    /// <remarks>
+    /// For integration packages, hidden from IntelliSense: applications set the options directly. Public rather than
+    /// internal so the integration packages do not depend on the internals of an exact Homeostat version.
+    /// </remarks>
+    [EditorBrowsable(EditorBrowsableState.Never)]
     public void CopyTo(ProbeOptions target)
     {
         target.Interval = Interval;

@@ -22,7 +22,7 @@ public class SlackInteractionTests
             .Configure(o => o.DryRun = false)
             .AddCondition("feed-down", c => c.ForSource("feed").Heal(p => p
                 .With("failover", _ => { }).RequireApproval(TimeSpan.FromMinutes(5))
-                .VerifyWith<BuiltInActionTests.AlwaysHealed>())));
+                .UseVerifier<BuiltInActionTests.AlwaysHealed>())));
         var app = builder.Build();
         app.MapHomeostatSlackInteractions(o =>
         {

@@ -1,15 +1,16 @@
 namespace Homeostat
   public static class HomeostatRedisExtensions
-    public static Homeostat.HomeostatBuilder AddRedisSignals(this Homeostat.HomeostatBuilder builder, string source = "redis", System.Action<Homeostat.Redis.RedisSignalOptions>? configure = null)
-    public static Homeostat.HomeostatBuilder UseRedis(this Homeostat.HomeostatBuilder builder, System.Action<Homeostat.Redis.RedisHomeostatOptions>? configure = null)
-    public static Homeostat.HomeostatBuilder UseRedis(this Homeostat.HomeostatBuilder builder, string connectionString, System.Action<Homeostat.Redis.RedisHomeostatOptions>? configure = null)
+    public static Homeostat.HomeostatBuilder AddRedisSignals(this Homeostat.HomeostatBuilder builder, System.Action<Homeostat.Redis.RedisSignalOptions>? configure = null)
+    public static Homeostat.HomeostatBuilder UseRedis(this Homeostat.HomeostatBuilder builder, System.Action<Homeostat.Redis.RedisStoreOptions>? configure = null)
+    public static Homeostat.HomeostatBuilder UseRedis(this Homeostat.HomeostatBuilder builder, string connectionString, System.Action<Homeostat.Redis.RedisStoreOptions>? configure = null)
 namespace Homeostat.Redis
-  public sealed class RedisHomeostatOptions
-    public RedisHomeostatOptions()
+  public sealed class RedisSignalOptions : Homeostat.Probes.LatencyProbeOptions
+    public RedisSignalOptions()
+    public bool PublishConnectionEvents { get; set; }
+    public string Source { get; set; }
+  public sealed class RedisStoreOptions
+    public RedisStoreOptions()
     public System.TimeSpan DocumentRetention { get; set; }
     public string KeyPrefix { get; set; }
     public System.TimeSpan PlanStateRetention { get; set; }
     public bool ShareBudget { get; set; }
-  public sealed class RedisSignalOptions : Homeostat.Probes.ProbeOptions
-    public RedisSignalOptions()
-    public bool PublishConnectionEvents { get; set; }

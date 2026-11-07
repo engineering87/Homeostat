@@ -7,7 +7,9 @@
     <!-- xUnit v3 test projects are executables. -->
     <OutputType>Exe</OutputType>
     <!-- Newer StackExchange.Redis versions mark the implicit string conversions as experimental. -->
-    <NoWarn>$(NoWarn);StringToRedisValue</NoWarn>
+    <!-- xUnit1051: the tests bound their own waits (simulated time, explicit timeouts), so passing the test context's
+         token everywhere would add noise, not responsiveness. -->
+    <NoWarn>$(NoWarn);StringToRedisValue;xUnit1051</NoWarn>
     <GenerateDocumentationFile>false</GenerateDocumentationFile>
   </PropertyGroup>
 
@@ -32,7 +34,6 @@
     <ProjectReference Include="..\..\src\Homeostat.Azure\Homeostat.Azure.csproj" />
     <ProjectReference Include="..\..\src\Homeostat.Caching\Homeostat.Caching.csproj" />
     <ProjectReference Include="..\..\src\Homeostat.Cli\Homeostat.Cli.csproj" />
-    <ProjectReference Include="..\..\src\Homeostat.Data\Homeostat.Data.csproj" />
     <ProjectReference Include="..\..\src\Homeostat.FeatureManagement\Homeostat.FeatureManagement.csproj" />
     <ProjectReference Include="..\..\src\Homeostat.Grpc\Homeostat.Grpc.csproj" />
     <ProjectReference Include="..\..\src\Homeostat.EntityFrameworkCore\Homeostat.EntityFrameworkCore.csproj" />

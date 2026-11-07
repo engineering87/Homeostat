@@ -23,7 +23,7 @@ builder.Services.AddSingleton(new ServiceBusClient(connectionString));
 builder.Services.AddSingleton(sp => sp.GetRequiredService<ServiceBusClient>().CreateProcessor("ingest"));
 
 builder.Services.AddHomeostat(h => h
-    .AddServiceBusQueueSignals("ingest", o => o.Active.UnhealthyAbove = 10_000)   // servicebus:ingest:active, :dead-letter
+    .AddServiceBusQueueSignals("ingest", o => o.Messages.UnhealthyAbove = 10_000)   // servicebus:ingest:messages, :dead-letter
     .AddPausableServiceBusProcessor("ingest")
     .AddCondition("archive-db-down", c => c
         .ForSource("archive-db")

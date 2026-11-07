@@ -1,6 +1,7 @@
 # Recipes
 
-Ready-to-adapt solutions for common scenarios. Methods marked *(your code)* stand for your own logic.
+Short solutions for common scenarios, to copy and adapt. Each one states the problem, the configuration and what to
+watch for. Code marked *(your code)* stands for your own logic.
 
 - [Fail over to a backup provider](#fail-over-to-a-backup-provider)
 - [Ask before failing over](#ask-before-failing-over)
@@ -31,8 +32,9 @@ otherwise you want to switch to a secondary provider.
         .Then<SwitchToBackupProviderAction>()))
 ```
 
-Make the health check report `Degraded` while serving from the backup. With the default clear rule,
-`Degraded` clears a condition that triggers on `Unhealthy`, so the run ends as `Healed`.
+Make the health check report `Degraded` while serving from the backup. The default clear rule clears a condition
+on any signal that does not trigger it, so `Degraded` clears a condition that triggers on `Unhealthy` and the run ends
+as `Healed`.
 Full code: [`samples/Homeostat.Samples.WeatherFeed`](../samples/Homeostat.Samples.WeatherFeed).
 
 ---
@@ -68,7 +70,7 @@ once the provider has been stable for a while.
     .ForSource("forecast")
     .SustainedFor(TimeSpan.FromSeconds(30))
     .ClearAfter(TimeSpan.FromMinutes(2))
-    .Heal(p => p.TurnOnSwitch("serve-cached-forecast", turnOffWhenCleared: true)))
+    .Heal(p => p.TurnOnSwitch("serve-cached-forecast")))
 ```
 
 The `forecast` health check must call the provider directly, not through the cached path, otherwise the switch
@@ -96,7 +98,8 @@ its own plan.
     .Heal(p => p.With("renew-air-quality", sp => sp.GetRequiredService<AirQualityClient>().Renew())))
 ```
 
-While `network-down` is active, the two client conditions are reported as suppressed and their plans wait.
+While `network-down` is pending or active, the two client conditions are reported as suppressed and their plans
+wait.
 See [Causes and symptoms](conditions.md#causes-and-symptoms-suppressedby).
 
 ---
@@ -137,8 +140,9 @@ signals.TryPublish("thumbnail-queue",
     .SustainedFor(TimeSpan.FromMinutes(2))
     .Heal(p => p
         .With<IncreaseWorkerParallelismAction>()
+            .VerificationTimeout(TimeSpan.FromMinutes(3))   // applies to the step before it
         .Then<PausePreviewGenerationAction>()
-        .VerificationTimeout(TimeSpan.FromMinutes(3))))
+            .VerificationTimeout(TimeSpan.FromMinutes(3))))
 ```
 
 ```csharp
@@ -152,8 +156,8 @@ public sealed class IncreaseWorkerParallelismAction(ThumbnailWorkerSettings sett
 }
 ```
 
-A backlog drains slowly: give verification enough time and remember that the condition clears only
-when the queue drops below the threshold.
+A backlog drains slowly: give verification enough time. The condition clears only when the queue drops below the
+threshold.
 
 ---
 
@@ -166,7 +170,7 @@ reloading configuration fixes it.
 .Heal(p => p.ReloadConfiguration())
 ```
 
-A built-in action: it calls `IConfigurationRoot.Reload()`. Components that read options through
+A built-in action that calls `IConfigurationRoot.Reload()`. Components that read options through
 `IOptionsMonitor<T>` see the new values after the reload. See [Actions](actions.md#reloadconfiguration).
 
 ---
@@ -176,7 +180,7 @@ A built-in action: it calls `IConfigurationRoot.Reload()`. Components that read 
 **Problem:** your health checks run every minute, but you want to know within seconds whether the
 action worked.
 
-Implement `IHealingVerifier` with a direct check and attach it to the plan with `VerifyWith<T>()`.
+Implement `IHealingVerifier` with a direct check and attach it to the plan with `UseVerifier<T>()`.
 See [Custom verifiers](healing-plans.md#custom-verifiers) for a complete example.
 
 ---
@@ -195,16 +199,18 @@ homeostat pause --for 20m            # resumes by itself after 20 minutes
 homeostat resume                     # resume early when the deployment went well
 ```
 
-From code, for example a deployment hook inside the application, use `PauseUntil` rather than `Pause()`, for the
+From code, for example a deployment hook inside the application, pass an end time to `PauseAsync`, for the
 same reason:
 
 ```csharp
 public sealed class DeploymentHook(IHomeostatControl control, TimeProvider time)
 {
-    public void Begin() => control.PauseUntil(time.GetUtcNow().AddMinutes(20));   // never left paused by mistake
-    public void End()   => control.Resume();
+    public ValueTask BeginAsync() => control.PauseAsync(time.GetUtcNow().AddMinutes(20), by: "deployment");   // never left paused by mistake
+    public ValueTask EndAsync()   => control.ResumeAsync();
 }
 ```
+
+With a shared store the pause applies to every instance, so one hook or one `homeostat pause` is enough.
 
 When deployments happen at fixed times, declare a [maintenance window](guardrails.md#maintenance-windows) instead:
 nobody has to remember to pause.
@@ -215,7 +221,7 @@ nobody has to remember to pause.
     .On(DayOfWeek.Wednesday))
 ```
 
-Keep plain `Pause()` for incidents that people handle by hand, and resume when they are done.
+Keep a pause without an end time (`PauseAsync()`) for incidents that people handle by hand, and resume when they are done.
 
 ---
 
@@ -223,8 +229,8 @@ Keep plain `Pause()` for incidents that people handle by hand, and resume when t
 
 **Problem:** you are not sure yet how to fix a problem, but you want to know how often it happens.
 
-Declare the condition **without** `Heal(...)`: it is tracked, logged and visible through
-`IHomeostatControl`, but it never acts.
+Declare the condition without `Heal(...)`: it is tracked, logged and visible through `IHomeostatControl` (and the
+status endpoint and dashboard), but it never acts.
 
 ```csharp
 .AddCondition("air-quality-slow", c => c
@@ -254,7 +260,7 @@ public async Task Renew_unsticks_the_client()
 }
 ```
 
-To test the whole loop (condition, plan, verification) use `HomeostatTestHost`: see [Testing](testing.md).
+To test the whole loop (condition, plan, verification), use `HomeostatTestHost`: see [Testing](testing.md).
 
 ---
 

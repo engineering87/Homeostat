@@ -72,7 +72,8 @@ public class AnalyzerTests
                     .AddCondition("feed-down", c => c.ForSource("feed"))
                     .AddCondition("slow", c => c.Where(s => s.Value > 100))
                     .AddCondition("both", c => c.WhenAllActive("feed-down", "slow"))
-                    .AddCondition("helper", c => Conditions.Feed(c)));
+                    .AddCondition("helper", c => Conditions.Feed(c))
+                    .AddCondition("tagged", c => c.ClearWhen(s => System.Linq.Enumerable.Any(System.Linq.Enumerable.Where(s.Tags!, t => t.Key == "zone")))));
             }
 
             public static class Conditions
@@ -81,9 +82,10 @@ public class AnalyzerTests
             }
             """);
 
-        var diagnostic = Assert.Single(diagnostics);
-        Assert.Equal("HOMEO002", diagnostic.Id);
-        Assert.Contains("'anything'", diagnostic.GetMessage());
+        // A LINQ Where inside ClearWhen does not select a source.
+        Assert.Equal(["HOMEO002", "HOMEO002"], Ids(diagnostics));
+        Assert.Contains(diagnostics, d => d.GetMessage().Contains("'anything'", StringComparison.Ordinal));
+        Assert.Contains(diagnostics, d => d.GetMessage().Contains("'tagged'", StringComparison.Ordinal));
     }
 
     [Fact]

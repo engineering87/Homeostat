@@ -12,14 +12,14 @@ internal sealed class HomeostatGauges : IHostedService, IDisposable
 {
     private readonly IHomeostatControl _control;
     private readonly IHomeostatSwitches _switches;
-    private readonly IHomeostatApprovals _approvals;
+    private readonly Engine.SharedControl _shared;
     private Meter? _meter;
 
-    public HomeostatGauges(IHomeostatControl control, IHomeostatSwitches switches, IHomeostatApprovals approvals)
+    public HomeostatGauges(IHomeostatControl control, IHomeostatSwitches switches, Engine.SharedControl shared)
     {
         _control = control;
         _switches = switches;
-        _approvals = approvals;
+        _shared = shared;
     }
 
     public Task StartAsync(CancellationToken cancellationToken)
@@ -27,8 +27,8 @@ internal sealed class HomeostatGauges : IHostedService, IDisposable
         var meter = new Meter(HomeostatDiagnostics.Name);
         meter.CreateObservableGauge("homeostat.conditions", ConditionsByStatus,
             description: "Conditions by status (Inactive, Pending, Active).");
-        meter.CreateObservableGauge("homeostat.approvals.pending", () => _approvals.GetPending().Count,
-            description: "Steps waiting for approval.");
+        meter.CreateObservableGauge("homeostat.approvals.pending", () => _shared.Current.Approvals.Count(a => a.Status is null),
+            description: "Steps waiting for approval, on every instance (as last read from the store).");
         meter.CreateObservableGauge("homeostat.switches.on", () => _switches.GetActive().Count,
             description: "Switches currently on.");
         meter.CreateObservableGauge("homeostat.paused", () => _control.IsPaused ? 1 : 0,

@@ -90,7 +90,9 @@ public sealed class HomeostatBuilder
         var options = new FileStoreOptions();
         configure?.Invoke(options);
         ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(options.PlanStateRetention, TimeSpan.Zero, nameof(configure));
-        return UseStore(_ => new FileHomeostatStore(path, options));
+        // Opened on first use: a file that cannot be opened (still locked by the previous process, a read-only volume)
+        // never stops the application from starting; Homeostat fails closed until it opens.
+        return UseStore(sp => new OpeningFileStore(path, options, sp.GetService<Microsoft.Extensions.Logging.ILogger<OpeningFileStore>>()));
     }
 
     /// <summary>Uses a custom <see cref="IHomeostatCoordinator"/> (registered as a singleton).</summary>
@@ -138,6 +140,7 @@ public sealed class HomeostatBuilder
             throw new InvalidOperationException($"Maintenance window '{name}' needs a schedule, for example Daily(start, duration).");
         }
 
+        window.Freeze();
         Services.AddSingleton(window);
         return this;
     }
@@ -148,30 +151,43 @@ public sealed class HomeostatBuilder
     /// Publishes signals about thread pool starvation (source <c>"threadpool"</c> by default),
     /// measured as the time a work item waits before running.
     /// </summary>
-    public HomeostatBuilder AddThreadPoolStarvationDetector(Action<ThreadPoolDetectorOptions>? configure = null)
-        => AddBuiltInDetector<ThreadPoolStarvationDetector, ThreadPoolDetectorOptions>(configure);
+    public HomeostatBuilder AddThreadPoolStarvationDetector(Action<ThreadPoolStarvationDetectorOptions>? configure = null)
+        => AddBuiltInDetector<ThreadPoolStarvationDetector, ThreadPoolStarvationDetectorOptions>(
+            configure,
+            o => !string.IsNullOrWhiteSpace(o.Source) && o.DegradedLatency > TimeSpan.Zero && o.UnhealthyLatency >= o.DegradedLatency
+                && Guardrails.TimerLimits.IsValid(o.UnhealthyLatency),
+            "the source cannot be empty, and the latencies must be positive with UnhealthyLatency at least DegradedLatency.");
 
     /// <summary>Publishes signals about memory load (source <c>"memory"</c> by default).</summary>
     public HomeostatBuilder AddMemoryPressureDetector(Action<MemoryPressureDetectorOptions>? configure = null)
-        => AddBuiltInDetector<MemoryPressureDetector, MemoryPressureDetectorOptions>(configure);
+        => AddBuiltInDetector<MemoryPressureDetector, MemoryPressureDetectorOptions>(
+            configure,
+            o => !string.IsNullOrWhiteSpace(o.Source) && o.DegradedLoad is > 0 and <= 1 && o.UnhealthyLoad is > 0 and <= 1 && o.UnhealthyLoad >= o.DegradedLoad,
+            "the source cannot be empty, and the loads must be between 0 and 1 with UnhealthyLoad at least DegradedLoad.");
 
     /// <summary>Publishes signals about the rate of thrown exceptions (source <c>"exceptions"</c> by default).</summary>
     public HomeostatBuilder AddExceptionRateDetector(Action<ExceptionRateDetectorOptions>? configure = null)
-        => AddBuiltInDetector<ExceptionRateDetector, ExceptionRateDetectorOptions>(configure);
+        => AddBuiltInDetector<ExceptionRateDetector, ExceptionRateDetectorOptions>(
+            configure,
+            o => !string.IsNullOrWhiteSpace(o.Source) && o.DegradedPerSecond > 0 && o.UnhealthyPerSecond >= o.DegradedPerSecond,
+            "the source cannot be empty, and the rates must be positive with UnhealthyPerSecond at least DegradedPerSecond.");
 
     /// <summary>
     /// Publishes the state of every <see cref="RestartableBackgroundService"/> registered with <c>AddHostedService</c>:
-    /// Healthy while it runs, Unhealthy when its loop threw or returned. The source is <c>service:{type name}</c>, so a
-    /// condition can restart a worker that crashed.
+    /// Healthy while it runs, Unhealthy when its loop threw or returned. The source is <c>hosted-service:{type name}</c>,
+    /// so a condition can restart a worker that crashed.
     /// </summary>
+    /// <param name="configure">Source prefix; optional.</param>
     /// <example>
     /// <code>
     /// h.AddBackgroundServiceSignals()
-    ///  .AddCondition("ingest-crashed", c => c.ForSource("service:IngestWorker")
+    ///  .AddCondition("ingest-crashed", c => c.ForSource("hosted-service:IngestWorker")
     ///      .Heal(p => p.RestartHostedService&lt;IngestWorker&gt;()));
     /// </code>
     /// </example>
-    public HomeostatBuilder AddBackgroundServiceSignals() => AddDetector<BackgroundServiceSignalDetector>();
+    public HomeostatBuilder AddBackgroundServiceSignals(Action<BackgroundServiceSignalOptions>? configure = null)
+        => AddBuiltInDetector<BackgroundServiceSignalDetector, BackgroundServiceSignalOptions>(
+            configure, o => !string.IsNullOrWhiteSpace(o.SourcePrefix), "the source prefix cannot be empty.");
 
     /// <summary>
     /// Registers a custom <see cref="ISignalDetector"/> (a singleton): the engine calls it at every
@@ -182,7 +198,7 @@ public sealed class HomeostatBuilder
     public HomeostatBuilder AddDetector<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] TDetector>()
         where TDetector : class, ISignalDetector
     {
-        Services.AddSignalDetector<TDetector>();
+        Services.AddHomeostatDetector<TDetector>();
         return this;
     }
 
@@ -211,17 +227,21 @@ public sealed class HomeostatBuilder
 
     private sealed class ObserverMarker<TObserver>;
 
-    private HomeostatBuilder AddBuiltInDetector<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] TDetector, TOptions>(Action<TOptions>? configure)
+    private HomeostatBuilder AddBuiltInDetector<
+        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] TDetector,
+        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicParameterlessConstructor)] TOptions>(
+        Action<TOptions>? configure, Func<TOptions, bool> valid, string error)
         where TDetector : class, ISignalDetector
         where TOptions : class
     {
-        var options = Services.AddOptions<TOptions>();
+        // Checked at startup: a bad threshold would otherwise fail at every detection.
+        var options = Services.AddOptions<TOptions>().Validate(valid, $"{typeof(TOptions).Name}: {error}").ValidateOnStart();
         if (configure is not null)
         {
             options.Configure(configure);
         }
 
-        Services.AddSignalDetector<TDetector>();
+        Services.AddHomeostatDetector<TDetector>();
         return this;
     }
 }

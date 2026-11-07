@@ -18,13 +18,18 @@ internal enum ConditionTransition
 /// </summary>
 internal sealed class ConditionTracker
 {
+    /// <summary>Shortest time without triggering signals after which a pending condition is stale.</summary>
+    internal static readonly TimeSpan StalePendingAfter = TimeSpan.FromMinutes(1);
+
     private readonly object _gate = new();
-    private ConditionStatus _status = ConditionStatus.Inactive;
+    private volatile ConditionStatus _status = ConditionStatus.Inactive;   // written under _gate, read without it
     private DateTimeOffset? _pendingSince;
     private DateTimeOffset? _activeSince;
     private DateTimeOffset? _clearingSince;
     private DateTimeOffset? _lastSignalAt;
+    private DateTimeOffset? _lastTriggeredAt;
     private Signal? _lastSignal;
+    private bool _retired;
 
     private volatile ConditionDefinition _definition;
 
@@ -55,11 +60,18 @@ internal sealed class ConditionTracker
 
         lock (_gate)
         {
+            if (_retired)
+            {
+                return ConditionTransition.None;
+            }
+
             _lastSignalAt = signal.Timestamp;
             _lastSignal = signal;
 
             if (triggered)
             {
+                var previousTrigger = _lastTriggeredAt;
+                _lastTriggeredAt = signal.Timestamp;
                 switch (_status)
                 {
                     case ConditionStatus.Inactive:
@@ -68,6 +80,12 @@ internal sealed class ConditionTracker
                         return TryActivate(signal.Timestamp);
 
                     case ConditionStatus.Pending:
+                        // The source went quiet: two isolated blips an hour apart are not a problem that persisted.
+                        if (previousTrigger is { } last && signal.Timestamp - last > RestartPendingAfter(definition))
+                        {
+                            _pendingSince = signal.Timestamp;
+                        }
+
                         return TryActivate(signal.Timestamp);
 
                     default:
@@ -100,11 +118,56 @@ internal sealed class ConditionTracker
         }
     }
 
+    /// <summary>
+    /// The condition was removed (configuration reload): it becomes inactive for good, so a run still in progress
+    /// stops before its next step and releases what it turns on.
+    /// </summary>
+    public void Retire()
+    {
+        lock (_gate)
+        {
+            _retired = true;
+            _status = ConditionStatus.Inactive;
+            _pendingSince = null;
+            _activeSince = null;
+            _clearingSince = null;
+        }
+    }
+
+    /// <summary>The current status, without the allocation of a snapshot (read on every signal).</summary>
+    public ConditionStatus Status => _status;
+
+    /// <summary>
+    /// A gap between triggering signals after which the SustainFor window starts again: twice SustainFor, at least five
+    /// minutes, so slow probes (a signal every minute or two) still sustain a condition.
+    /// </summary>
+    internal static TimeSpan RestartPendingAfter(ConditionDefinition definition)
+    {
+        var twice = definition.SustainFor * 2;
+        return twice > TimeSpan.FromMinutes(5) ? twice : TimeSpan.FromMinutes(5);
+    }
+
+    /// <summary>How long a pending cause still suppresses its symptoms without triggering signals: its SustainFor, at least a minute.</summary>
+    internal static TimeSpan StaleAfter(ConditionDefinition definition)
+        => definition.SustainFor > StalePendingAfter ? definition.SustainFor : StalePendingAfter;
+
+    /// <summary>When a signal last met the trigger (a cause stays Pending only while such signals keep coming).</summary>
+    public DateTimeOffset? LastTriggeredAt
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return _lastTriggeredAt;
+            }
+        }
+    }
+
     public ConditionSnapshot Snapshot()
     {
         lock (_gate)
         {
-            return new ConditionSnapshot(Definition.Name, _status, _pendingSince, _activeSince, _lastSignalAt, _lastSignal) { ClearingSince = _clearingSince };
+            return new ConditionSnapshot { Name = Definition.Name, Status = _status, PendingSince = _pendingSince, ActiveSince = _activeSince, LastSignalAt = _lastSignalAt, LastSignal = _lastSignal, ClearingSince = _clearingSince };
         }
     }
 

@@ -57,6 +57,20 @@ public class HttpSignalTests
     }
 
     [Fact]
+    public void Signal_settings_that_could_never_work_are_refused()
+    {
+        static void Add(Action<HttpClientSignalOptions> configure)
+            => new ServiceCollection().AddHttpClient("forecast").AddHomeostatSignals(configure);
+
+        Assert.Throws<ArgumentOutOfRangeException>(() => Add(o => o.DegradedFailureRatio = 0));
+        Assert.Throws<ArgumentOutOfRangeException>(() => Add(o => o.UnhealthyFailureRatio = double.NaN));
+        Assert.Throws<ArgumentOutOfRangeException>(() => Add(o => o.DegradedFailureRatio = 0.6));   // above the unhealthy 0.5
+        Assert.Throws<ArgumentOutOfRangeException>(() => Add(o => o.UnhealthyLatency = TimeSpan.Zero));
+        Assert.Throws<ArgumentOutOfRangeException>(() => Add(o => o.MinimumCalls = 0));
+        Assert.Throws<ArgumentException>(() => Add(o => o.IsFailure = null!));
+    }
+
+    [Fact]
     public async Task Instrumented_client_reports_failures()
     {
         var fault = new FaultSwitch();
@@ -68,7 +82,7 @@ public class HttpSignalTests
         services.AddHttpClient("forecast")
             .ConfigurePrimaryHttpMessageHandler(() => new FaultInjectingHandler(fault))
             .AddHomeostatSignals()
-            .AddHomeostatSignals(o => o.MinimumRequests = 5);   // a second call must not count requests twice
+            .AddHomeostatSignals(o => o.MinimumCalls = 5);   // a second call must not count requests twice
 
         await using var provider = services.BuildServiceProvider();
         var client = provider.GetRequiredService<IHttpClientFactory>().CreateClient("forecast");

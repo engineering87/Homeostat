@@ -1,7 +1,7 @@
 namespace Homeostat
   public static class HomeostatKubernetesExtensions
     public static Homeostat.Healing.HealingPlanBuilder CordonNode(this Homeostat.Healing.HealingPlanBuilder plan, bool requireApproval = true)
-    public static Homeostat.Healing.HealingPlanBuilder RestartPod(this Homeostat.Healing.HealingPlanBuilder plan, int gracePeriodSeconds = 30, bool requireApproval = true, Homeostat.Healing.RestartLimits? limits = null)
+    public static Homeostat.Healing.HealingPlanBuilder RestartPod(this Homeostat.Healing.HealingPlanBuilder plan, System.TimeSpan? gracePeriod = null, bool requireApproval = true, Homeostat.Healing.RestartLimits? limits = null)
     public static Homeostat.Healing.HealingPlanBuilder RolloutRestart(this Homeostat.Healing.HealingPlanBuilder plan, string deployment, bool requireApproval = true)
     public static Homeostat.Healing.HealingPlanBuilder ScaleDeployment(this Homeostat.Healing.HealingPlanBuilder plan, string deployment, int by, int maximum, int minimum = 1, bool requireApproval = true)
     public static Homeostat.Healing.HealingPlanBuilder UndoWithUncordon(this Homeostat.Healing.HealingPlanBuilder plan)
@@ -12,7 +12,7 @@ namespace Homeostat.Kubernetes
   public sealed class KubernetesOptions
     public const string ServiceAccountDirectory = "/var/run/secrets/kubernetes.io/serviceaccount"
     public KubernetesOptions()
-    public System.Func<System.Threading.CancellationToken, System.Threading.Tasks.ValueTask<string>>? AccessToken { get; set; }
+    public System.Func<System.IServiceProvider, System.Threading.CancellationToken, System.Threading.Tasks.ValueTask<string>>? AccessToken { get; set; }
     public System.Uri? ApiServer { get; set; }
     public string CertificateAuthorityPath { get; set; }
     public string? Namespace { get; set; }

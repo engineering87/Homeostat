@@ -14,6 +14,7 @@ The current version is a release candidate (`1.0.0-rc.1`): `--prerelease` is nee
 
 ```csharp
 using Homeostat;
+using Homeostat.Polly;   // TrackCircuitBreaker, CircuitControl, ChaosEnabledBySwitch
 using Polly;
 using Polly.CircuitBreaker;
 
@@ -22,7 +23,7 @@ builder.Services.AddHomeostat(h => h
     .AddCondition("forecast-circuit-open", c => c
         .ForSource("forecast-circuit")
         .SustainedFor(TimeSpan.FromMinutes(1))
-        .Heal(p => p.TurnOnSwitch("serve-cached-forecast", turnOffWhenCleared: true))));
+        .Heal(p => p.TurnOnSwitch("serve-cached-forecast"))));
 
 // AddResiliencePipeline comes from the Polly.Extensions package.
 builder.Services.AddResiliencePipeline("forecast", (pipeline, context) =>

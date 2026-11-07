@@ -3,10 +3,15 @@ namespace Homeostat.Conditions;
 /// <summary>Holds a tracker for every registered condition, validated as a whole.</summary>
 internal sealed class ConditionSet
 {
+    // A pending cause without any signal for this long (or for its SustainedFor, if longer) no longer suppresses: its
+    // source stopped reporting, and it would otherwise hold its symptoms back for ever.
+
+    private readonly TimeProvider _timeProvider;
     private volatile State _state;
 
-    public ConditionSet(IEnumerable<ConditionDefinition> definitions)
+    public ConditionSet(IEnumerable<ConditionDefinition> definitions, TimeProvider? timeProvider = null)
     {
+        _timeProvider = timeProvider ?? TimeProvider.System;
         _state = Build(definitions.ToList(), existing: null);
     }
 
@@ -57,7 +62,19 @@ internal sealed class ConditionSet
         var byName = _state.ByName;
         foreach (var name in definition.SuppressedBy)
         {
-            if (byName.TryGetValue(name, out var cause) && cause.Snapshot().Status != ConditionStatus.Inactive)
+            if (!byName.TryGetValue(name, out var cause))
+            {
+                continue;
+            }
+
+            var status = cause.Status;
+            if (status == ConditionStatus.Active)
+            {
+                return name;
+            }
+
+            if (status == ConditionStatus.Pending && cause.LastTriggeredAt is { } last
+                && _timeProvider.GetUtcNow() - last < ConditionTracker.StaleAfter(cause.Definition))
             {
                 return name;
             }
@@ -69,11 +86,19 @@ internal sealed class ConditionSet
     /// <summary>Whether a composite condition's combination currently holds.</summary>
     public bool CompositeHolds(ConditionDefinition composite)
     {
+        // A loop, not LINQ: this runs for every signal and every composite.
         var byName = _state.ByName;
-        bool Active(string name) => byName.TryGetValue(name, out var t) && t.Snapshot().Status == ConditionStatus.Active;
-        return composite.Composite == CompositeMode.All
-            ? composite.DependsOn.All(Active)
-            : composite.DependsOn.Any(Active);
+        var all = composite.Composite == CompositeMode.All;
+        foreach (var name in composite.DependsOn)
+        {
+            var active = byName.TryGetValue(name, out var tracker) && tracker.Status == ConditionStatus.Active;
+            if (active != all)
+            {
+                return active;
+            }
+        }
+
+        return all;
     }
 
     /// <summary>Snapshot that also reports the active suppressor.</summary>
