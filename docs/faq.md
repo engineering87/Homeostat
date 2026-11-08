@@ -54,6 +54,13 @@ condition that is not registered, or a cycle between them.
 No, they work together. See [Why Homeostat](why-homeostat.md) for a comparison with Polly and other tools, and an
 example that combines them.
 
+### Does Homeostat need to know my architecture?
+
+Yes, and you provide it. Homeostat runs the self-healing loop the same way for any application; what is specific to
+yours (which components to watch, when a failure is real, what depends on what, which actions are safe and in which
+order) you state in conditions and healing plans. See
+[Where the knowledge of your architecture goes](concepts.md#where-the-knowledge-of-your-architecture-goes).
+
 ### Is it safe to use in production?
 
 The defaults are chosen for that: dry-run on, budget, cooldown, timeouts, one run at a time, kill
