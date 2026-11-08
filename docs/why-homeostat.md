@@ -165,6 +165,9 @@ app.MapHealthChecks("/healthz/live", new HealthCheckOptions { Predicate = _ => f
   them in dry-run and in a game day before letting them act.
 - **For problems that span many services.** Homeostat acts within one application. Coordinating several services or
   teams is the job of incident and runbook automation.
+- **To learn the architecture for you.** Homeostat runs the loop; the knowledge of your architecture (components,
+  failure modes, dependencies, safe actions) is yours to state in conditions and plans. See
+  [Where the knowledge of your architecture goes](concepts.md#where-the-knowledge-of-your-architecture-goes).
 - **When nothing recurs.** Writing conditions and actions takes effort. If incidents are rare and always different,
   the starter presets (`AddWebApiDefaults`, `AddWorkerDefaults`) in observe-only mode may be all you need.
 - **Outside .NET 10.** Every package targets .NET 10. Applications on .NET Framework, .NET 8 or .NET 9 cannot use it.

@@ -134,6 +134,39 @@ sequenceDiagram
     Note over E: condition cleared, Healed
 ```
 
+## Where the knowledge of your architecture goes
+
+Self-healing needs knowledge of the architecture: which components exist, how each one fails, what depends on what,
+and what can safely be done about it. Homeostat does not discover that knowledge, and does not assume an architecture.
+It splits the work in two:
+
+- **The loop is general.** Observe, decide that a problem is real, choose the next step, act within the guardrails,
+  verify, record. It is the same for a web API, a worker, a message consumer or a modular monolith, and it is what the
+  library provides (the monitor, analyze, plan and execute stages of the MAPE-K loop of autonomic computing).
+- **The knowledge is yours.** You state it in code or [configuration](configuration.md), where it is versioned,
+  reviewed and tested like the rest of the application.
+
+| Knowledge of the architecture | Where you state it |
+|---|---|
+| Which components exist and how they are observed | Signal sources: health checks, metrics, probes, the [integration packages](integrations.md) (`ForSource("weather-feed")`) |
+| What counts as a failure of each component, and for how long | [Conditions](conditions.md): thresholds, `SustainedFor`, `ClearAfter`, trends, anomalies |
+| What depends on what (heal the cause, not its symptoms) | `SuppressedBy` and composite conditions: the dependency graph, as you know it |
+| What can be done about each component, from the least to the most invasive | [Actions](actions.md) and the order of the steps of a [healing plan](healing-plans.md) |
+| How the application is deployed | Plan scope (per instance or `OncePerCluster()`), the shared [store](persistence-and-clusters.md) |
+| Which degraded modes are acceptable | [Switches](actions.md), read by your code, feature flags or Polly |
+| How risky each action is | Approvals, compensating actions (`UndoWith`), restart limits and the other [guardrails](guardrails.md) |
+
+Because the knowledge is written down, it can be checked. The [dry-run](guardrails.md) shows what a plan would do, a
+[replay](intelligence.md) runs recorded signals against a new configuration, the [coverage report](intelligence.md)
+shows which conditions and steps were never exercised, and [scenario tests](testing.md) run a plan on simulated time.
+When the architecture changes, the conditions and plans change with it, in the same pull request.
+
+The limit of this design is its point of view: Homeostat runs inside one application. It coordinates the instances of
+that application through the shared store, and sees other services only through the signals it receives (their health
+checks, its HTTP and gRPC clients, alerts from your monitoring). Decisions that need a view of the whole system, such
+as rebalancing a cluster or moving traffic between regions, stay with the platform and the orchestrator; Homeostat can
+take part through its [Kubernetes and Azure actions](cloud.md) and through switches, but does not replace that level.
+
 ## Vocabulary
 
 | Term | Meaning |

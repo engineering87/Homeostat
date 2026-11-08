@@ -428,7 +428,9 @@ Also, compared with earlier builds:
     `HomeostatTestHost.Publish(..., value)` and `StartAsync(configureServices: ...)`; `ReplayReport.SignalCount`,
     `Since`, `Until`; a `MapHomeostat*` policy that looks like a route is refused. The naming rules are recorded in the
     [design decisions](docs/decisions.md) (P9).
-  - Documentation: a [Why Homeostat](docs/why-homeostat.md) page compares it with Polly, health checks and probes,
+  - Documentation: [Concepts](docs/concepts.md#where-the-knowledge-of-your-architecture-goes) explains which part of
+    self-healing is general (the loop Homeostat runs) and which is specific to each application (the knowledge of its
+    architecture, stated in conditions and plans), and where each piece of that knowledge goes; a [Why Homeostat](docs/why-homeostat.md) page compares it with Polly, health checks and probes,
     platform auto-heal and incident automation; the README shows a run of the weather feed sample (a timeline, with a link to the recording); a
     documentation site with the API reference is built with docfx and published to GitHub Pages (`Docs` workflow).
   - Checked as a new user would: the packages installed from a feed, the README quick start, the getting started
