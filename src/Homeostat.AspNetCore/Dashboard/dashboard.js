@@ -39,6 +39,20 @@
     banner.textContent = message || "";
   }
 
+  // The text of an error answer: the detail of a problem document (it says whether the change was made, may still be
+  // applied, or was not made), else its title, or a JSON string; null when the body has none.
+  async function problemText(response) {
+    try {
+      const body = JSON.parse(await response.text());
+      if (typeof body === "string" && body) return body;
+      if (body && typeof body.detail === "string" && body.detail) return body.detail;
+      if (body && typeof body.title === "string" && body.title) return body.title;
+    } catch {
+      // Not JSON (an empty body, an error page from a proxy).
+    }
+    return null;
+  }
+
   async function post(path, button) {
     if (button) button.disabled = true;
     try {
@@ -47,7 +61,10 @@
       if (response.type === "opaqueredirect") throw new Error("The session has expired: sign in again. Nothing was changed.");
       if (response.status === 401 || response.status === 403) throw new Error("You are not allowed to do this.");
       if (response.status === 404) throw new Error("Not found: the request may have been answered already, or the control endpoints are not mapped.");
-      if (!response.ok) throw new Error(`The server answered ${response.status}.`);
+      if (!response.ok) {
+        const detail = await problemText(response);
+        throw new Error(detail ? `The server answered ${response.status}: ${detail}` : `The server answered ${response.status}.`);
+      }
       await refresh();
     } catch (error) {
       showError(error.message);

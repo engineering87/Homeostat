@@ -86,16 +86,21 @@ public static class HomeostatResourceBuilderExtensions
     private static ResourceCommandState WhileRunning(UpdateCommandStateContext context)
         => context.ResourceSnapshot.State?.Text == KnownResourceStates.Running ? ResourceCommandState.Enabled : ResourceCommandState.Disabled;
 
+    /// <summary>
+    /// The prefix as a path without a trailing slash: <c>/homeostat</c>, or empty for the root (<c>/</c>, which
+    /// <c>MapHomeostat*</c> accepts too), so <c>{prefix}/pause</c> never starts with <c>//</c> (a network-path reference:
+    /// <c>//dashboard</c> in a link names a host).
+    /// </summary>
     internal static string NormalizePrefix(string prefix)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(prefix);
-        var trimmed = "/" + prefix.Trim().Trim('/');
-        if (trimmed.Contains("//", StringComparison.Ordinal) || trimmed.Contains('?', StringComparison.Ordinal) || trimmed.Contains('#', StringComparison.Ordinal))
+        var path = prefix.Trim().Trim('/');
+        if (path.Contains("//", StringComparison.Ordinal) || path.Contains('?', StringComparison.Ordinal) || path.Contains('#', StringComparison.Ordinal))
         {
             throw new ArgumentException("The prefix must be a path, for example /homeostat.", nameof(prefix));
         }
 
-        return trimmed;
+        return path.Length == 0 ? string.Empty : "/" + path;
     }
 
     /// <summary>The dashboard under the root of the endpoint, whatever path the endpoint URL carries (a launchUrl).</summary>

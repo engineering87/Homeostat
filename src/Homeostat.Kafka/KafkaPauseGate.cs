@@ -12,8 +12,10 @@ namespace Homeostat.Kafka;
 /// </summary>
 /// <example>
 /// <code>
+/// var consumers = sp.GetRequiredService&lt;IHomeostatConsumers&gt;();
 /// var gate = new KafkaPauseGate("telemetry");
-/// using var registration = sp.GetRequiredService&lt;IHomeostatConsumers&gt;().Register(gate);
+/// using var registration = consumers.Register(gate);
+/// if (consumers.IsPaused(gate.Name)) await gate.PauseAsync(stoppingToken);
 /// while (!stoppingToken.IsCancellationRequested)
 /// {
 ///     gate.Apply(consumer);

@@ -49,7 +49,9 @@ This protects you from a faulty signal or a misconfigured condition triggering a
 
 **Default: 5 minutes per plan.** Override per plan with `.Cooldown(...)`.
 
-After a run ends, whatever the outcome, the same plan cannot start again until the cooldown has elapsed. If the
+After a run ends, whatever the outcome, the same plan cannot start again until the cooldown has elapsed. The exception
+is a run that stopped before its first step because the condition cleared, Homeostat was paused or the run was
+suppressed between its start and step 1: it took no action, so it does not start the cooldown. If the
 condition is still active after the cooldown, the next triggering signal starts a new run from step 1. With
 [`CooldownBackoff`](healing-plans.md#cooldown-backoff), the cooldown grows after every run in a row that does not
 heal.

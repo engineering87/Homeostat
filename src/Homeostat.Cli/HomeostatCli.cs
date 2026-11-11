@@ -379,17 +379,61 @@ internal sealed class Client : IDisposable
             return body;
         }
 
+        // The endpoints say what happened in the problem document (decision I7): "nothing was changed", "may still be
+        // applied, check before retrying" or "was not made". The person must see which, not only the status code.
+        var detail = Detail(body);
         throw new CliException(response.StatusCode switch
         {
             HttpStatusCode.Unauthorized => "Not authenticated: pass a token with --token or HOMEOSTAT_TOKEN.",
-            HttpStatusCode.Forbidden => "Not allowed: the token does not satisfy the endpoint's policy.",
+            HttpStatusCode.Forbidden => "Not allowed: the token does not satisfy the endpoint's policy." + (detail is null ? string.Empty : $" {detail}"),
             HttpStatusCode.NotFound => $"Not found ({response.RequestMessage?.RequestUri?.AbsolutePath}): the request may have been answered already, or the endpoint is not mapped with this prefix.",
-            HttpStatusCode.BadRequest => $"Rejected: {body.Trim('"')}",
+            HttpStatusCode.BadRequest => $"Rejected: {detail ?? "the request is not valid."}",
             >= HttpStatusCode.MultipleChoices and < HttpStatusCode.BadRequest =>
                 $"The application redirected the request ({(int)response.StatusCode}, to {response.Headers.Location}), usually to a sign-in page: "
                 + "nothing was changed. Pass a token with --token or HOMEOSTAT_TOKEN.",
-            _ => $"The application answered {(int)response.StatusCode} ({response.StatusCode}).",
+            _ => $"The application answered {(int)response.StatusCode} ({response.StatusCode})" + (detail is null ? "." : $": {detail}"),
         });
+    }
+
+    private const int MaxDetailLength = 500;
+
+    /// <summary>
+    /// The text of an error answer: the <c>detail</c> of a problem document (else its <c>title</c>), or a JSON string;
+    /// <c>null</c> for an empty body or one that is not JSON (an HTML error page). Control characters are replaced and
+    /// the length bounded: the text comes from the server and goes to a terminal.
+    /// </summary>
+    internal static string? Detail(string body)
+    {
+        if (string.IsNullOrWhiteSpace(body))
+        {
+            return null;
+        }
+
+        string? text;
+        try
+        {
+            using var document = JsonDocument.Parse(body);
+            var root = document.RootElement;
+            text = root.ValueKind switch
+            {
+                JsonValueKind.String => root.GetString(),
+                JsonValueKind.Object when root.TryGetProperty("detail", out var d) && d.ValueKind == JsonValueKind.String && d.GetString() is { Length: > 0 } value => value,
+                JsonValueKind.Object when root.TryGetProperty("title", out var t) && t.ValueKind == JsonValueKind.String => t.GetString(),
+                _ => null,
+            };
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            return null;
+        }
+
+        text = StatusPrinter.Clean(text.Trim()).Replace('\n', ' ');
+        return text.Length <= MaxDetailLength ? text : string.Concat(text.AsSpan(0, MaxDetailLength), "...");
     }
 }
 

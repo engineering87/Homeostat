@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using OpenFeature;
 using OpenFeature.Constant;
 using OpenFeature.Model;
@@ -23,7 +24,14 @@ public sealed class HomeostatSwitchProvider : FeatureProvider
 {
     private static readonly Metadata ProviderMetadata = new("Homeostat switches");
     private readonly IHomeostatSwitches _switches;
+
+    // Names of the switches that changed and are not announced yet. The SDK's event channel holds one event, so a
+    // write while one is unread would fail and the change would be lost: changes are collected here (one entry per
+    // switch, so it stays as small as the number of switches) and a single pump writes them, waiting for room.
+    private readonly ConcurrentDictionary<string, byte> _pending = new(StringComparer.Ordinal);
+    private CancellationTokenSource _stopping = new();
     private int _subscribed;
+    private int _pumping;
 
     /// <summary>Creates the provider.</summary>
     /// <param name="switches">Homeostat switches.</param>
@@ -47,6 +55,11 @@ public sealed class HomeostatSwitchProvider : FeatureProvider
     {
         if (Interlocked.Exchange(ref _subscribed, 1) == 0)
         {
+            if (_stopping.IsCancellationRequested)
+            {
+                _stopping = new CancellationTokenSource();
+            }
+
             _switches.Changed += OnSwitchChanged;
         }
 
@@ -59,6 +72,8 @@ public sealed class HomeostatSwitchProvider : FeatureProvider
         if (Interlocked.Exchange(ref _subscribed, 0) == 1)
         {
             _switches.Changed -= OnSwitchChanged;
+            _stopping.Cancel();
+            _pending.Clear();
         }
 
         return Task.CompletedTask;
@@ -121,13 +136,71 @@ public sealed class HomeostatSwitchProvider : FeatureProvider
 
     private void OnSwitchChanged(object? sender, SwitchChangedEventArgs e)
     {
-        // The flag key of a switch is the prefix followed by the switch name.
-        EventChannel.Writer.TryWrite(new ProviderEventPayload
+        _pending[e.Name] = 0;
+        StartPump();
+    }
+
+    private void StartPump()
+    {
+        if (Interlocked.CompareExchange(ref _pumping, 1, 0) == 0)
         {
-            ProviderName = ProviderMetadata.Name,
-            Type = ProviderEventTypes.ProviderConfigurationChanged,
-            FlagsChanged = [KeyPrefix + e.Name],
-            Message = $"Homeostat switch '{e.Name}' turned {(e.IsOn ? "on" : "off")}.",
-        });
+            _ = PumpAsync(Volatile.Read(ref _stopping).Token);
+        }
+    }
+
+    private async Task PumpAsync(CancellationToken stopping)
+    {
+        try
+        {
+            while (true)
+            {
+                List<string> changed = [];
+                foreach (var name in _pending.Keys)
+                {
+                    if (_pending.TryRemove(name, out _))
+                    {
+                        changed.Add(name);
+                    }
+                }
+
+                if (changed.Count > 0)
+                {
+                    // The flag key of a switch is the prefix followed by the switch name. Waits while the SDK has not
+                    // read the previous event; changes made meanwhile go out together in the next one.
+                    await EventChannel.Writer.WriteAsync(new ProviderEventPayload
+                    {
+                        ProviderName = ProviderMetadata.Name,
+                        Type = ProviderEventTypes.ProviderConfigurationChanged,
+                        FlagsChanged = [.. changed.Select(name => KeyPrefix + name)],
+                        Message = $"Homeostat switches changed: {string.Join(", ", changed)}.",
+                    }, stopping).ConfigureAwait(false);
+                    continue;
+                }
+
+                // Stop, then look again: a change recorded after the last look but before the flag was cleared would
+                // otherwise wait for the next change to be announced. A full fence (not a volatile write): the look
+                // must not move before the flag is cleared, or a change recorded meanwhile would see the pump running
+                // while the pump sees nothing to do.
+                Interlocked.Exchange(ref _pumping, 0);
+                if (_pending.IsEmpty || Interlocked.CompareExchange(ref _pumping, 1, 0) != 0)
+                {
+                    return;
+                }
+            }
+        }
+        catch (Exception ex) when (ex is OperationCanceledException or System.Threading.Channels.ChannelClosedException)
+        {
+            // The provider was shut down, or the SDK closed its channel: nothing will read further events.
+            Interlocked.Exchange(ref _pumping, 0);
+
+            // A pump stopped by an earlier shutdown may end only after the provider was initialized again, and after
+            // a change that found it still running: start a pump for the current subscription so that change is not
+            // held until the next one. Only once per stale token: a pump on the current token stops for good.
+            if (ex is OperationCanceledException && stopping != Volatile.Read(ref _stopping).Token
+                && Volatile.Read(ref _subscribed) == 1 && !_pending.IsEmpty)
+            {
+                StartPump();
+            }
+        }
     }
 }

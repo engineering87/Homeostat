@@ -20,6 +20,8 @@ concurrency:
 
 jobs:
   build:
+    # A name of its own, so a required status check can tell it apart from the "build" job of the CI workflow.
+    name: Documentation site
     runs-on: ubuntu-latest
     env:
       # docfx runs on the newest installed runtime, so it can load the .NET 10 projects for the API reference.

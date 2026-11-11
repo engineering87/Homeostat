@@ -26,6 +26,8 @@ builder.Services.AddHomeostat(h => h
             .OncePerCluster())));                                          // one instance acts, shared cooldown
 ```
 
+`UseRedis("redis:6379")` gives the store and the coordinator a client of their own, even when the application registers an `IConnectionMultiplexer` (a cache, for example); `UseRedis()` uses the registered one. Keep the control state on a Redis without key eviction.
+
 Redis client signals: [Integrations](https://github.com/engineering87/Homeostat/blob/main/docs/integrations.md#redis).
 
 ## Documentation

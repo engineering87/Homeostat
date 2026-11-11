@@ -31,6 +31,7 @@ public sealed class HomeostatTestHost : IAsyncDisposable
     private readonly HomeostatTestHostOptions _options;
     private readonly CancellationTokenSource _autoAdvance = new();
     private Task _autoAdvanceLoop = Task.CompletedTask;
+    private int _disposed;
 
     private HomeostatTestHost(ServiceProvider provider, RunRecorder recorder, FakeTimeProvider time, HomeostatTestHostOptions options)
     {
@@ -247,9 +248,16 @@ public sealed class HomeostatTestHost : IAsyncDisposable
     private async Task<PendingApproval?> FindApprovalAsync(string conditionName)
         => (await Approvals.GetPendingAsync(CancellationToken.None).ConfigureAwait(false)).FirstOrDefault(a => a.ConditionName == conditionName);
 
-    /// <summary>Stops the services and releases the host.</summary>
+    /// <summary>Stops the services and releases the host. Calling it again does nothing.</summary>
     public async ValueTask DisposeAsync()
     {
+        // Idempotent, like other disposables: a second call (an explicit dispose inside an await using) must not stop
+        // disposed services again or cancel a disposed token source.
+        if (Interlocked.Exchange(ref _disposed, 1) != 0)
+        {
+            return;
+        }
+
         // Stop the services first, while simulated time still moves, so anything waiting on it can finish;
         // bound the wait so a misbehaving action or verifier cannot hang the test. A service that throws does not keep
         // the others running: its error is reported once everything is stopped and disposed.

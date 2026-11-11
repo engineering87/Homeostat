@@ -48,7 +48,7 @@ a million signals per source.
 | Structure | Limit |
 |---|---|
 | Signal buffer | `SignalBufferCapacity` signals (1,024); the oldest is dropped |
-| Window of a trend, projection or anomaly rule | About 8,192 points (about 128 KB); a faster source keeps the latest value of each interval of window / 8,192 |
+| Window of a trend, projection or anomaly rule | About 8,192 points (about 128 KB); a faster source keeps the latest value of each interval of window / 8,192; at most 8,704 whatever the order of the timestamps |
 | Matches of an `Occurrences` rule | The latest `count` |
 | Latency samples of a call recorder or an HTTP client | 2,048 per interval (reservoir sampling) |
 | Samples of a metric | 4,096 per interval (reservoir sampling) |

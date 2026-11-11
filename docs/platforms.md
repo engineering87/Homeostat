@@ -43,7 +43,7 @@ with NuGet.
 | `Homeostat.Http`, `Homeostat.Kubernetes`, `Homeostat.Azure`, `Homeostat.Artemis` | `Microsoft.Extensions.Http` | 10.0.14 |
 | `Homeostat.AspNetCore` | ASP.NET Core shared framework | .NET 10 |
 | `Homeostat.Caching` | `Microsoft.Extensions.Caching.Memory` | 10.0.14 |
-| `Homeostat.Polly` | `Polly.Core` | 8.9.0 |
+| `Homeostat.Polly` | `Polly.Core` | 8.9.1 |
 | `Homeostat.Grpc` | `Grpc.Net.ClientFactory` | 2.85.0 |
 | `Homeostat.EntityFrameworkCore` | `Microsoft.EntityFrameworkCore.Relational` | 10.0.14 |
 | `Homeostat.Redis` | `StackExchange.Redis` | 3.4.31 |

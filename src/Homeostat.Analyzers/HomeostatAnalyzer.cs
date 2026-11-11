@@ -114,10 +114,13 @@ public sealed class HomeostatAnalyzer : DiagnosticAnalyzer
                 .Where(i => OnConditionBuilder(i, model, context.CancellationToken))
                 .Select(i => i.Expression is MemberAccessExpressionSyntax m ? m.Name.Identifier.ValueText : null);
 
-            // The builder handed to a helper method (c => ConfigureFeed(c)) is configured where this rule cannot see.
+            // The builder handed to a helper method (c => ConfigureFeed(c)), or extended by a method of the application
+            // (c => c.Feed(), an extension method on ConditionBuilder), is configured where this rule cannot see.
             var parameter = configure.Symbol.Parameters.FirstOrDefault()?.Name;
-            var delegated = parameter is not null && configure.Syntax.DescendantNodes().OfType<ArgumentSyntax>()
-                .Any(a => a.Expression is IdentifierNameSyntax id && id.Identifier.ValueText == parameter);
+            var delegated = (parameter is not null && configure.Syntax.DescendantNodes().OfType<ArgumentSyntax>()
+                    .Any(a => a.Expression is IdentifierNameSyntax id && id.Identifier.ValueText == parameter))
+                || configure.Syntax.DescendantNodes().OfType<InvocationExpressionSyntax>()
+                    .Any(i => ExtendsConditionBuilder(i, model, context.CancellationToken));
 
             if (!delegated && !calls.Any(name => name is not null && SelectingMethods.Contains(name)))
             {
@@ -147,9 +150,17 @@ public sealed class HomeostatAnalyzer : DiagnosticAnalyzer
             return true;
         }
 
-        var receiver = method.ReceiverType ?? method.ContainingType;
-        return receiver is { Name: "ConditionBuilder", ContainingNamespace: { Name: "Conditions", ContainingNamespace: { Name: "Homeostat", ContainingNamespace.IsGlobalNamespace: true } } };
+        return IsConditionBuilder(method.ReceiverType ?? method.ContainingType);
     }
+
+    /// <summary>A call on the condition builder to a method that the builder itself does not declare (an extension method).</summary>
+    private static bool ExtendsConditionBuilder(InvocationExpressionSyntax invocation, SemanticModel? model, CancellationToken cancellationToken)
+        => model?.GetSymbolInfo(invocation, cancellationToken).Symbol is IMethodSymbol method
+            && IsConditionBuilder(method.ReceiverType)
+            && !IsConditionBuilder(method.ContainingType);
+
+    private static bool IsConditionBuilder(ITypeSymbol? type)
+        => type is { Name: "ConditionBuilder", ContainingNamespace: { Name: "Conditions", ContainingNamespace: { Name: "Homeostat", ContainingNamespace.IsGlobalNamespace: true } } };
 
     private static void AnalyzeMethod(SyntaxNodeAnalysisContext context, INamedTypeSymbol healingAction, KnownTypes types)
     {
@@ -177,14 +188,15 @@ public sealed class HomeostatAnalyzer : DiagnosticAnalyzer
         {
             AnonymousFunctionExpressionSyntax f => f.Body,
             MethodDeclarationSyntax { Body: { } block } => block,
-            MethodDeclarationSyntax m => m.ExpressionBody,
+            MethodDeclarationSyntax m => m.ExpressionBody?.Expression,
             _ => null,
         };
-        // Asynchronous work: an await, or an expression body that returns a task (x => client.RenewAsync()).
+        // Asynchronous work: an await, or an expression body (lambda or method arrow) that returns the task of a call
+        // (=> client.RenewAsync()). A task that is already complete (=> Task.CompletedTask, => Task.FromResult(x)) is
+        // synchronous work: the same rule for both forms.
         var asynchronous = body is not null
             && (body.DescendantNodesAndSelf().OfType<AwaitExpressionSyntax>().Any()
-                || (body is ExpressionSyntax expression && body.Parent is not BlockSyntax
-                    && model.GetTypeInfo(expression, cancellationToken).Type is { Name: "Task" or "ValueTask" }));
+                || (body is ExpressionSyntax expression && ReturnsTaskOfCall(expression, model, cancellationToken)));
         if (body is null || !asynchronous)
         {
             return;
@@ -197,6 +209,30 @@ public sealed class HomeostatAnalyzer : DiagnosticAnalyzer
         {
             report(Diagnostic.Create(Descriptors.CancellationIgnored, location, token.Name));
         }
+    }
+
+    /// <summary>
+    /// Whether an expression body returns the task of a call that does work, not a completed task made by a
+    /// <c>Task</c> or <c>ValueTask</c> factory (<c>FromResult</c>, <c>FromException</c>, <c>FromCanceled</c>).
+    /// </summary>
+    private static bool ReturnsTaskOfCall(ExpressionSyntax expression, SemanticModel model, CancellationToken cancellationToken)
+    {
+        while (expression is ParenthesizedExpressionSyntax parenthesized)
+        {
+            expression = parenthesized.Expression;
+        }
+
+        if (expression is not InvocationExpressionSyntax
+            || model.GetTypeInfo(expression, cancellationToken).Type is not { Name: "Task" or "ValueTask" })
+        {
+            return false;
+        }
+
+        return model.GetSymbolInfo(expression, cancellationToken).Symbol is not IMethodSymbol
+        {
+            IsStatic: true,
+            ContainingType: { Name: "Task" or "ValueTask", ContainingNamespace: { Name: "Tasks", ContainingNamespace: { Name: "Threading", ContainingNamespace: { Name: "System" } } } },
+        } method || !method.Name.StartsWith("From", StringComparison.Ordinal);
     }
 
     private static IAnonymousFunctionOperation? Lambda(IOperation value) => value switch

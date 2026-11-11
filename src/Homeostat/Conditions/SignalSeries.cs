@@ -19,6 +19,14 @@ internal sealed class SignalSeries(TimeSpan window)
     /// </summary>
     internal const int MaxPoints = 8192;
 
+    /// <summary>
+    /// Points kept at most, whatever the order of the timestamps. Signals in time order never reach it (the spacing keeps
+    /// them near <see cref="MaxPoints"/>), but past timestamps are kept as given (decision H8): a signal older than the
+    /// latest point is always added, so two interleaved sources, one lagging, would otherwise add a point for almost
+    /// every signal. Beyond it, the point that arrived first is dropped, so memory stays bounded (decision F7).
+    /// </summary>
+    internal const int HardLimit = MaxPoints + (MaxPoints / 16);
+
     private readonly TimeSpan _spacing = window / MaxPoints;
 
     // Points from _start on are in the window; the ones before are expired and removed in bulk.
@@ -80,6 +88,13 @@ internal sealed class SignalSeries(TimeSpan window)
 
         var cutoff = signal.Timestamp - window;
         while (_start < _points.Count && _points[_start].At < cutoff)
+        {
+            Accumulate(_points[_start], -1);
+            largestExpired = Math.Max(largestExpired, Math.Abs(_points[_start].Value - _shift));
+            _start++;
+        }
+
+        while (Count > HardLimit)
         {
             Accumulate(_points[_start], -1);
             largestExpired = Math.Max(largestExpired, Math.Abs(_points[_start].Value - _shift));

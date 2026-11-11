@@ -1,5 +1,7 @@
 using Homeostat.Conditions;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace Homeostat.HealthChecks;
 
@@ -15,16 +17,21 @@ internal sealed class HomeostatHealthCheck : IHealthCheck
     internal static readonly TimeSpan StoreTimeout = TimeSpan.FromMilliseconds(800);
 
     private readonly HealthStatus _attentionStatus;
+    private readonly ILogger _logger;
 
-    public HomeostatHealthCheck(IHomeostatControl control, IHomeostatApprovals approvals, HealthStatus attentionStatus)
+    public HomeostatHealthCheck(IHomeostatControl control, IHomeostatApprovals approvals, HealthStatus attentionStatus, ILogger? logger = null)
     {
         _control = control;
         _approvals = approvals;
         _attentionStatus = attentionStatus;
+        _logger = logger ?? NullLogger.Instance;
     }
 
     // Per Homeostat instance (the check itself is created for every probe).
     private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<IHomeostatControl, System.Runtime.CompilerServices.StrongBox<Task<(Guardrails.ActionBudgetStatus Budget, int Pending)>?>> s_reads = new();
+
+    // When the store failure was last logged as a warning (Environment.TickCount64), per Homeostat instance.
+    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<IHomeostatControl, System.Runtime.CompilerServices.StrongBox<long>> s_lastStoreLog = new();
 
     public async Task<HealthCheckResult> CheckHealthAsync(HealthCheckContext context, CancellationToken cancellationToken = default)
     {
@@ -64,7 +71,17 @@ internal sealed class HomeostatHealthCheck : IHealthCheck
             // Degraded whatever the attention status: the store is shared, so an outage fails this check on every
             // replica at once, and Unhealthy would take them all out of rotation for a problem of Homeostat, not of
             // the application (which keeps serving; Homeostat fails closed). Degraded answers 200 by default.
-            return HealthCheckResult.Degraded("The Homeostat store is unavailable.", ex);
+            // The exception goes to the log only, not into the result: a store's messages can name servers, and a
+            // health endpoint, often anonymous, may print the result's exception (decision I7).
+            // Warning at most once a minute per Homeostat instance, Debug otherwise: probes can come every second.
+            var lastLog = s_lastStoreLog.GetValue(_control, static _ => new(long.MinValue / 2));
+            var now = Environment.TickCount64;
+            var last = Interlocked.Read(ref lastLog.Value);
+            var level = now - last >= 60_000 && Interlocked.CompareExchange(ref lastLog.Value, now, last) == last
+                ? LogLevel.Warning
+                : LogLevel.Debug;
+            _logger.Log(level, ex, "The Homeostat health check could not read the store.");
+            return HealthCheckResult.Degraded("The Homeostat store is unavailable.");
         }
 
         var data = new Dictionary<string, object>

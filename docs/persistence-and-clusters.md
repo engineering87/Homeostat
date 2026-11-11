@@ -92,7 +92,9 @@ switch off as soon as the condition is not active there: at once when the instan
 claim has not been renewed for 4 renewal periods (12 refresh intervals, at least one minute). The observing instance
 uses the longer of its own period and the owner's, plus 30 seconds for the difference between the clocks, so an
 instance configured with a longer `ControlRefreshInterval` keeps its switch; a claim written by an older version
-without the period is judged by the observer's own. See [Actions](actions.md).
+without the period is judged by the observer's own. An orphaned claim whose plan step has `HoldAtMost` is turned off
+once it is older than the limit plus 30 seconds, even where the condition is still active: the owner's timer for the
+limit was lost with it. See [Actions](actions.md).
 
 ## Choosing a store
 
@@ -136,9 +138,14 @@ application's user can write.
 
 ### Redis store
 
-`UseRedis()` uses the `IConnectionMultiplexer` already registered in your container; `UseRedis("redis:6379")`
-creates one, with `abortConnect=false`, if none is registered. Register yours with `AbortOnConnectFail = false` too:
-otherwise resolving it blocks a thread for the whole connect timeout while Redis is down. The connection is resolved
+`UseRedis()` uses the `IConnectionMultiplexer` already registered in your container. `UseRedis("redis:6379")` gives
+the store and the coordinator a client of their own, with `abortConnect=false`, even when your application registers an
+`IConnectionMultiplexer` (before or after): the control state never goes through a client meant for something else,
+such as a cache whose eviction policy could drop the pause record. That client is also registered as the
+`IConnectionMultiplexer`, for `AddRedisSignals`, when your application has none. To share your own client on purpose,
+use `UseRedis()`. Either way, keep the control state on a Redis without key eviction (`maxmemory-policy noeviction`).
+Register your client with `AbortOnConnectFail = false` too: otherwise resolving it blocks a thread for the whole
+connect timeout while Redis is down. The connection is resolved
 on first use, so the application starts while Redis is unreachable; Homeostat stays paused until it can read the
 control state. A resolution that fails is tried again after 10 seconds, not on every store call. A pause record that
 cannot be read (written by another version, or damaged) counts as a pause that lasts until a person resumes, with the

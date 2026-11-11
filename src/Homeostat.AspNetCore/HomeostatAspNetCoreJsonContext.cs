@@ -12,7 +12,15 @@ namespace Homeostat.AspNetCore;
 /// The types the Homeostat endpoints answer with. Written with source-generated serialization, so the endpoints work
 /// in trimmed and Native AOT applications without the application registering anything.
 /// </summary>
-[JsonSourceGenerationOptions(JsonSerializerDefaults.Web, UseStringEnumConverter = true)]
+/// <remarks>
+/// Non-finite numbers are written as the strings <c>"NaN"</c>, <c>"Infinity"</c> and <c>"-Infinity"</c>: the core
+/// accepts them in signal values, and a single one (the triggering signal of a pending approval, a condition event)
+/// would otherwise make the whole answer fail, hiding the approvals exactly when a person is needed.
+/// </remarks>
+[JsonSourceGenerationOptions(
+    JsonSerializerDefaults.Web,
+    UseStringEnumConverter = true,
+    NumberHandling = JsonNumberHandling.AllowReadingFromString | JsonNumberHandling.AllowNamedFloatingPointLiterals)]
 [JsonSerializable(typeof(HomeostatStatus))]
 [JsonSerializable(typeof(ConditionEventInfo[]))]
 [JsonSerializable(typeof(CoverageReport))]

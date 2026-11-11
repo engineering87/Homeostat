@@ -52,7 +52,9 @@ Notes:
 - Pausing stops taking **new** messages. What happens to the messages in progress depends on the broker: see each
   section below.
 - Consumers declared with `AddPausableConsumer` are registered when the host starts. Consumers created later register
-  themselves with `IHomeostatConsumers.Register(consumer)`; if their switch is already on, they are paused at once.
+  themselves with `IHomeostatConsumers.Register(consumer)`; if their switch is already on, Homeostat pauses them at
+  once, on another thread (it never waits for a consumer on yours). So before starting a consumer you created, check
+  `IHomeostatConsumers.IsPaused(name)`: if it is paused, pause it yourself or do not start it, and the resume starts it.
 - A failed pause or resume is logged and **retried** (after 5, 15, 30 seconds, then every minute) until the consumer
   matches its switch. Each call has a 2-minute limit, so a consumer stuck waiting for its handlers does not block the
   next change.
@@ -62,7 +64,8 @@ Notes:
   `.PauseConsumer("ingest").HoldAtMost(TimeSpan.FromMinutes(30))` turns the switch off after that time even if the
   condition has not cleared; if it is still active, the plan runs again after its cooldown.
 - **Order of start-up**: a consumer that your code starts after registering it must not start consuming if it is
-  paused. `PausableRabbitMqConsumer.StartAsync` and `KafkaPauseGate` handle this. A Service Bus processor paused before
+  paused. `PausableRabbitMqConsumer.StartAsync` does not subscribe after a pause, and `KafkaPauseGate` pauses at the
+  first `Apply` after one; check `IsPaused` right after registering, as above, so the pause is there before the start. A Service Bus processor paused before
   the application starts it (the switch was already on) is watched while the pause stands, about every second, and
   stopped as soon as it starts processing; the resume then starts it again. Still, prefer not to call
   `StartProcessingAsync` again on a processor that Homeostat may have paused (for example from a worker that restarts
@@ -142,8 +145,9 @@ builder.Services.AddHomeostat(h => h
     }));
 ```
 
-Consume through `PausableRabbitMqConsumer` instead of calling `BasicConsumeAsync` yourself. Register it before
-starting it, so a consumer whose switch is already on never subscribes:
+Consume through `PausableRabbitMqConsumer` instead of calling `BasicConsumeAsync` yourself. Register it, then pause it
+before starting it if its switch is already on, so it never subscribes while paused (`StartAsync` does not subscribe
+after a pause, and the resume subscribes):
 
 ```csharp
 public sealed class ThumbnailWorker(IConnection connection, IHomeostatConsumers consumers) : RestartableBackgroundService
@@ -154,7 +158,12 @@ public sealed class ThumbnailWorker(IConnection connection, IHomeostatConsumers 
         await channel.BasicQosAsync(0, 20, false, stoppingToken);
         var consumer = new PausableRabbitMqConsumer("thumbnails", channel, "thumbnails", autoAck: false, new ThumbnailConsumer(channel));
         using var registration = consumers.Register(consumer);
-        await consumer.StartAsync(stoppingToken);   // does not subscribe while Homeostat has it paused
+        if (consumers.IsPaused(consumer.Name))
+        {
+            await consumer.PauseAsync(stoppingToken);   // the pause Homeostat applies runs on another thread
+        }
+
+        await consumer.StartAsync(stoppingToken);   // does not subscribe while paused
         await Task.Delay(Timeout.Infinite, stoppingToken);
     }
 }
@@ -183,6 +192,11 @@ Notes:
   Homeostat has the consumer paused; it subscribes at the resume.
 - If the broker cancels the subscription itself (queue deleted, node failure), the next resume subscribes again. A
   pause that fails because the channel is closed counts as done, since the subscription went with the channel.
+- A pause whose cancel fails on an open channel (no `cancel-ok` within the client's continuation timeout, for example
+  under a resource alarm) fails and keeps `IsConsuming` true, but the broker may have applied it all the same. The
+  resume then cancels that subscription again (the broker confirms a cancel even for a subscription it no longer
+  has) before subscribing, so the queue does not stay without a consumer. If that cancel fails too, the resume fails
+  and the consumer stays paused until the next attempt, rather than holding two subscriptions.
 
 ## Apache Kafka
 
@@ -269,7 +283,8 @@ Notes:
   Homeostat's resume leaves them paused. `IsPauseRequested` tells whether a pause is requested (it takes effect at the
   next `Apply`), for example to skip work in the loop.
 - A gate created by hand (`new KafkaPauseGate("telemetry")`) works too: register it with
-  `IHomeostatConsumers.Register(gate)` and dispose the registration when the loop ends.
+  `IHomeostatConsumers.Register(gate)`, call `gate.PauseAsync` yourself if `IHomeostatConsumers.IsPaused("telemetry")`
+  before the first `Consume`, and dispose the registration when the loop ends.
 
 ## Apache ActiveMQ Artemis
 
@@ -372,7 +387,8 @@ h.AddPausableConsumer(sp => sp.GetRequiredService<ImportQueueConsumer>());
 For a loop that pulls work (a polling worker, a change stream), a `PauseGate` is enough: register it with
 `AddPauseGate(name)`, and the loop awaits `WaitWhilePausedAsync` before taking the next item. `PauseGate.IsPaused`
 tells the current state. A gate created by hand (`new PauseGate(name)`) is registered with
-`IHomeostatConsumers.Register(gate)` instead.
+`IHomeostatConsumers.Register(gate)` instead; if `IHomeostatConsumers.IsPaused(name)`, call `gate.PauseAsync` before
+the loop takes its first item.
 
 Watch the backlog of any other broker with a [probe](integrations.md#probes-any-number-as-a-signal).
 

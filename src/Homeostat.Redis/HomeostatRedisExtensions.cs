@@ -29,7 +29,36 @@ public static class HomeostatRedisExtensions
     public static HomeostatBuilder UseRedis(this HomeostatBuilder builder, Action<RedisStoreOptions>? configure = null)
     {
         ArgumentNullException.ThrowIfNull(builder);
+        return Register(builder, sp => sp.GetRequiredService<IConnectionMultiplexer>(), configure);
+    }
 
+    /// <summary>
+    /// Same as <see cref="UseRedis(HomeostatBuilder, Action{RedisStoreOptions}?)"/>, connecting to Redis with a
+    /// connection string. The store and the coordinator use a client of their own, created with
+    /// <c>abortConnect=false</c>, even when the application registers an <see cref="IConnectionMultiplexer"/> of its
+    /// own (for a cache, for example); that client is also registered as the <see cref="IConnectionMultiplexer"/> when
+    /// the application has none.
+    /// </summary>
+    /// <param name="builder">The Homeostat builder.</param>
+    /// <param name="connectionString">StackExchange.Redis configuration, for example <c>"redis:6379"</c>.</param>
+    /// <param name="configure">Changes the settings.</param>
+    public static HomeostatBuilder UseRedis(this HomeostatBuilder builder, string connectionString, Action<RedisStoreOptions>? configure = null)
+    {
+        ArgumentNullException.ThrowIfNull(builder);
+        ArgumentException.ThrowIfNullOrWhiteSpace(connectionString);
+
+        // The store and the coordinator use a client of their own, whatever else is registered, before or after: an
+        // application's IConnectionMultiplexer (a cache, perhaps with an eviction policy that could drop the pause
+        // record and read as "not paused") must not receive the control state. The last call wins, like the store.
+        builder.Services.Replace(ServiceDescriptor.Singleton(_ => new OwnRedisConnection(connectionString)));
+
+        // AddRedisSignals pings the registered IConnectionMultiplexer: this client, unless the application has its own.
+        builder.Services.TryAddSingleton<IConnectionMultiplexer>(sp => sp.GetRequiredService<OwnRedisConnection>().Get());
+        return Register(builder, sp => sp.GetRequiredService<OwnRedisConnection>().Get(), configure);
+    }
+
+    private static HomeostatBuilder Register(HomeostatBuilder builder, Func<IServiceProvider, IConnectionMultiplexer> connection, Action<RedisStoreOptions>? configure)
+    {
         var options = builder.Services.AddOptions<RedisStoreOptions>()
             .Validate(o => !string.IsNullOrWhiteSpace(o.KeyPrefix), "KeyPrefix cannot be empty.")
             .Validate(o => o.PlanStateRetention > TimeSpan.Zero, "PlanStateRetention must be positive.")
@@ -43,36 +72,16 @@ public static class HomeostatRedisExtensions
         // The connection is resolved on first use, on Homeostat's threads: the application starts even while Redis is
         // unreachable (connecting can take seconds), and Homeostat waits, paused, until it can read the control state.
         builder.Services.Replace(ServiceDescriptor.Singleton<IHomeostatStore>(sp => new RedisHomeostatStore(
-            () => sp.GetRequiredService<IConnectionMultiplexer>(),
+            () => connection(sp),
             sp.GetRequiredService<IOptions<RedisStoreOptions>>(),
             sp.GetRequiredService<IOptions<HomeostatOptions>>(),
             sp.GetService<TimeProvider>(),
             sp.GetService<Microsoft.Extensions.Logging.ILogger<RedisHomeostatStore>>())));
         builder.Services.Replace(ServiceDescriptor.Singleton<IHomeostatCoordinator>(sp => new RedisCoordinator(
-            () => sp.GetRequiredService<IConnectionMultiplexer>(),
+            () => connection(sp),
             sp.GetRequiredService<IOptions<RedisStoreOptions>>(),
             sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<RedisCoordinator>>())));
         return builder;
-    }
-
-    /// <summary>Same as <see cref="UseRedis(HomeostatBuilder, Action{RedisStoreOptions}?)"/>, connecting to Redis with a connection string.</summary>
-    /// <param name="builder">The Homeostat builder.</param>
-    /// <param name="connectionString">StackExchange.Redis configuration, for example <c>"redis:6379"</c>.</param>
-    /// <param name="configure">Changes the settings.</param>
-    public static HomeostatBuilder UseRedis(this HomeostatBuilder builder, string connectionString, Action<RedisStoreOptions>? configure = null)
-    {
-        ArgumentNullException.ThrowIfNull(builder);
-        ArgumentException.ThrowIfNullOrWhiteSpace(connectionString);
-
-        // AbortOnConnectFail = false: the application starts even when Redis does not; the store fails closed and
-        // the client keeps reconnecting in the background.
-        builder.Services.TryAddSingleton<IConnectionMultiplexer>(_ =>
-        {
-            var configuration = ConfigurationOptions.Parse(connectionString);
-            configuration.AbortOnConnectFail = false;
-            return ConnectionMultiplexer.Connect(configuration);
-        });
-        return builder.UseRedis(configure);
     }
 
     /// <summary>

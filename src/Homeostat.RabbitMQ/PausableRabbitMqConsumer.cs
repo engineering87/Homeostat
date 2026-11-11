@@ -11,9 +11,11 @@ namespace Homeostat.RabbitMQ;
 /// </summary>
 /// <example>
 /// <code>
+/// var consumers = sp.GetRequiredService&lt;IHomeostatConsumers&gt;();
 /// var consumer = new PausableRabbitMqConsumer("thumbnails", channel, "thumbnails", autoAck: false, new ThumbnailConsumer(channel));
+/// using var registration = consumers.Register(consumer);
+/// if (consumers.IsPaused(consumer.Name)) await consumer.PauseAsync(ct);
 /// await consumer.StartAsync(ct);
-/// using var registration = sp.GetRequiredService&lt;IHomeostatConsumers&gt;().Register(consumer);
 /// </code>
 /// </example>
 public sealed class PausableRabbitMqConsumer : IPausableConsumer
@@ -52,8 +54,8 @@ public sealed class PausableRabbitMqConsumer : IPausableConsumer
     public bool IsConsuming => Volatile.Read(ref _consumerTag) is not null;
 
     /// <summary>
-    /// Starts consuming, unless Homeostat has paused the consumer (it may be registered first): then it starts when
-    /// resumed.
+    /// Starts consuming, unless the consumer was paused before (by Homeostat, or by you because
+    /// <c>IHomeostatConsumers.IsPaused</c> said so right after registering it): then it starts when resumed.
     /// </summary>
     /// <param name="cancellationToken">Cancellation token.</param>
     public async Task StartAsync(CancellationToken cancellationToken = default)
@@ -82,17 +84,7 @@ public sealed class PausableRabbitMqConsumer : IPausableConsumer
             _pauseRequested = true;
             if (Volatile.Read(ref _consumerTag) is { } tag)
             {
-                try
-                {
-                    await _channel.BasicCancelAsync(tag, noWait: false, cancellationToken).ConfigureAwait(false);
-                    Volatile.Write(ref _consumerTag, null);
-                }
-                catch when (!_channel.IsOpen)
-                {
-                    // The channel is gone: the subscription with it (and automatic recovery no longer restores a
-                    // consumer whose cancellation was requested). Nothing left to cancel.
-                    Volatile.Write(ref _consumerTag, null);
-                }
+                await CancelAsync(tag, cancellationToken).ConfigureAwait(false);
             }
         }
         finally
@@ -108,12 +100,38 @@ public sealed class PausableRabbitMqConsumer : IPausableConsumer
         await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
+            // A tag still held after a pause means the cancel failed on an open channel (a timeout while the broker
+            // was slow, under a resource alarm): the broker may have applied it all the same and discarded the late
+            // cancel-ok, leaving the queue without a consumer while the tag says otherwise. Cancel again (the broker
+            // answers cancel-ok for a tag it no longer knows), then subscribe. If that cancel fails too, the resume
+            // fails and stays paused, to be tried again.
+            if (_pauseRequested && Volatile.Read(ref _consumerTag) is { } stale)
+            {
+                await CancelAsync(stale, cancellationToken).ConfigureAwait(false);
+            }
+
             _pauseRequested = false;
             await SubscribeAsync(cancellationToken).ConfigureAwait(false);
         }
         finally
         {
             _gate.Release();
+        }
+    }
+
+    // Caller holds the gate.
+    private async Task CancelAsync(string tag, CancellationToken cancellationToken)
+    {
+        try
+        {
+            await _channel.BasicCancelAsync(tag, noWait: false, cancellationToken).ConfigureAwait(false);
+            Interlocked.CompareExchange(ref _consumerTag, null, tag);
+        }
+        catch when (!_channel.IsOpen)
+        {
+            // The channel is gone: the subscription with it (and automatic recovery no longer restores a
+            // consumer whose cancellation was requested). Nothing left to cancel.
+            Interlocked.CompareExchange(ref _consumerTag, null, tag);
         }
     }
 
@@ -127,8 +145,11 @@ public sealed class PausableRabbitMqConsumer : IPausableConsumer
         }
     }
 
-    /// <summary>The broker canceled the subscription (queue deleted, node failure): resuming must subscribe again.</summary>
-    private void OnCanceledByBroker(string consumerTag)
+    /// <summary>
+    /// The subscription ended: the broker canceled it (queue deleted, node failure) or confirmed a cancel. Resuming
+    /// must subscribe again.
+    /// </summary>
+    private void OnCanceled(string consumerTag)
     {
         // Tags are compared by value: the broker's string is never the instance we stored.
         if (Volatile.Read(ref _consumerTag) is { } current && string.Equals(current, consumerTag, StringComparison.Ordinal))
@@ -144,12 +165,17 @@ public sealed class PausableRabbitMqConsumer : IPausableConsumer
 
         public async Task HandleBasicCancelAsync(string consumerTag, CancellationToken cancellationToken = default)
         {
-            owner.OnCanceledByBroker(consumerTag);
+            owner.OnCanceled(consumerTag);
             await inner.HandleBasicCancelAsync(consumerTag, cancellationToken).ConfigureAwait(false);
         }
 
-        public Task HandleBasicCancelOkAsync(string consumerTag, CancellationToken cancellationToken = default)
-            => inner.HandleBasicCancelOkAsync(consumerTag, cancellationToken);
+        public async Task HandleBasicCancelOkAsync(string consumerTag, CancellationToken cancellationToken = default)
+        {
+            // A confirmed cancel ends the subscription whoever asked for it, including a second cancel sent after one
+            // that timed out.
+            owner.OnCanceled(consumerTag);
+            await inner.HandleBasicCancelOkAsync(consumerTag, cancellationToken).ConfigureAwait(false);
+        }
 
         public Task HandleBasicConsumeOkAsync(string consumerTag, CancellationToken cancellationToken = default)
             => inner.HandleBasicConsumeOkAsync(consumerTag, cancellationToken);

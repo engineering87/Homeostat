@@ -83,6 +83,7 @@ Assert.Collection(run.Steps,
 
 `DisposeAsync` stops the services while simulated time still moves, waiting at most `DefaultTimeout`. It stops every
 service even if one of them throws, then disposes the host and throws an `AggregateException` with the errors.
+Calling it again does nothing.
 
 ### Host options
 

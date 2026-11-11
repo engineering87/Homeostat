@@ -253,7 +253,7 @@ builder.Services.AddHomeostat(h => h
 |---|---|---|
 | `RestartAppService(siteId, softRestart)` | `POST {site or slot}/restart`; `softRestart` (`false` by default) applies the settings and restarts only if needed | Website Contributor |
 | `RestartVirtualMachine(vmId)` | `POST {vm}/restart` (asynchronous) | Virtual Machine Contributor |
-| `DisableFrontDoorOrigin(originId)` | `GET` the origin and its group, then `PATCH {origin}` `enabledState: Disabled`; enabled again if it did not help. Refused when the origin is already disabled or is the last enabled one of its group. The group is read again after the change: if no other origin is enabled any more (another plan or a person disabled them meanwhile), the origin is enabled again and the step fails | CDN Profile Contributor |
+| `DisableFrontDoorOrigin(originId)` | `GET` the origin and its group, then `PATCH {origin}` `enabledState: Disabled`; enabled again if it did not help. Refused when the origin is already disabled or is the last enabled one of its group. The group is read again after the change: if no other origin is enabled any more (another plan or a person disabled them meanwhile), the origin is enabled again and the step fails. If the change or that read fails (a timeout, a throttled or failed request), the origin is enabled again too, best effort, and the step fails with the original error: a step that fails is not undone, so the origin would otherwise stay out of rotation | CDN Profile Contributor |
 | `AzureResourceManager(name, method, resourceId, action, apiVersion, body)` | Any operation | As required |
 
 | `AzureOptions` | Default | Meaning |

@@ -78,7 +78,8 @@ public static class HomeostatHealthChecksExtensions
             sp => new HomeostatHealthCheck(
                 sp.GetRequiredService<IHomeostatControl>(),
                 sp.GetRequiredService<IHomeostatApprovals>(),
-                attentionStatus),
+                attentionStatus,
+                sp.GetService<Microsoft.Extensions.Logging.ILoggerFactory>()?.CreateLogger("Homeostat.HealthChecks")),
             HealthStatus.Degraded,
             (tags ?? []).Append(HomeostatHealthCheck.Tag),
             timeout));

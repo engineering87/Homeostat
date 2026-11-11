@@ -27,8 +27,9 @@ public interface IPausableConsumer
 public interface IHomeostatConsumers
 {
     /// <summary>
-    /// Registers a consumer. If its switch is already on, the consumer is paused right away. Dispose the result when the
-    /// consumer is disposed.
+    /// Registers a consumer. If its switch is already on, the consumer is paused right away, on another thread: this
+    /// method does not wait for it. Before starting a consumer you created, check <see cref="IsPaused"/> and pause it
+    /// yourself if so (the resume starts it). Dispose the result when the consumer is disposed.
     /// </summary>
     /// <param name="consumer">The consumer.</param>
     IDisposable Register(IPausableConsumer consumer);

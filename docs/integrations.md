@@ -355,8 +355,8 @@ Notes:
 dotnet add package Homeostat.Redis --prerelease
 ```
 
-`AddRedisSignals` watches the `IConnectionMultiplexer` registered in the container (the one used by `UseRedis`, or
-your caching one): a periodic `PING`, whose round trip in milliseconds is the value, plus an immediate signal when
+`AddRedisSignals` watches the `IConnectionMultiplexer` registered in the container (your caching one, or, when the
+application registers none, the one `UseRedis(connectionString)` creates for Homeostat's store): a periodic `PING`, whose round trip in milliseconds is the value, plus an immediate signal when
 the client loses or restores a connection.
 
 ```csharp
@@ -807,7 +807,7 @@ builder.AddProject<Projects.WeatherApi>("weather-api")
 
 | `HomeostatResourceOptions` | Default | Meaning |
 |---|---|---|
-| `Prefix` | `/homeostat` | Route prefix of the Homeostat endpoints in the application |
+| `Prefix` | `/homeostat` | Route prefix of the Homeostat endpoints in the application; `/` means they are mapped at the root |
 | `DashboardLink` | `true` | Adds the **Homeostat** link to the dashboard (`{prefix}/dashboard`, needs `MapHomeostatDashboard`) |
 | `Commands` | `true` | Adds the **Pause healing** and **Resume healing** commands (need `MapHomeostatControl`) |
 | `PauseFor` | 30 minutes | How long **Pause healing** pauses; `null` pauses until resumed |

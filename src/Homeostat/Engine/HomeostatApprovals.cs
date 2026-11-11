@@ -138,6 +138,15 @@ internal sealed class HomeostatApprovals : IHomeostatApprovals
             return false;
         }
 
+        // A request this instance made but no longer waits for (withdrawn while the store failed, so it is still pending
+        // there; or its registration timed out): an answer would run nothing, so it is refused instead of reported as
+        // given. Only this instance knows that its own runs stopped waiting.
+        if (string.Equals(pending.Instance, _instance, StringComparison.Ordinal) && !_waiting.ContainsKey(id))
+        {
+            _logger.LogInformation("Approval {ApprovalId} was not answered: the run that asked for it no longer waits for it.", id.ReplaceLineEndings(" "));
+            return false;
+        }
+
         // Whoever answers first in the store wins: an answer racing with expiry is either applied or reported as not found.
         bool answered;
         try

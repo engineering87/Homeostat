@@ -83,7 +83,9 @@ behind it are internal.
 }
 ```
 
-Enums are written as names (`"Unhealthy"`, `"Healed"`), never as numbers, and property names in camel case. The
+Enums are written as names (`"Unhealthy"`, `"Healed"`), never as numbers, and property names in camel case. A signal
+value that is not a finite number (a detector may publish `double.NaN`) is written as the string `"NaN"`,
+`"Infinity"` or `"-Infinity"`, here and in the history, so one such value never makes the endpoint fail. The
 shape of this document, and of the history and coverage documents below, is part of the public contract: fields
 are added in minor versions, never renamed or removed before a major version (see [Versioning](versioning.md)).
 
@@ -140,7 +142,7 @@ applies at once on the instance that answers, answers `204`, and is written to t
 so an outage never keeps chaos, an isolated circuit or a paused consumer on. A request waits at most 15 seconds for
 the store. A store that does not answer in time (a timeout) also answers `503`, with a message that depends on the
 change: a resume or a turn-on that times out is decided again in the safe direction (Homeostat pauses again, the switch
-is turned off), so it was not made; an approval or the release of a hold may still be applied by the store after the
+is turned off), whatever the instance showed before (its view may be behind the store), so it was not made; an approval or the release of a hold may still be applied by the store after the
 answer, so check `GET /status` before trying again. A change runs to its
 end even when the client disconnects (the store call does not take the request's token); the endpoint then returns
 without an answer. Changes reach the other instances within `ControlRefreshInterval`
@@ -269,7 +271,7 @@ builder.Services.AddHealthChecks()
 |---|---|---|
 | Nothing to report | Healthy | `No active condition.` |
 | Paused, budget exhausted, a step waiting for approval, or an active condition | Degraded (configurable) | The reasons, for example `paused by alice; active: weather-feed-down` |
-| Store unavailable | Degraded (always) | `The Homeostat store is unavailable.` |
+| Store unavailable | Degraded (always) | `The Homeostat store is unavailable.` (the store's error is in the application log only, never in the result: it can name servers) |
 
 The result data contains `paused`, `dry_run`, `active_conditions`, `budget_remaining` and `pending_approvals`.
 Use `failureStatus: HealthStatus.Unhealthy` to make it stricter (`null`, the default, means Degraded), `tags` to

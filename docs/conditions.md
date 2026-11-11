@@ -178,7 +178,8 @@ Things to know:
   Combine it with a fixed threshold when a high level must keep the condition active.
 - A window keeps about 8,192 points, whatever the signal rate: a source that publishes more often than every
   window / 8,192 (about 37 ms for a 5-minute window) keeps the latest value of each such interval, so memory stays
-  bounded (about 128 KB per condition). See [Performance](performance.md#memory).
+  bounded (about 128 KB per condition). Signals with timestamps older than the latest point (a source that lags
+  behind another) are kept as given; beyond 8,704 points the earliest received are dropped, whatever the order. See [Performance](performance.md#memory).
 - The history of trend, anomaly and projection rules lives in memory and starts empty after a restart, or when the
   condition's own configuration changes (for conditions defined in [configuration](configuration.md)). Seasonal
   baselines are kept in the store instead (below).
@@ -214,7 +215,8 @@ c.ForSource("ingest-queue-depth")
   learning. A configuration change that keeps the cycle keeps the baseline too. Loading happens in the background:
   the application starts at once, and the engine waits for the baselines (signals queue meanwhile) at most 10 seconds,
   then starts learning over. Each store call is bounded (10 seconds), one at a time per baseline, and the application's
-  shutdown waits for the store at most 10 seconds for the loop and 10 more for the final save.
+  shutdown waits for the store at most 10 seconds for the loop and 10 more for the final save, and never past the
+  host's shutdown timeout (`HostOptions.ShutdownTimeout`).
 - With a shared store, a starting instance loads the baseline saved by the others, then learns from its own signals
   and saves its own version every 5 minutes (the last to save wins). This suits instances behind a load balancer,
   which see the same rhythm; for instances with different rhythms, give them separate stores or key prefixes.

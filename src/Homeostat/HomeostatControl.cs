@@ -100,6 +100,9 @@ internal sealed class HomeostatControl : IHomeostatControl
         }
     }
 
+    // Who paused again after a resume timed out while this instance showed no pause.
+    internal const string TimedOutResume = "Homeostat (a resume that timed out)";
+
     // A pause refused by the store: a later pause leaves Homeostat paused (nothing lost); a later resume does not.
     private static string? LaterThanPause(ControlState stored)
         => stored.Pause is null ? "Homeostat resumed by a decision taken after this pause" : null;
@@ -120,11 +123,15 @@ internal sealed class HomeostatControl : IHomeostatControl
                 s => Engine.SharedControl.WithPause(s, null),
                 cancellationToken).ConfigureAwait(false);
         }
-        catch (Exception ex) when (ex is TimeoutException or OperationCanceledException && before is not null)
+        catch (Exception ex) when (ex is TimeoutException or OperationCanceledException)
         {
             // The caller is told it failed, but the store may still run the write later: the pause is decided again,
-            // after it, so the store ends paused, as the caller was told.
-            var again = new PauseState { Until = before!.Until, By = before.By, At = _timeProvider.GetUtcNow() };
+            // after it, so the store ends paused, as the caller was told. Whatever this instance's view showed: it may be
+            // behind the store (a pause made elsewhere within the refresh interval, or never read), so a view without a
+            // pause is no proof that the store holds none. Then the pause lasts until a person resumes (fail closed).
+            var again = before is not null
+                ? new PauseState { Until = before.Until, By = before.By, At = _timeProvider.GetUtcNow() }
+                : new PauseState { By = TimedOutResume, At = _timeProvider.GetUtcNow() };
             await _shared.ChangeOrDeferAsync(
                 "pause",
                 again.At,
@@ -213,8 +220,10 @@ internal sealed class HomeostatControl : IHomeostatControl
         {
             var definition = tracker.Definition;
             var mine = runs.Where(r => string.Equals(r.ConditionName, definition.Name, StringComparison.Ordinal)).ToList();
-            var tried = mine.SelectMany(r => r.Steps).Select(s => s.Name).ToHashSet(StringComparer.Ordinal);
-            var ran = mine.SelectMany(r => r.Steps).Where(s => s.Succeeded).Select(s => s.Name).ToHashSet(StringComparer.Ordinal);
+            // Records come from the store: a hand-edited file or a custom store may leave the steps out.
+            var recorded = mine.SelectMany(r => r.Steps ?? []).Where(s => s?.Name is not null).ToList();
+            var tried = recorded.Select(s => s.Name).ToHashSet(StringComparer.Ordinal);
+            var ran = recorded.Where(s => s.Succeeded).Select(s => s.Name).ToHashSet(StringComparer.Ordinal);
             var planSteps = definition.Plan?.Steps.Select(s => s.Name).ToList() ?? [];
             conditions.Add(new ConditionCoverage
             {

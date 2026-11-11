@@ -48,7 +48,8 @@ Without `ForSource`, `Where` or a composite rule (`WhenAllActive`, `WhenAnyActiv
 source: an unhealthy signal from any component triggers it, so any problem anywhere runs its plan. A condition that has
 neither `ForSource` nor `ClearWhen` is also refused when the application starts (a healthy signal from any component
 would clear it); the analyzer reports both cases at build time. A lambda that hands the builder to another method
-(`c => ConfigureFeed(c)`) is not reported, since the rule cannot see inside it.
+(`c => ConfigureFeed(c)`) or calls an extension method of yours on it (`c => c.Feed()`, with
+`static ConditionBuilder Feed(this ConditionBuilder c)`) is not reported, since the rule cannot see inside it.
 
 ## HOMEO003
 
@@ -64,7 +65,9 @@ The token is canceled at the action timeout and when the application stops. An a
 keeps running after its timeout, holding a concurrency slot and delaying shutdown. If the work really cannot be
 canceled, give the parameter a name that starts with `_` (`_` or `_cancellationToken`) to say so. The rule applies to `IHealingAction`
 implementations (their `ExecuteAsync`) and to inline actions with a `(context, cancellationToken)` lambda, when the body
-awaits something or returns a task (`(ctx, ct) => client.RenewAsync()`).
+awaits something or, written with `=>`, returns the task of a call (`(ctx, ct) => client.RenewAsync()`, or a method
+`=> client.RenewAsync();`). A body that returns a task already complete (`=> Task.CompletedTask`,
+`=> Task.FromResult(...)`) does synchronous work and is not reported, in a method or in a lambda alike.
 
 ## HOMEO004
 

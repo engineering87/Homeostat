@@ -130,24 +130,40 @@ public static class HomeostatAzureExtensions
 
             var logger = context.Services.GetService<ILoggerFactory>()?.CreateLogger("Homeostat.Azure");
             logger?.LogWarning("Disabling Front Door origin {Origin} for condition {Condition}.", Name(id), context.ConditionName);
-            await api.SendAsync(HttpMethod.Patch, id, null, FrontDoorApiVersion, new JsonObject { ["properties"] = new JsonObject { ["enabledState"] = "Disabled" } }, ct).ConfigureAwait(false);
 
             // The check above and the change are not atomic: another plan (another condition, or another instance)
             // may have disabled the other origins meanwhile. Read the group again; if no other origin is enabled any
             // more, this one goes back into rotation and the step fails. When two steps race, both may restore their
             // origin, which keeps traffic flowing: the safe outcome. The restore does not take the step's token, so a
             // step timeout cannot cut it short (the request has its own timeout).
-            origins = await api.SendAsync(HttpMethod.Get, group, "/origins", FrontDoorApiVersion, null, ct).ConfigureAwait(false);
-            if (OthersEnabled(origins, id) == 0)
+            //
+            // A step that throws is not undone, so any failure from the change on (a change that timed out after ARM
+            // applied it, a re-read refused with 429 or 5xx, the step's timeout) also puts the origin back before the
+            // error is passed on: otherwise it could stay out of rotation with nothing to restore it, and without the
+            // last-origin check. The origin was enabled before the change, so enabling it again is safe.
+            JsonNode? recheck;
+            try
+            {
+                await api.SendAsync(HttpMethod.Patch, id, null, FrontDoorApiVersion, Enabled(false), ct).ConfigureAwait(false);
+                recheck = await api.SendAsync(HttpMethod.Get, group, "/origins", FrontDoorApiVersion, null, ct).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                logger?.LogError(ex, "Disabling Front Door origin {Origin} failed or could not be checked: enabling it again.", Name(id));
+                await EnableAgainAsync(api, id, logger).ConfigureAwait(false);
+                throw;
+            }
+
+            if (OthersEnabled(recheck, id) == 0)
             {
                 logger?.LogError("Front Door origin {Origin} was the last enabled origin of its group after it was disabled: enabling it again.", Name(id));
-                await api.SendAsync(HttpMethod.Patch, id, null, FrontDoorApiVersion, new JsonObject { ["properties"] = new JsonObject { ["enabledState"] = "Enabled" } }, CancellationToken.None).ConfigureAwait(false);
+                await api.SendAsync(HttpMethod.Patch, id, null, FrontDoorApiVersion, Enabled(true), CancellationToken.None).ConfigureAwait(false);
                 throw new InvalidOperationException(
                     $"Front Door origin {Name(id)} was enabled again: the other origins of its group were disabled meanwhile (by another plan or a person), and disabling it would stop all traffic.");
             }
         });
         plan.UndoWith($"Enable Front Door origin {Name(id)}", (context, ct) => context.Services.GetRequiredService<ResourceManagerApi>()
-            .SendAsync(HttpMethod.Patch, id, null, FrontDoorApiVersion, new JsonObject { ["properties"] = new JsonObject { ["enabledState"] = "Enabled" } }, ct));
+            .SendAsync(HttpMethod.Patch, id, null, FrontDoorApiVersion, Enabled(true), ct));
         return requireApproval ? plan.RequireApproval() : plan;
     }
 
@@ -206,6 +222,22 @@ public static class HomeostatAzureExtensions
         });
 
         return requireApproval ? plan.RequireApproval() : plan;
+    }
+
+    private static JsonObject Enabled(bool enabled)
+        => new() { ["properties"] = new JsonObject { ["enabledState"] = enabled ? "Enabled" : "Disabled" } };
+
+    /// <summary>Best-effort restore after a failed disable; the caller passes the original error on.</summary>
+    private static async Task EnableAgainAsync(ResourceManagerApi api, string id, ILogger? logger)
+    {
+        try
+        {
+            await api.SendAsync(HttpMethod.Patch, id, null, FrontDoorApiVersion, Enabled(true), CancellationToken.None).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            logger?.LogCritical(ex, "Front Door origin {Origin} could not be enabled again: check it, and enable it by hand if it is disabled.", Name(id));
+        }
     }
 
     private static string Name(string resourceId) => resourceId[(resourceId.LastIndexOf('/') + 1)..];

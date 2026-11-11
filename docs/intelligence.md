@@ -68,8 +68,8 @@ attempts, smoothed as (healed + 1) / (attempts + 2), so one lucky run does not d
 - Steps reached only when the ones before them fail are tried less often, so they gain evidence slowly; this is
   intended: the declared order is the starting point, and the plan moves away from it only on evidence.
 - The history is the store's run history (`RunHistorySize`, 50 runs by default): with `UseRedis`, every instance
-  learns from every other. A changed order is logged at `Information` level. When the run history cannot be read, the
-  run uses the declared order.
+  learns from every other. A changed order is logged at `Information` level. When the run history cannot be read, or holds a
+  record the order cannot be learned from, the run uses the declared order; a record without steps counts as none.
 
 ## Recording and replay
 

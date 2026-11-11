@@ -36,9 +36,12 @@ and pushed to nuget.org with trusted publishing: the workflow's identity is exch
 no long-lived NuGet API key exists. Each release carries:
 
 - **Build provenance** for each package: a signed statement, stored by GitHub, that the package was built by that
-  workflow from that commit. Check a package downloaded from nuget.org with the GitHub CLI:
+  workflow from that commit. The statement covers the package as the workflow built it, which is the copy attached to
+  the GitHub release. The copy on nuget.org is a different file, because nuget.org adds its own repository signature to
+  every package it receives, so verify the release copy with the GitHub CLI:
 
   ```bash
+  gh release download v1.0.0 --repo engineering87/Homeostat --pattern 'Homeostat.1.0.0.nupkg'
   gh attestation verify Homeostat.1.0.0.nupkg --repo engineering87/Homeostat
   ```
 

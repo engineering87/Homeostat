@@ -51,8 +51,8 @@ jobs:
       # Only what reached main through a reviewed, checked pull request is published: a tag on develop or on a
       # feature branch stops here.
       - name: Check that the tag is on main
+        # The checkout above fetched every branch (fetch-depth: 0), so origin/main is already here.
         run: |
-          git fetch --no-tags origin main
           if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
             echo "::error::The tag points to a commit that is not on main. Merge develop into main first, then tag main."
             exit 1
@@ -117,7 +117,8 @@ jobs:
           upload-release-assets: false
 
       - name: Build provenance
-        # Signed statements that each package was built by this workflow from this commit:
+        # Signed statements that each package was built by this workflow from this commit. They match the packages
+        # attached to the GitHub release; the copies on nuget.org carry its repository signature as well, so they differ:
         #   gh attestation verify Homeostat.1.0.0.nupkg --repo engineering87/Homeostat
         id: provenance
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2

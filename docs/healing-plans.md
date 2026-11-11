@@ -87,7 +87,9 @@ serves every user, purging a cache that is expensive to rebuild. Mark them, and 
 5. Expired: the run stops with `NotApproved`; after the cooldown, a new triggering signal starts the plan again from
    the first step.
 6. Condition cleared while waiting: the request is withdrawn (`ApprovalStatus.Canceled`) and the run ends with
-   `ConditionCleared`. Requests are also withdrawn when the application stops.
+   `ConditionCleared`. Requests are also withdrawn when the application stops. If the store cannot record the
+   withdrawal, the request may still be listed as pending there, but the instance that made it refuses an answer to it
+   (`ApproveAsync` and `RejectAsync` return `false`): nothing waits for it any more.
 
 Things to know:
 
@@ -276,7 +278,8 @@ just changed, and leaving that in place would keep the application degraded. Its
 `HealingStepResult.UndoSucceeded`. If the action that timed out is still running (it ignored its cancellation and
 was abandoned), the compensating action waits for it to end, at most the step's action timeout, so the action cannot
 apply its change after the undo; if it is still running then, the compensating action is not run, `UndoSucceeded` is
-`false` and an error asks for a person. It does not run when the action threw (it may have refused on purpose, for example
+`false`, an error asks for a person and the run ends with `Failed`: the next step would act on top of a change that is
+half done and may still be applied. It does not run when the action threw (it may have refused on purpose, for example
 an origin someone else disabled), when verification is `Healed` (the change helped) or `Inconclusive` (Homeostat cannot
 tell, and stops), nor when the application stops during the step.
 

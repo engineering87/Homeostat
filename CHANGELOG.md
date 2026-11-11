@@ -8,7 +8,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 Nothing yet.
 
-## [1.0.0-rc.1] - 2026-11-05
+## [1.0.0-rc.1] - 2026-11-11
 
 First release candidate of Homeostat, a self-healing library for .NET 10 applications. Homeostat turns health
 information (detectors, metrics, probes, health checks, broker and cloud statistics, external alerts) into signals,
@@ -32,7 +32,7 @@ expected to stay stable through 1.0.0.
 - Shared control state: the pause, the application switches and the approval requests are kept in the store, so with
   a shared store a pause, a switch or an answer given on one instance applies to every instance within
   `HomeostatOptions.ControlRefreshInterval` (5 seconds by default). `IHomeostatStore` gains `GetControlStateAsync`,
-  `SetPauseAsync`, `SetSwitchAsync`, `TryClaimSwitchAsync`, `TryReleaseSwitchAsync` (atomic ownership of the
+  `TrySetPauseAsync`, `TrySetSwitchAsync`, `TryClaimSwitchAsync`, `TryReleaseSwitchAsync` (atomic ownership of the
   switches a cluster plan turns on), `AddApprovalAsync`, `TryResolveApprovalAsync` and `RemoveApprovalAsync`, with
   `ControlState`, `PauseState`, `SwitchState` and `ApprovalRecord`. The file store keeps the pause and the switches
   turned on by a person or by code across restarts; Redis keeps everything, shared, under keys with the `{control}`
@@ -239,7 +239,7 @@ All actions require approval by default.
 
 #### Trimming and Native AOT
 
-- Every library except `Homeostat.Aspire.Hosting` and the tools is `IsAotCompatible` and builds without trimming or AOT warnings. JSON is written
+- Every library except `Homeostat.Aspire.Hosting`, `Homeostat.EntityFrameworkCore` and the tools is `IsAotCompatible` and builds without trimming or AOT warnings. JSON is written
   with source-generated metadata or `JsonNode` (stores, audit log, recordings, notifiers, Kubernetes, Azure and Artemis
   requests); the endpoints use the request delegate generator and write their answers, problem details included,
   without reflection.
@@ -284,9 +284,8 @@ All actions require approval by default.
   clears, for actions whose effect can keep their own condition active.
 - `SwitchState.RenewedAt`: the instance that turned on a switch for a cluster plan renews it; when that instance
   stops or crashes, another instance turns the switch off as soon as the condition is not active there.
-- The pause and the switches are written in decision order: `IHomeostatStore.TrySetPauseAsync` and `TrySetSwitchAsync`
-  replace `SetPauseAsync` and `SetSwitchAsync`, and `TryReleaseSwitchAsync` takes the time the release was decided.
-  Every write carries the time of its decision, and the store refuses one older than the latest decision about the same
+- The pause and the switches are written in decision order. Every write (`IHomeostatStore.TrySetPauseAsync`,
+  `TrySetSwitchAsync`, `TryReleaseSwitchAsync`) carries the time of its decision, and the store refuses one older than the latest decision about the same
   pause or switch, so a write that timed out on the instance but reached the store later cannot undo a newer decision
   (a switch turned back on after it was turned off, a pause ended by an older resume). On a tie, a decision that makes
   Homeostat do less wins. `TryClaimSwitchAsync` follows the same order, and a renewal only updates the claim it renews.
@@ -452,7 +451,7 @@ Also, compared with earlier builds:
 ### Platform
 
 - Targets .NET 10 (LTS). .NET 8 and .NET 9 reach end of support on November 10, 2026.
-- Dependencies: Microsoft.Extensions 10.0.14, Polly.Core 8.9.0, StackExchange.Redis 3.4.29,
+- Dependencies: Microsoft.Extensions 10.0.14, Polly.Core 8.9.1, StackExchange.Redis 3.4.29,
   Azure.Messaging.ServiceBus 7.21.0, RabbitMQ.Client 7.2.2, Confluent.Kafka 2.16.0, MongoDB.Driver 3.13.0,
   Aspire.Hosting 13.6.4, Microsoft.FeatureManagement 4.8.0, OpenFeature 2.14.1, System.CommandLine 2.0.14,
   Microsoft.Extensions.TimeProvider.Testing 10.11.0; analyzers on Microsoft.CodeAnalysis.CSharp 5.0.0 (the Roslyn of
@@ -612,6 +611,43 @@ repository (version `0.1.0` in the project files):
 - The CLI keeps carriage returns out of the terminal; HOMEO002 is no longer silenced by a LINQ `Where` inside the
   condition.
 - `HomeostatOptions`, `RedisStoreOptions` and the built-in detector options are validated at startup.
+- A resume or a switch turn-on that times out is reversed toward the safe side whatever this instance's view showed:
+  Homeostat pauses again (recorded as by "Homeostat (a resume that timed out)") and the switch is turned off, so a late
+  write that reaches the store cannot undo a newer decision made on another instance.
+- Trend and anomaly windows keep at most 8,704 points whatever the order of the timestamps: two producers interleaving
+  past timestamps on one source no longer grow a window with the signal rate.
+- A run whose undo is refused because the abandoned action still runs ends `Failed` instead of escalating to the next
+  step from a half-done change.
+- A run stopped before its first step (the condition cleared, Homeostat paused, the run suppressed) no longer starts the
+  cooldown.
+- `HoldAtMost` on a `OncePerCluster()` switch is enforced by the other instances when the owner is gone, even while the
+  condition stays active there.
+- An answer to an approval request that this instance withdrew while the store failed is refused instead of reported as
+  accepted.
+- Run records without steps (a hand-edited file, a custom store) no longer break adaptive plans, the coverage report or
+  the status and history endpoints.
+- The final seasonal baseline save at shutdown follows the host's shutdown token.
+- `GET /homeostat/status` answered 500 while an approval was pending for a signal whose value was not a finite number:
+  the endpoints write `NaN` and the infinities as strings.
+- The CLI and the dashboard show the explanation of a refused or uncertain change (the problem's `detail`), not only
+  the status code.
+- The Homeostat health check no longer returns the store's exception (its message can name servers): the result is
+  Degraded with a description, and the exception is logged.
+- HOMEO002 is not reported for a condition configured through an extension method on `ConditionBuilder`; HOMEO003
+  treats arrow-bodied methods and lambdas alike and does not report already completed tasks.
+- Aspire: the root prefix `/` gives `/dashboard`, `/pause` and `/resume` instead of `//dashboard`.
+- `HomeostatTestHost.DisposeAsync` can be called twice.
+- OpenFeature: switch changes made in quick succession are all announced (the SDK's event channel holds one event; the
+  provider now waits for room and merges the changes made meanwhile).
+- RabbitMQ: a pause whose cancel timed out no longer leaves the queue without a consumer after the resume: the resume
+  cancels the old subscription again before subscribing.
+- Azure Front Door: when disabling an origin fails half way (the request or the check of the group throws), the origin
+  is enabled again before the step reports the error.
+- `UseRedis(connectionString)` keeps Homeostat's state on its own client, whatever `IConnectionMultiplexer` the
+  application registers.
+- Docs: start a consumer you created only after checking `IHomeostatConsumers.IsPaused`, since the pause applied at
+  registration runs on another thread; verify a release with the package attached to the GitHub release (nuget.org
+  adds its own signature, so its copy differs from the attested one).
 
 [Unreleased]: https://github.com/engineering87/Homeostat/compare/v1.0.0-rc.1...HEAD
 [1.0.0-rc.1]: https://github.com/engineering87/Homeostat/releases/tag/v1.0.0-rc.1

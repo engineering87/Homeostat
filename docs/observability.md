@@ -56,6 +56,7 @@ as the generic argument).
 | Error | `Condition {Condition}: the coordinator is unavailable; not starting the cluster plan.` | Fail closed for an `OncePerCluster()` plan (same rate limit) |
 | Error | `Condition {Condition}: could not save the plan state.` | Store write failed |
 | Warning | `Condition {Condition}: could not record the run in the history.` | Store write failed |
+| Warning | `The Homeostat health check could not read the store.` | The health check reports Degraded; the error is only in the log (Warning at most once a minute, Debug otherwise) |
 | Information | `Homeostat conditions reloaded from configuration ({Count} conditions).` | [Configuration](configuration.md) change applied |
 | Error | `The Homeostat configuration is not valid; keeping the previous conditions.` | Configuration change rejected |
 | Warning | `The Homeostat lease {Lease} was lost; another instance may take over.` | Redis lease taken over during a run |

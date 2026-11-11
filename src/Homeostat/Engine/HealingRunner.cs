@@ -501,16 +501,26 @@ internal sealed class HealingRunner
                 Held = held ? true : null,
             };
 
-            try
+            // A run stopped before its first step (the condition cleared, Homeostat paused or the run suppressed between
+            // the start and step 1) took no action: it neither starts the cooldown nor becomes the plan's last run.
+            // Starting a run already checks the pause and the suppression, so this cannot repeat on every signal; the
+            // other outcomes without a step (budget exhausted, not approved, dry-run) keep the cooldown, which keeps
+            // them from repeating.
+            var nothingDone = steps.Count == 0
+                && outcome is HealingRunOutcome.ConditionCleared or HealingRunOutcome.Paused or HealingRunOutcome.Suppressed;
+            if (!nothingDone)
             {
-                _knownState[key] = await SharedControl.Bounded(() => _store.UpdatePlanStateAsync(key, update, persistCts.Token), SharedControl.WriteTimeout, persistCts.Token).ConfigureAwait(false);
-            }
-            catch (Exception ex)
-            {
-                // Keep the cooldown locally at least, so the plan does not repeat at once.
-                _knownState[key] = update.ApplyTo(_knownState.TryGetValue(key, out var known) ? known : PlanState.Empty);
-                _logger.LogError(ex, "Condition {Condition}: could not save the plan state.", name);
-                saved = false;
+                try
+                {
+                    _knownState[key] = await SharedControl.Bounded(() => _store.UpdatePlanStateAsync(key, update, persistCts.Token), SharedControl.WriteTimeout, persistCts.Token).ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    // Keep the cooldown locally at least, so the plan does not repeat at once.
+                    _knownState[key] = update.ApplyTo(_knownState.TryGetValue(key, out var known) ? known : PlanState.Empty);
+                    _logger.LogError(ex, "Condition {Condition}: could not save the plan state.", name);
+                    saved = false;
+                }
             }
 
             // The condition cleared while the outcome was being saved: the reset that the clear wrote may have landed
@@ -564,7 +574,18 @@ internal sealed class HealingRunner
             return plan.Steps;
         }
 
-        var ordered = AdaptiveOrder.Order(plan.Steps, history, plan.ConditionName, minimum);
+        IReadOnlyList<HealingStep> ordered;
+        try
+        {
+            ordered = AdaptiveOrder.Order(plan.Steps, history, plan.ConditionName, minimum);
+        }
+        catch (Exception ex)
+        {
+            // A history the order cannot be learned from (a malformed record) is no reason not to heal.
+            _logger.LogWarning(ex, "Condition {Condition}: the run history could not be read for the step order; declared step order.", plan.ConditionName);
+            return plan.Steps;
+        }
+
         if (!ordered.SequenceEqual(plan.Steps))
         {
             _logger.LogInformation("Condition {Condition}: steps ordered by measured success: {Steps}.",
@@ -699,13 +720,15 @@ internal sealed class HealingRunner
                 // compensating action runs too, and the escalation does not start from a half-done change. An action
                 // that threw is not compensated: it may have refused on purpose (an origin someone else disabled).
                 bool? undoneAfterFailure = null;
+                var stillRunning = false;
                 if (error is TimeoutException && step.ResolveUndo is { } undoAfterFailure && !cancellationToken.IsCancellationRequested)
                 {
                     // An action abandoned at its timeout may still apply its change: undoing it meanwhile could be
                     // overwritten by it. Compensate once it has ended, waiting at most the compensation's own timeout.
-                    undoneAfterFailure = await WhenAbandonedActionEndedAsync(context, step, cancellationToken).ConfigureAwait(false)
-                        ? await TryUndoAsync(context, step, undoAfterFailure, plan, scope.ServiceProvider, cancellationToken).ConfigureAwait(false)
-                        : false;
+                    stillRunning = !await WhenAbandonedActionEndedAsync(context, step, cancellationToken).ConfigureAwait(false);
+                    undoneAfterFailure = stillRunning
+                        ? false
+                        : await TryUndoAsync(context, step, undoAfterFailure, plan, scope.ServiceProvider, cancellationToken).ConfigureAwait(false);
                 }
 
                 Report(results, new HealingStepResult
@@ -718,6 +741,14 @@ internal sealed class HealingRunner
                     Error = error,
                     UndoSucceeded = undoneAfterFailure,
                 });
+
+                if (stillRunning)
+                {
+                    // The change is half done and may still be applied, uncompensated: escalating would act on top of it.
+                    // A person was asked to look (decision H2); the run ends here.
+                    return (HealingRunOutcome.Failed, false);
+                }
+
                 continue;
             }
 

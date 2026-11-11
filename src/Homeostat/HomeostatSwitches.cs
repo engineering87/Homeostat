@@ -298,11 +298,13 @@ internal sealed class HomeostatSwitches : IHomeostatSwitches
                         }
                     }
                 }
-                else if (now - renewed >= OrphanAfter(current) && _conditions?.Get(condition)?.Status != Conditions.ConditionStatus.Active)
+                else if (now - renewed >= OrphanAfter(current)
+                    && (_conditions?.Get(condition)?.Status != Conditions.ConditionStatus.Active || PastHoldAtMost(current, condition, now)))
                 {
                     _logger.LogWarning(
                         "Application switch {Switch} was turned on by condition {Condition} on instance {Instance}, which no longer holds it, "
-                        + "and the condition is not active here: turning it off.", current.Name, condition, current.Instance);
+                        + "and the condition is not active here, or the switch was held longer than its HoldAtMost: turning it off.",
+                        current.Name, condition, current.Instance);
                     // As of the renewal seen here: if its owner renewed it since (this view is a few seconds old), the
                     // store keeps it. An abandoned switch (its owner stopped) is released as of now.
                     var seen = current.RenewedAt is { } r && r > DateTimeOffset.UnixEpoch ? r : (DateTimeOffset?)null;
@@ -370,6 +372,34 @@ internal sealed class HomeostatSwitches : IHomeostatSwitches
         return (owners > _orphanAfter ? owners : _orphanAfter) + ClockSkewMargin;
     }
 
+    /// <summary>
+    /// Whether an orphaned claim is older than the <c>HoldAtMost</c> of its plan, as this instance knows the plan. The
+    /// owner's timer for the limit lives in its memory and is lost when it stops or crashes; the instances run the same
+    /// plans, so they enforce the limit from the claim's decision time instead (decision S7), with the margin for clock
+    /// differences. Only when every step of the plan that turns this switch on has a limit: a claim made by a step without
+    /// one is never cut short.
+    /// </summary>
+    private bool PastHoldAtMost(SwitchState claim, string condition, DateTimeOffset now)
+    {
+        TimeSpan? limit = null;
+        foreach (var step in _conditions?.Get(condition)?.Definition.Plan?.Steps ?? [])
+        {
+            if (!string.Equals(step.SwitchToResetOnClear, claim.Name, StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            if (step.MaxHold is not { } hold)
+            {
+                return false;
+            }
+
+            limit = limit is { } longest && longest > hold ? longest : hold;
+        }
+
+        return limit is { } max && now - claim.At >= max + ClockSkewMargin;
+    }
+
     private static TimeSpan Threshold(TimeSpan renewEvery) => renewEvery * 4 > TimeSpan.FromMinutes(1) ? renewEvery * 4 : TimeSpan.FromMinutes(1);
 
     // Decisions and renewals are stamped by each instance's clock: kept synchronized (NTP), they differ by far less.
@@ -420,7 +450,6 @@ internal sealed class HomeostatSwitches : IHomeostatSwitches
         // A person or code turning on a switch makes it theirs, even one a plan owns: the condition clearing no longer
         // turns it off. Always written: this instance's view may be behind (the switch turned off elsewhere a moment ago).
         var state = new SwitchState { Name = name, By = by, At = _timeProvider.GetUtcNow() };
-        var wasOff = GetShared(name) is null;
         bool applied;
         try
         {
@@ -431,10 +460,12 @@ internal sealed class HomeostatSwitches : IHomeostatSwitches
                 s => SharedControl.WithSwitch(s, name, state),
                 cancellationToken).ConfigureAwait(false);
         }
-        catch (Exception ex) when (ex is TimeoutException or OperationCanceledException && wasOff)
+        catch (Exception ex) when (ex is TimeoutException or OperationCanceledException)
         {
             // The caller is told it failed, but the store may still run the write later: the switch is turned off
-            // again, decided after it, so it ends off, as the caller was told.
+            // again, decided after it, so it ends off, as the caller was told. Whatever this instance's view showed: it
+            // may be behind the store (the switch turned off elsewhere a moment ago), so a switch shown on here is no
+            // proof that the late turn-on would change nothing (fail closed).
             var off = _timeProvider.GetUtcNow();
             await _shared.ChangeOrDeferAsync(
                 Key(name),

@@ -18,13 +18,20 @@ internal static class AdaptiveOrder
         var healed = new Dictionary<string, int>(StringComparer.Ordinal);
         foreach (var run in history)
         {
-            if (!string.Equals(run.ConditionName, condition, StringComparison.Ordinal))
+            // Records come from the store: a hand-edited file or a custom store may leave fields out. Such a record is
+            // no evidence, and must not make every adaptive run fail.
+            if (run is null || !string.Equals(run.ConditionName, condition, StringComparison.Ordinal))
             {
                 continue;
             }
 
-            foreach (var step in run.Steps)
+            foreach (var step in run.Steps ?? [])
             {
+                if (step?.Name is null)
+                {
+                    continue;
+                }
+
                 attempts[step.Name] = attempts.GetValueOrDefault(step.Name) + 1;
                 if (step.Succeeded && step.Verification == VerificationOutcome.Healed)
                 {

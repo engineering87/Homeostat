@@ -73,7 +73,8 @@ internal sealed record RunInfo(string Condition, string Outcome, DateTimeOffset 
 {
     internal static RunInfo From(HealingRunRecord r) => new(
         r.ConditionName, r.Outcome.ToString(), r.StartedAt, r.CompletedAt,
-        r.Steps.Select(s => new StepInfo(s.Name, s.Succeeded, s.Verification?.ToString(), s.Error, s.UndoSucceeded)).ToArray(),
+        // A record from a hand-edited file or a custom store may lack its steps: shown as none, never a failed answer.
+        (r.Steps ?? []).Where(s => s is not null).Select(s => new StepInfo(s.Name ?? string.Empty, s.Succeeded, s.Verification?.ToString(), s.Error, s.UndoSucceeded)).ToArray(),
         r.Instance);
 }
 

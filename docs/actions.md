@@ -165,7 +165,9 @@ needs it. Three cautions:
   dead-letter count stay paused (the count cannot fall while they are paused); an origin taken out of rotation by a
   condition on its own traffic leaves the condition without signals. Base the condition on another signal, and add
   `.HoldAtMost(duration)` after the step as a safety net: the switch goes off after that time even if the condition
-  has not cleared, and the plan runs again after its cooldown if it is still active.
+  has not cleared, and the plan runs again after its cooldown if it is still active. For a `OncePerCluster()` plan
+  whose instance stopped or crashed while holding the switch, another instance turns it off once the claim is older
+  than the limit (plus 30 seconds for clock differences), even if the condition is still active there.
 
 With `turnOffWhenCleared: false`, turning the switch off is up to you, for example from the
 [control endpoints](aspnetcore.md) (`POST /homeostat/switches/{name}/off`), the CLI (`homeostat switch off`) or your

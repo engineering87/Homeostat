@@ -9,6 +9,7 @@ namespace Homeostat.Consumers;
 /// <code>
 /// var gate = new PauseGate("telemetry-ingest");
 /// using var registration = consumers.Register(gate);
+/// if (consumers.IsPaused(gate.Name)) await gate.PauseAsync(stoppingToken);
 /// while (!stoppingToken.IsCancellationRequested)
 /// {
 ///     await gate.WaitWhilePausedAsync(stoppingToken);
