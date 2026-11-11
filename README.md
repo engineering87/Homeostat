@@ -256,9 +256,20 @@ first. Report vulnerabilities privately, as described in [SECURITY.md](SECURITY.
 
 ## Background
 
-Homeostat builds on ideas its author explores in the book
-[*Designing Self-Healing Systems with .NET*](https://link.springer.com/book/9798868831768) (Apress, 2026).
-It is an independent project: it is not the book's companion code, and it does not require the book.
+Homeostat's author also wrote the book
+[*Designing Self-Healing Systems with .NET*](https://link.springer.com/book/9798868831768) (Apress, 2026), which
+discusses self-healing as a design approach. Homeostat is a separate, independent work:
+
+- It is not the book's companion code, and it is not affiliated with, sponsored or endorsed by Apress or Springer
+  Nature.
+- Its code, documentation, examples and images were written for this project and contain no text, code listings,
+  figures or examples from the book.
+- Some of the concepts it implements are also discussed in the book. They are general concepts of the field, such as
+  the monitor, analyze, plan and execute loop of autonomic computing, and you do not need the book to use Homeostat.
+- It is released under the MIT license by its author. The book's content is protected by its own copyright and is not
+  covered by that license.
+
+Apress and Springer Nature are trademarks of their respective owners, used here only to identify the book.
 
 ## License
 
