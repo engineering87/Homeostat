@@ -35,7 +35,7 @@ otherwise you want to switch to a secondary provider.
 Make the health check report `Degraded` while serving from the backup. The default clear rule clears a condition
 on any signal that does not trigger it, so `Degraded` clears a condition that triggers on `Unhealthy` and the run ends
 as `Healed`.
-Full code: [`samples/Homeostat.Samples.WeatherFeed`](../samples/Homeostat.Samples.WeatherFeed).
+Full code: [`samples/Homeostat.Samples.WeatherFeed`](https://github.com/engineering87/Homeostat/blob/main/docs/samples/Homeostat.Samples.WeatherFeed).
 
 ---
 
@@ -266,9 +266,9 @@ To test the whole loop (condition, plan, verification), use `HomeostatTestHost`:
 
 ## More complete examples
 
-- [`samples/Homeostat.Samples.WeatherFeed`](../samples/Homeostat.Samples.WeatherFeed): an ASP.NET Core application
+- [`samples/Homeostat.Samples.WeatherFeed`](https://github.com/engineering87/Homeostat/blob/main/docs/samples/Homeostat.Samples.WeatherFeed): an ASP.NET Core application
   with a health check, an escalating plan, approvals and the endpoints.
 - [From architecture to configuration](architecture-examples.md): two systems, a forecast API and a telemetry ingestion
   service, configured from what their teams know about them, with the tests that check each decision.
-- [`samples/Homeostat.Samples.Worker`](../samples/Homeostat.Samples.Worker): a worker service without ASP.NET Core,
+- [`samples/Homeostat.Samples.Worker`](https://github.com/engineering87/Homeostat/blob/main/docs/samples/Homeostat.Samples.Worker): a worker service without ASP.NET Core,
   with a restartable background service.

@@ -33,7 +33,7 @@ A few behaviors depend on the platform:
 
 Integration packages reference the client library of their technology. The versions below are the minimum
 versions: the ones the packages are built and tested against, taken from
-[`Directory.Packages.props`](../Directory.Packages.props). Later versions of the same major version work as usual
+[`Directory.Packages.props`](https://github.com/engineering87/Homeostat/blob/main/docs/Directory.Packages.props). Later versions of the same major version work as usual
 with NuGet.
 
 | Package | Depends on | Minimum version |

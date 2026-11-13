@@ -3,7 +3,7 @@
 Homeostat changes what a running application does: it can pause consumers, turn off features, restart processes,
 scale deployments and fail over. Treat its endpoints as administrative interfaces and its permissions as those of an
 operator. This page collects, for the people who deploy and operate Homeostat, the hardening steps that the other
-pages describe one by one. To report a vulnerability, see the [security policy](../SECURITY.md).
+pages describe one by one. To report a vulnerability, see the [security policy](https://github.com/engineering87/Homeostat/blob/main/docs/SECURITY.md).
 
 ## Checklist
 

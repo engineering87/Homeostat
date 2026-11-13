@@ -9,7 +9,7 @@ The examples are not templates. Two systems that look alike can need different p
 differ: who pays for the backup provider, how long the broker keeps messages, what the platform already does. Copy the
 reasoning, not the numbers.
 
-The full code is in [`samples/Homeostat.Samples.Architectures`](../samples/Homeostat.Samples.Architectures), built with
+The full code is in [`samples/Homeostat.Samples.Architectures`](https://github.com/engineering87/Homeostat/blob/main/docs/samples/Homeostat.Samples.Architectures), built with
 the solution. `ArchitectureExamplesTests` runs each behaviour described below on simulated time, so the page and the
 code cannot drift apart.
 

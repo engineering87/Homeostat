@@ -123,7 +123,7 @@ Gauges describe the current state, as seen by the instance that reports them:
 
 ### Grafana dashboard
 
-[`deploy/grafana/homeostat-dashboard.json`](../deploy/grafana/homeostat-dashboard.json) is a ready-made dashboard
+[`deploy/grafana/homeostat-dashboard.json`](https://github.com/engineering87/Homeostat/blob/main/docs/deploy/grafana/homeostat-dashboard.json) is a ready-made dashboard
 for Prometheus: active conditions, pending approvals, switches and paused instances; runs per condition, outcomes,
 actions executed (and simulated in dry-run), p95 run duration, and outcomes by condition. Import it in Grafana and
 choose the Prometheus data source; the `Application` variable filters by the `job` label. It expects the metric names
