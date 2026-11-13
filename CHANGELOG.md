@@ -231,6 +231,12 @@ All actions require approval by default.
   resources in the Aspire dashboard.
 - Grafana dashboard in `deploy/grafana`.
 
+#### Documentation and samples
+
+- [From architecture to configuration](docs/architecture-examples.md): two worked examples, a forecast API and a
+  telemetry ingestion service, that turn what a team knows about its system into conditions and plans, with the
+  sample `samples/Homeostat.Samples.Architectures` and scenario tests that check each decision.
+
 #### Testing
 
 - `Homeostat.Testing`: in-memory test host with simulated time, `HealingContextFactory`, HTTP fault injection;

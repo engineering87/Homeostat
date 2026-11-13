@@ -7,6 +7,8 @@
     href: getting-started.md
   - name: "Concepts"
     href: concepts.md
+  - name: "From architecture to configuration"
+    href: architecture-examples.md
 - name: Core
   items:
   - name: "Signals"

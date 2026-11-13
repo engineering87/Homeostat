@@ -137,7 +137,9 @@ builder.Services.AddHomeostat(h => h.AddWebApiDefaults());   // AddWorkerDefault
 ```
 
 The [getting started guide](docs/getting-started.md) walks through this step by step, and
-[`samples/`](samples) has a web API and a worker service ready to run. Project templates are available with
+[`samples/`](samples) has a web API and a worker service ready to run, and
+[From architecture to configuration](docs/architecture-examples.md) shows how to turn what you know about your own
+system into conditions and plans. Project templates are available with
 `dotnet new install Homeostat.Templates::1.0.0-rc.1`.
 
 ## What it covers
@@ -239,7 +241,8 @@ Start in dry-run, then turn on actions one condition at a time.
 ## Documentation
 
 The [documentation index](docs/README.md) is organized as a path: [getting started](docs/getting-started.md),
-[concepts](docs/concepts.md), then reference pages for signals, conditions, healing plans, actions, guardrails,
+[concepts](docs/concepts.md), [two worked examples](docs/architecture-examples.md) from a system's architecture to its
+configuration, then reference pages for signals, conditions, healing plans, actions, guardrails,
 integrations, message brokers, cloud actions, endpoints, notifications, observability, configuration and testing,
 and [recipes](docs/recipes.md) for common scenarios.
 

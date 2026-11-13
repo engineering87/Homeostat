@@ -12,6 +12,7 @@ with search and the API reference generated from the XML documentation, are publ
 | 1 | [Why Homeostat](why-homeostat.md) | The gap it fills, how it compares with Polly, health checks and probes, platform auto-heal and incident automation, and when not to use it |
 | 2 | [Getting started](getting-started.md) | Install, write your first action, watch the dry-run, then let it act; start from a preset |
 | 3 | [Concepts](concepts.md) | The mental model and the vocabulary used everywhere else |
+| 4 | [From architecture to configuration](architecture-examples.md) | Two worked examples, from what a team knows about its system to conditions, plans and the tests that check them |
 
 ## Reference
 

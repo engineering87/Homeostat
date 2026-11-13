@@ -160,6 +160,7 @@ Because the knowledge is written down, it can be checked. The [dry-run](guardrai
 [replay](intelligence.md) runs recorded signals against a new configuration, the [coverage report](intelligence.md)
 shows which conditions and steps were never exercised, and [scenario tests](testing.md) run a plan on simulated time.
 When the architecture changes, the conditions and plans change with it, in the same pull request.
+[From architecture to configuration](architecture-examples.md) works through two systems, fact by fact.
 
 The limit of this design is its point of view: Homeostat runs inside one application. It coordinates the instances of
 that application through the shared store, and sees other services only through the signals it receives (their health

@@ -44,6 +44,7 @@
     <ProjectReference Include="..\..\src\Homeostat.Polly\Homeostat.Polly.csproj" />
     <ProjectReference Include="..\..\src\Homeostat.Redis\Homeostat.Redis.csproj" />
     <ProjectReference Include="..\..\src\Homeostat.Testing\Homeostat.Testing.csproj" />
+    <ProjectReference Include="..\..\samples\Homeostat.Samples.Architectures\Homeostat.Samples.Architectures.csproj" />
   </ItemGroup>
 
   <ItemGroup>

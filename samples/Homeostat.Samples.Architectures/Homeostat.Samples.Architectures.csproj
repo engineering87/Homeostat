@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- The worked examples of docs/architecture-examples.md: compiled with the solution and exercised by
+       ArchitectureExamplesTests, so the documented configurations always build and behave as described. -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <IsPackable>false</IsPackable>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Homeostat\Homeostat.csproj" />
+    <ProjectReference Include="..\..\src\Homeostat.Http\Homeostat.Http.csproj" />
+    <!-- The analyzers come with the Homeostat package; with a project reference they are added explicitly. -->
+    <ProjectReference Include="..\..\src\Homeostat.Analyzers\Homeostat.Analyzers.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
+  </ItemGroup>
+
+</Project>

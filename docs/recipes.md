@@ -268,5 +268,7 @@ To test the whole loop (condition, plan, verification), use `HomeostatTestHost`:
 
 - [`samples/Homeostat.Samples.WeatherFeed`](../samples/Homeostat.Samples.WeatherFeed): an ASP.NET Core application
   with a health check, an escalating plan, approvals and the endpoints.
+- [From architecture to configuration](architecture-examples.md): two systems, a forecast API and a telemetry ingestion
+  service, configured from what their teams know about them, with the tests that check each decision.
 - [`samples/Homeostat.Samples.Worker`](../samples/Homeostat.Samples.Worker): a worker service without ASP.NET Core,
   with a restartable background service.
