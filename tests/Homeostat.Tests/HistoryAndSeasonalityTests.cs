@@ -213,6 +213,12 @@ public class HistoryAndSeasonalityTests
     /// <summary>A store written before the condition history existed: only the original members.</summary>
     private sealed class OldStore : IHomeostatStore
     {
+        public ValueTask<bool> TryConsumeGroupBudgetAsync(string group, DateTimeOffset now, int limit, TimeSpan window, CancellationToken cancellationToken = default) => _inner.TryConsumeGroupBudgetAsync(group, now, limit, window, cancellationToken);
+
+        public ValueTask<int> GetGroupBudgetUsedAsync(string group, DateTimeOffset now, TimeSpan window, CancellationToken cancellationToken = default) => _inner.GetGroupBudgetUsedAsync(group, now, window, cancellationToken);
+
+        public ValueTask<bool> TrySetGroupPauseAsync(string group, PauseState? pause, DateTimeOffset decidedAt, CancellationToken cancellationToken = default) => _inner.TrySetGroupPauseAsync(group, pause, decidedAt, cancellationToken);
+
         private readonly InMemoryHomeostatStore _inner = new();
 
         public ValueTask<PlanState> GetPlanStateAsync(string key, CancellationToken cancellationToken = default) => _inner.GetPlanStateAsync(key, cancellationToken);
@@ -571,6 +577,12 @@ public class HistoryAndSeasonalityTests
     /// <summary>A store whose condition history can fail, as during a network outage.</summary>
     private sealed class FlakyStore : IHomeostatStore
     {
+        public ValueTask<bool> TryConsumeGroupBudgetAsync(string group, DateTimeOffset now, int limit, TimeSpan window, CancellationToken cancellationToken = default) => _inner.TryConsumeGroupBudgetAsync(group, now, limit, window, cancellationToken);
+
+        public ValueTask<int> GetGroupBudgetUsedAsync(string group, DateTimeOffset now, TimeSpan window, CancellationToken cancellationToken = default) => _inner.GetGroupBudgetUsedAsync(group, now, window, cancellationToken);
+
+        public ValueTask<bool> TrySetGroupPauseAsync(string group, PauseState? pause, DateTimeOffset decidedAt, CancellationToken cancellationToken = default) => _inner.TrySetGroupPauseAsync(group, pause, decidedAt, cancellationToken);
+
         private readonly InMemoryHomeostatStore _inner = new();
 
         public volatile bool Failing;

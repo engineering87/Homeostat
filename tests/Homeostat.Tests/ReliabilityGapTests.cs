@@ -259,6 +259,12 @@ public class ReliabilityGapTests
     /// <summary>An in-memory store whose documents (seasonal baselines) never answer and ignore their token.</summary>
     private sealed class SilentDocuments : IHomeostatStore
     {
+        public ValueTask<bool> TryConsumeGroupBudgetAsync(string group, DateTimeOffset now, int limit, TimeSpan window, CancellationToken cancellationToken = default) => _inner.TryConsumeGroupBudgetAsync(group, now, limit, window, cancellationToken);
+
+        public ValueTask<int> GetGroupBudgetUsedAsync(string group, DateTimeOffset now, TimeSpan window, CancellationToken cancellationToken = default) => _inner.GetGroupBudgetUsedAsync(group, now, window, cancellationToken);
+
+        public ValueTask<bool> TrySetGroupPauseAsync(string group, PauseState? pause, DateTimeOffset decidedAt, CancellationToken cancellationToken = default) => _inner.TrySetGroupPauseAsync(group, pause, decidedAt, cancellationToken);
+
         private readonly InMemoryHomeostatStore _inner = new();
 
         public bool SupportsDocuments => true;

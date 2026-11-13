@@ -1,3 +1,4 @@
+using System.Text.Json.Serialization;
 using Homeostat.Signals;
 
 namespace Homeostat.Conditions;
@@ -7,6 +8,10 @@ public sealed record ConditionSnapshot
 {
     /// <summary>Condition name.</summary>
     public required string Name { get; init; }
+
+    /// <summary>The healing group of the condition (<see cref="ConditionBuilder.InGroup"/>), or <c>null</c>.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Group { get; init; }
 
     /// <summary>Current status.</summary>
     public required ConditionStatus Status { get; init; }

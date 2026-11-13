@@ -169,10 +169,11 @@ change `AuthorizationScheme` if your integration expects another scheme.
 })
 ```
 
-Messages use Block Kit: an icon for the kind of event, the application, the summary, the condition and the event
-kind, and an **Open dashboard** button when `DashboardUrl` is set. Text coming from signals is escaped, so an alert
+Messages use Block Kit: an icon for the kind of event, the application, the summary, the condition (with its
+[healing group](guardrails.md#healing-groups) when it has one: ``Condition `reports-db-slow` in group `reports` ``) and
+the event kind, and an **Open dashboard** button when `DashboardUrl` is set. Text coming from signals is escaped, so an alert
 message cannot mention `@channel` or forge links. With `ApprovalButtons`, approval requests carry **Approve** and
-**Reject** buttons. The webhook must then belong to a Slack app with interactivity enabled, and the clicks are
+**Reject** buttons (the confirmation names the group too). The webhook must then belong to a Slack app with interactivity enabled, and the clicks are
 received by `MapHomeostatSlackInteractions` ([ASP.NET Core endpoints](aspnetcore.md#slack-approvals)), which checks
 the signature and who may approve.
 
@@ -187,11 +188,13 @@ the signature and who may approve.
 ```
 
 Create a Teams workflow from the template "Post to a channel when a webhook request is received" and use its URL.
-Each event is an Adaptive Card with the condition, step, outcome and expiry. With `DashboardUrl` set, cards link to
+Each event is an Adaptive Card with the condition, its healing group (a `Group` fact, only for a condition in a group),
+step, outcome and expiry. With `DashboardUrl` set, cards link to
 the dashboard, and approval requests say "Review in dashboard", where the step is approved. To approve from the
 channel instead, map a Teams outgoing webhook with `MapHomeostatTeamsCommands`
 ([ASP.NET Core endpoints](aspnetcore.md#microsoft-teams-approvals)) and set `o.ApprovalCommand` to its name: the cards
-then say `Reply in the channel: @Homeostat approve <id> (or reject <id>)`.
+then say `Reply in the channel: @Homeostat approve <id> (or reject <id>)`, and the `pending` command lists each
+request with its condition, its group when it has one, the step and the expiry.
 
 Both chat notifiers send the same events as the webhook by default (condition activated and cleared, run completed,
 approval requested and resolved); change `Events` to send fewer. `Url` is required and, like `DashboardUrl`, must be

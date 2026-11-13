@@ -53,6 +53,16 @@
     return null;
   }
 
+  // Only the detail of a problem document (not its generic title): null otherwise.
+  async function problemDetail(response) {
+    try {
+      const body = JSON.parse(await response.text());
+      return body && typeof body.detail === "string" && body.detail ? body.detail : null;
+    } catch {
+      return null;
+    }
+  }
+
   async function post(path, button) {
     if (button) button.disabled = true;
     try {
@@ -60,7 +70,11 @@
       const response = await fetch(path, { method: "POST", credentials: "same-origin", redirect: "manual", headers: { "X-Requested-With": "homeostat-dashboard" } });
       if (response.type === "opaqueredirect") throw new Error("The session has expired: sign in again. Nothing was changed.");
       if (response.status === 401 || response.status === 403) throw new Error("You are not allowed to do this.");
-      if (response.status === 404) throw new Error("Not found: the request may have been answered already, or the control endpoints are not mapped.");
+      if (response.status === 404) {
+        // A problem document says what was not found; a bare 404 is an answered request or an unmapped endpoint.
+        const detail = await problemDetail(response);
+        throw new Error(detail ? `Not found: ${detail}` : "Not found: the request may have been answered already, or the control endpoints are not mapped.");
+      }
       if (!response.ok) {
         const detail = await problemText(response);
         throw new Error(detail ? `The server answered ${response.status}: ${detail}` : `The server answered ${response.status}.`);
@@ -89,7 +103,7 @@
       if (c.suppressedBy) status.append(" ", el("span", { class: "small" }, `suppressed by ${c.suppressedBy}`));
       if (c.clearingSince) status.append(" ", el("span", { class: "small" }, "recovering"));
       body.append(el("tr", {},
-        el("td", { class: "name" }, c.name),
+        el("td", {}, el("span", { class: "name" }, c.name), c.group ? el("div", { class: "small" }, `group ${c.group}`) : null),
         status,
         el("td", {}, time(c.activeSince || c.pendingSince)),
         el("td", {}, c.lastSeverity ? badge(c.lastSeverity, c.lastSeverity === "Healthy" ? "ok" : c.lastSeverity === "Degraded" ? "warn" : "bad") : "",
@@ -109,6 +123,7 @@
       box.append(el("div", { class: "approval" },
         el("div", {},
           el("div", { class: "name" }, `${a.conditionName}: ${a.stepName}`),
+          a.group ? el("div", { class: "small" }, `group ${a.group}`) : null,
           el("div", { class: "small" }, a.triggeringSignal?.message || ""),
           el("div", { class: "small" }, "Requested ", time(a.requestedAt), ", expires ", time(a.expiresAt))),
         el("div", { class: "buttons" },
@@ -141,6 +156,44 @@
       el("p", { class: "small" }, `${budget.remaining} left in a ${Math.round(budget.windowSeconds / 60)}-minute window`));
   }
 
+  // Healing groups: hidden for an application without groups (the status then has no "groups" field).
+  function renderGroups(groups, globallyPaused) {
+    const card = $("groups-card");
+    const body = $("groups");
+    body.replaceChildren();
+    card.hidden = !groups || groups.length === 0;
+    if (card.hidden) return;
+    for (const g of groups) {
+      const name = encodeURIComponent(g.name);
+      const state = el("td", {}, g.paused ? badge("Paused", "warn") : globallyPaused ? badge("Paused (all)", "warn") : badge("Healing", "ok"));
+      if (g.pauseReason) state.append(" ", el("span", { class: "small" }, g.pauseReason));
+      let budget = "";
+      if (g.budget) {
+        budget = el("span", {}, el("strong", {}, `${g.budget.used} / ${g.budget.limit}`),
+          g.budget.remaining === 0 ? " " : "", g.budget.remaining === 0 ? badge("exhausted", "bad") : "",
+          el("div", { class: "small" }, `${Math.round(g.budget.windowSeconds / 60)}-minute window`));
+      } else if (g.maxActionsPerWindow) {
+        budget = el("span", { class: "small" }, `limit ${g.maxActionsPerWindow}, use unavailable`);
+      }
+      const limits = g.maxConcurrentHealings ? el("div", { class: "small" }, `at most ${g.maxConcurrentHealings} at once`) : null;
+      const button = g.paused
+        ? el("button", { onclick: (e) => post(`groups/${name}/resume`, e.currentTarget) }, "Resume")
+        : el("button", {
+          class: "danger",
+          onclick: (e) => {
+            const duration = $("group-pause-for").value;
+            post(duration ? `groups/${name}/pause?for=${encodeURIComponent(duration)}` : `groups/${name}/pause`, e.currentTarget);
+          },
+        }, "Pause");
+      body.append(el("tr", {},
+        el("td", { class: "name" }, g.name),
+        state,
+        el("td", {}, budget, limits),
+        el("td", { class: "small" }, g.conditions.length > 0 ? g.conditions.join(", ") : "none on this instance"),
+        el("td", {}, button)));
+    }
+  }
+
   function renderRuns(runs) {
     const list = $("runs");
     list.replaceChildren();
@@ -153,7 +206,8 @@
           s.undoSucceeded === null || s.undoSucceeded === undefined ? "" : `, undo ${s.undoSucceeded ? "done" : "failed"}`));
       }
       list.append(el("li", {},
-        el("span", { class: "name" }, r.condition), " ", badge(r.outcome, outcomeTone[r.outcome] || "warn"), " ",
+        el("span", { class: "name" }, r.condition), r.group ? el("span", { class: "small" }, ` in group ${r.group}`) : null, " ",
+        badge(r.outcome, outcomeTone[r.outcome] || "warn"), " ",
         el("span", { class: "small" }, time(r.completedAt), " on ", r.instance), steps));
     }
   }
@@ -232,6 +286,7 @@
     renderConditions(status.conditions);
     renderSwitches(status.switches);
     renderBudget(status.budget, status.storeError);
+    renderGroups(status.groups, status.paused);
     renderRuns(status.recentRuns);
     $("updated").textContent = `Updated ${new Date().toLocaleTimeString()}`;
   }

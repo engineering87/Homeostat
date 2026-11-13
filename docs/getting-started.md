@@ -9,8 +9,8 @@ then let Homeostat act.
 
 > [!TIP]
 > To run something first, the complete code is in
-> [`samples/Homeostat.Samples.WeatherFeed`](https://github.com/engineering87/Homeostat/blob/main/docs/samples/Homeostat.Samples.WeatherFeed); for a worker service without
-> ASP.NET Core, see [`samples/Homeostat.Samples.Worker`](https://github.com/engineering87/Homeostat/blob/main/docs/samples/Homeostat.Samples.Worker). To start a new project
+> [`samples/Homeostat.Samples.WeatherFeed`](https://github.com/engineering87/Homeostat/tree/main/samples/Homeostat.Samples.WeatherFeed); for a worker service without
+> ASP.NET Core, see [`samples/Homeostat.Samples.Worker`](https://github.com/engineering87/Homeostat/tree/main/samples/Homeostat.Samples.Worker). To start a new project
 > with everything set up, run `dotnet new install Homeostat.Templates::1.0.0-rc.1`, then `dotnet new homeostat-webapi`
 > or `dotnet new homeostat-worker` (see [Tools](tools.md)).
 

@@ -73,6 +73,7 @@ public static class HomeostatServiceCollectionExtensions
             sp.GetRequiredService<TimeProvider>()));
         services.TryAddSingleton<IHomeostatStore, InMemoryHomeostatStore>();
         services.TryAddSingleton<MaintenanceWindows>();
+        services.TryAddSingleton<HealingGroups>();
         services.TryAddSingleton<IHomeostatCoordinator, InMemoryCoordinator>();
         services.TryAddSingleton<HomeostatControl>();
         services.TryAddSingleton<IHomeostatControl>(sp => sp.GetRequiredService<HomeostatControl>());

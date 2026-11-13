@@ -28,7 +28,7 @@ internal sealed class HomeostatHealthCheck : IHealthCheck
     }
 
     // Per Homeostat instance (the check itself is created for every probe).
-    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<IHomeostatControl, System.Runtime.CompilerServices.StrongBox<Task<(Guardrails.ActionBudgetStatus Budget, int Pending)>?>> s_reads = new();
+    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<IHomeostatControl, System.Runtime.CompilerServices.StrongBox<Task<StoreReads>?>> s_reads = new();
 
     // When the store failure was last logged as a warning (Environment.TickCount64), per Homeostat instance.
     private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<IHomeostatControl, System.Runtime.CompilerServices.StrongBox<long>> s_lastStoreLog = new();
@@ -38,6 +38,7 @@ internal sealed class HomeostatHealthCheck : IHealthCheck
         var active = _control.GetConditions().Where(c => c.Status == ConditionStatus.Active).Select(c => c.Name).ToArray();
         Guardrails.ActionBudgetStatus budget;
         int pending;
+        IReadOnlyList<Guardrails.ActionBudgetStatus> groupBudgets;
         try
         {
             // Bounded, both reads together, and started off the request thread (a store may block before returning its
@@ -51,7 +52,7 @@ internal sealed class HomeostatHealthCheck : IHealthCheck
             {
                 // Concurrent probes: only the first one's read is started, the others share it. The slot is taken with
                 // a completion source first, so a probe that loses the race starts nothing.
-                var read = new TaskCompletionSource<(Guardrails.ActionBudgetStatus, int)>(TaskCreationOptions.RunContinuationsAsynchronously);
+                var read = new TaskCompletionSource<StoreReads>(TaskCreationOptions.RunContinuationsAsynchronously);
                 var current = Interlocked.CompareExchange(ref box.Value, read.Task, reads);
                 if (current == reads)
                 {
@@ -64,7 +65,7 @@ internal sealed class HomeostatHealthCheck : IHealthCheck
                 }
             }
 
-            (budget, pending) = await reads.WaitAsync(StoreTimeout, cancellationToken).ConfigureAwait(false);
+            (budget, pending, groupBudgets) = await reads.WaitAsync(StoreTimeout, cancellationToken).ConfigureAwait(false);
         }
         catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
         {
@@ -93,15 +94,37 @@ internal sealed class HomeostatHealthCheck : IHealthCheck
             ["pending_approvals"] = pending,
         };
 
+        // Healing groups: listed only when the application has some, so the data of an application without groups is
+        // unchanged. A paused group, like the global pause, needs attention (its healing stopped); so does an exhausted
+        // group budget, like the global budget (the group's healing stopped while the others go on).
+        var groups = _control.GetGroups();
+        var pausedGroups = groups.Where(g => g.IsPaused).ToArray();
+        var exhaustedGroups = groupBudgets.Where(b => b.IsExhausted && b.Group is not null).Select(b => b.Group!).ToArray();
+        if (groups.Count > 0)
+        {
+            data["paused_groups"] = pausedGroups.Select(g => g.Name).ToArray();
+            data["exhausted_group_budgets"] = exhaustedGroups;
+        }
+
         var reasons = new List<string>();
         if (_control.PauseReason is { } pause)
         {
             reasons.Add(pause);
         }
 
+        if (pausedGroups.Length > 0)
+        {
+            reasons.Add($"paused groups: {string.Join(", ", pausedGroups.Select(g => g.PauseReason is { } why ? $"{g.Name} ({why})" : g.Name))}");
+        }
+
         if (budget.IsExhausted)
         {
             reasons.Add("action budget exhausted");
+        }
+
+        foreach (var group in exhaustedGroups)
+        {
+            reasons.Add($"action budget of group '{group}' exhausted");
         }
 
         if (pending > 0)
@@ -121,7 +144,7 @@ internal sealed class HomeostatHealthCheck : IHealthCheck
     }
 
     // Off the request thread (a store may block before returning its task); never throws: the outcome goes to the probes.
-    private async Task ReadIntoAsync(TaskCompletionSource<(Guardrails.ActionBudgetStatus, int)> read)
+    private async Task ReadIntoAsync(TaskCompletionSource<StoreReads> read)
     {
         try
         {
@@ -133,10 +156,23 @@ internal sealed class HomeostatHealthCheck : IHealthCheck
         }
     }
 
-    private async Task<(Guardrails.ActionBudgetStatus, int)> ReadStoreAsync()
+    // Every read together, inside the one shared, bounded read: the global budget, the pending approvals and the budget
+    // of each group that has one (the configured groups, a set fixed by the application). One that fails fails them all:
+    // the store is then reported as unavailable (decision I6), never a group budget as not exhausted.
+    private async Task<StoreReads> ReadStoreAsync()
     {
         var budgetRead = _control.GetBudgetAsync(CancellationToken.None).AsTask();
         var pendingRead = _approvals.GetPendingAsync(CancellationToken.None).AsTask();
-        return (await budgetRead.ConfigureAwait(false), (await pendingRead.ConfigureAwait(false)).Count);
+        var groupReads = _control.GetGroups()
+            .Where(g => g.MaxActionsPerWindow is not null)
+            .Select(g => _control.GetGroupBudgetAsync(g.Name, CancellationToken.None).AsTask())
+            .ToArray();
+        var groupsRead = Task.WhenAll(groupReads);
+
+        // Every read observed, even when one fails first.
+        await Task.WhenAll(budgetRead, pendingRead, groupsRead).ConfigureAwait(false);
+        return new StoreReads(budgetRead.Result, pendingRead.Result.Count, groupsRead.Result.OfType<Guardrails.ActionBudgetStatus>().ToArray());
     }
+
+    private sealed record StoreReads(Guardrails.ActionBudgetStatus Budget, int Pending, IReadOnlyList<Guardrails.ActionBudgetStatus> GroupBudgets);
 }

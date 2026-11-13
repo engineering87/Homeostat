@@ -39,6 +39,25 @@
       <div id="approvals"></div>
     </section>
 
+    <section class="card wide" aria-labelledby="h-groups" id="groups-card" hidden>
+      <h2 id="h-groups">Healing groups</h2>
+      <div class="inline group-actions">
+        <label class="small" for="group-pause-for">Pause a group for</label>
+        <select id="group-pause-for">
+          <option value="">until resumed</option>
+          <option value="00:15:00">15 minutes</option>
+          <option value="01:00:00" selected>1 hour</option>
+          <option value="04:00:00">4 hours</option>
+        </select>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Group</th><th>State</th><th>Budget</th><th>Conditions</th><th></th></tr></thead>
+          <tbody id="groups"></tbody>
+        </table>
+      </div>
+    </section>
+
     <section class="card wide" aria-labelledby="h-conditions">
       <h2 id="h-conditions">Conditions</h2>
       <div class="table-wrap">

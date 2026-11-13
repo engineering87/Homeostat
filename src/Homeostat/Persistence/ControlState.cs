@@ -12,8 +12,22 @@ public sealed class ControlState
     /// <summary>A state with nothing paused, no switch on and no request.</summary>
     public static ControlState Empty { get; } = new();
 
+    /// <summary>
+    /// How many healing groups can be paused at once (<see cref="GroupPauses"/>): a store refuses the pause of one more
+    /// group with an <see cref="InvalidOperationException"/>, so the control state stays small. Resuming a group removes
+    /// its pause, timed ones included.
+    /// </summary>
+    public const int MaxGroupPauses = 256;
+
     /// <summary>The pause, or <c>null</c> when Homeostat is not paused (maintenance windows are not stored).</summary>
     public PauseState? Pause { get; init; }
+
+    /// <summary>
+    /// The pauses of healing groups (<see cref="IHomeostatControl.PauseGroupAsync"/>), at most one per group and at most
+    /// <see cref="MaxGroupPauses"/>, ordered by group name. A timed pause stays listed after its end until the group is
+    /// resumed; it no longer applies.
+    /// </summary>
+    public IReadOnlyList<GroupPauseState> GroupPauses { get; init; } = [];
 
     /// <summary>The switches turned on for the whole application.</summary>
     public IReadOnlyList<SwitchState> Switches { get; init; } = [];
@@ -22,7 +36,7 @@ public sealed class ControlState
     public IReadOnlyList<ApprovalRecord> Approvals { get; init; } = [];
 }
 
-/// <summary>A pause of every healing plan.</summary>
+/// <summary>A pause of every healing plan (or, in <see cref="IHomeostatStore.TrySetGroupPauseAsync"/>, of the plans of a group).</summary>
 public sealed class PauseState
 {
     /// <summary>When the pause ends by itself, or <c>null</c> for a pause that lasts until it is resumed.</summary>
@@ -33,6 +47,38 @@ public sealed class PauseState
 
     /// <summary>When the pause was set.</summary>
     public required DateTimeOffset At { get; init; }
+}
+
+/// <summary>
+/// A pause of the healing plans of one healing group (<see cref="Conditions.ConditionBuilder.InGroup"/>): the same fields
+/// as <see cref="PauseState"/>, with the group.
+/// </summary>
+public sealed class GroupPauseState
+{
+    /// <summary>The paused group.</summary>
+    public required string Group { get; init; }
+
+    /// <summary>When the pause ends by itself, or <c>null</c> for a pause that lasts until the group is resumed.</summary>
+    public DateTimeOffset? Until { get; init; }
+
+    /// <summary>Who paused, when known.</summary>
+    public string? By { get; init; }
+
+    /// <summary>When the pause was set.</summary>
+    public required DateTimeOffset At { get; init; }
+
+    /// <summary>The pause of <paramref name="group"/> described by <paramref name="pause"/>.</summary>
+    /// <param name="group">The group.</param>
+    /// <param name="pause">The pause.</param>
+    public static GroupPauseState From(string group, PauseState pause)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(group);
+        ArgumentNullException.ThrowIfNull(pause);
+        return new GroupPauseState { Group = group, Until = pause.Until, By = pause.By, At = pause.At };
+    }
+
+    /// <summary>The same pause without its group.</summary>
+    public PauseState ToPause() => new() { Until = Until, By = By, At = At };
 }
 
 /// <summary>A switch that is on for the whole application.</summary>

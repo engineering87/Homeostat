@@ -3,7 +3,7 @@
 Homeostat changes what a running application does: it can pause consumers, turn off features, restart processes,
 scale deployments and fail over. Treat its endpoints as administrative interfaces and its permissions as those of an
 operator. This page collects, for the people who deploy and operate Homeostat, the hardening steps that the other
-pages describe one by one. To report a vulnerability, see the [security policy](https://github.com/engineering87/Homeostat/blob/main/docs/SECURITY.md).
+pages describe one by one. To report a vulnerability, see the [security policy](https://github.com/engineering87/Homeostat/blob/main/SECURITY.md).
 
 ## Checklist
 
@@ -27,7 +27,7 @@ reports anonymous endpoints outside development.
 
 - Use a specific policy: an operations role or group, not "any authenticated user", especially in an application
   with end-user accounts. The status endpoint reveals condition names, error messages and approval ids; the control
-  endpoints pause healing, approve failovers and flip switches.
+  endpoints pause healing (all of it, or one healing group), approve failovers and flip switches.
 - Call `app.UseAuthorization()` and configure authentication (JWT bearer, cookies, Windows, certificates).
 - Map status, control and dashboard with the same prefix (`/homeostat` by default): the dashboard calls the other two
   with the user's credentials. The simplest setup uses one policy for all three. When more people may read than act, give

@@ -124,6 +124,12 @@ public class FailureIsolationTests
     /// <summary>An in-memory store (with decision order) whose resumes wait until told to go on.</summary>
     private sealed class SlowResumeStore : IHomeostatStore
     {
+        public ValueTask<bool> TryConsumeGroupBudgetAsync(string group, DateTimeOffset now, int limit, TimeSpan window, CancellationToken cancellationToken = default) => _inner.TryConsumeGroupBudgetAsync(group, now, limit, window, cancellationToken);
+
+        public ValueTask<int> GetGroupBudgetUsedAsync(string group, DateTimeOffset now, TimeSpan window, CancellationToken cancellationToken = default) => _inner.GetGroupBudgetUsedAsync(group, now, window, cancellationToken);
+
+        public ValueTask<bool> TrySetGroupPauseAsync(string group, PauseState? pause, DateTimeOffset decidedAt, CancellationToken cancellationToken = default) => _inner.TrySetGroupPauseAsync(group, pause, decidedAt, cancellationToken);
+
         private readonly InMemoryHomeostatStore _inner = new();
 
         public ManualResetEventSlim Resumes { get; } = new(false);
@@ -384,6 +390,12 @@ public class FailureIsolationTests
     /// <summary>A store that holds switch claims until told to take them, as a store that answers late.</summary>
     private sealed class SlowClaimStore : IHomeostatStore
     {
+        public ValueTask<bool> TryConsumeGroupBudgetAsync(string group, DateTimeOffset now, int limit, TimeSpan window, CancellationToken cancellationToken = default) => _inner.TryConsumeGroupBudgetAsync(group, now, limit, window, cancellationToken);
+
+        public ValueTask<int> GetGroupBudgetUsedAsync(string group, DateTimeOffset now, TimeSpan window, CancellationToken cancellationToken = default) => _inner.GetGroupBudgetUsedAsync(group, now, window, cancellationToken);
+
+        public ValueTask<bool> TrySetGroupPauseAsync(string group, PauseState? pause, DateTimeOffset decidedAt, CancellationToken cancellationToken = default) => _inner.TrySetGroupPauseAsync(group, pause, decidedAt, cancellationToken);
+
         private readonly InMemoryHomeostatStore _inner = new();
 
         public ManualResetEventSlim Claims { get; } = new(false);
@@ -462,6 +474,12 @@ public class FailureIsolationTests
     /// <summary>A store whose reads block the calling thread (a synchronous client behind an async signature).</summary>
     private sealed class BlockingStore : IHomeostatStore
     {
+        public ValueTask<bool> TryConsumeGroupBudgetAsync(string group, DateTimeOffset now, int limit, TimeSpan window, CancellationToken cancellationToken = default) { Block(); return _inner.TryConsumeGroupBudgetAsync(group, now, limit, window, cancellationToken); }
+
+        public ValueTask<int> GetGroupBudgetUsedAsync(string group, DateTimeOffset now, TimeSpan window, CancellationToken cancellationToken = default) { Block(); return _inner.GetGroupBudgetUsedAsync(group, now, window, cancellationToken); }
+
+        public ValueTask<bool> TrySetGroupPauseAsync(string group, PauseState? pause, DateTimeOffset decidedAt, CancellationToken cancellationToken = default) { Block(); return _inner.TrySetGroupPauseAsync(group, pause, decidedAt, cancellationToken); }
+
         private readonly InMemoryHomeostatStore _inner = new();
         private readonly ManualResetEventSlim _gate = new(false);
 
@@ -501,6 +519,12 @@ public class FailureIsolationTests
     /// <summary>An in-memory store whose control state can become unreachable, as during a network outage.</summary>
     private sealed class OutageStore : IHomeostatStore
     {
+        public ValueTask<bool> TryConsumeGroupBudgetAsync(string group, DateTimeOffset now, int limit, TimeSpan window, CancellationToken cancellationToken = default) { Check(); return _inner.TryConsumeGroupBudgetAsync(group, now, limit, window, cancellationToken); }
+
+        public ValueTask<int> GetGroupBudgetUsedAsync(string group, DateTimeOffset now, TimeSpan window, CancellationToken cancellationToken = default) { Check(); return _inner.GetGroupBudgetUsedAsync(group, now, window, cancellationToken); }
+
+        public ValueTask<bool> TrySetGroupPauseAsync(string group, PauseState? pause, DateTimeOffset decidedAt, CancellationToken cancellationToken = default) { Check(); return _inner.TrySetGroupPauseAsync(group, pause, decidedAt, cancellationToken); }
+
         private readonly InMemoryHomeostatStore _inner = new();
 
         public volatile bool Down;

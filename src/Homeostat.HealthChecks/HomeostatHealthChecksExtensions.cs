@@ -48,7 +48,8 @@ public static class HomeostatHealthChecksExtensions
 
     /// <summary>
     /// Adds a health check that reports Homeostat itself: <paramref name="failureStatus"/> (Degraded when null, the
-    /// default) while it is paused, its action budget is exhausted, a step waits for approval or a condition is active;
+    /// default) while it or one of its healing groups is paused, its action budget or a group's budget is exhausted, a step
+    /// waits for approval or a condition is active;
     /// Healthy otherwise. The details are in the result data. This check is never turned into a signal. A store that
     /// cannot be read, and a check that fails or exceeds <paramref name="timeout"/>, are always reported as Degraded,
     /// whatever <paramref name="failureStatus"/>: the store is shared, and an Unhealthy result would take every replica

@@ -41,6 +41,10 @@ internal sealed class OpeningFileStore : IHomeostatStore, IDisposable
 
     public ValueTask<int> GetBudgetUsedAsync(DateTimeOffset now, TimeSpan window, CancellationToken cancellationToken = default) => Store().GetBudgetUsedAsync(now, window, cancellationToken);
 
+    public ValueTask<bool> TryConsumeGroupBudgetAsync(string group, DateTimeOffset now, int limit, TimeSpan window, CancellationToken cancellationToken = default) => Store().TryConsumeGroupBudgetAsync(group, now, limit, window, cancellationToken);
+
+    public ValueTask<int> GetGroupBudgetUsedAsync(string group, DateTimeOffset now, TimeSpan window, CancellationToken cancellationToken = default) => Store().GetGroupBudgetUsedAsync(group, now, window, cancellationToken);
+
     public ValueTask AppendRunAsync(HealingRunRecord run, int maxRuns, CancellationToken cancellationToken = default) => Store().AppendRunAsync(run, maxRuns, cancellationToken);
 
     public ValueTask<IReadOnlyList<HealingRunRecord>> GetRecentRunsAsync(int maxRuns, CancellationToken cancellationToken = default) => Store().GetRecentRunsAsync(maxRuns, cancellationToken);
@@ -56,6 +60,8 @@ internal sealed class OpeningFileStore : IHomeostatStore, IDisposable
     public ValueTask<ControlState> GetControlStateAsync(CancellationToken cancellationToken = default) => Store().GetControlStateAsync(cancellationToken);
 
     public ValueTask<bool> TrySetPauseAsync(PauseState? pause, DateTimeOffset decidedAt, CancellationToken cancellationToken = default) => Store().TrySetPauseAsync(pause, decidedAt, cancellationToken);
+
+    public ValueTask<bool> TrySetGroupPauseAsync(string group, PauseState? pause, DateTimeOffset decidedAt, CancellationToken cancellationToken = default) => Store().TrySetGroupPauseAsync(group, pause, decidedAt, cancellationToken);
 
     public ValueTask<bool> TrySetSwitchAsync(string name, SwitchState? state, DateTimeOffset decidedAt, CancellationToken cancellationToken = default) => Store().TrySetSwitchAsync(name, state, decidedAt, cancellationToken);
 

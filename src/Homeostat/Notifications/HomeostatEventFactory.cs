@@ -12,6 +12,7 @@ internal sealed class HomeostatEventFactory(string application, TimeProvider tim
         Timestamp = c.ActiveSince ?? Now,
         Application = application,
         Condition = c.Name,
+        Group = c.Group,
         Summary = c.SuppressedBy is { } cause
             ? $"Condition '{c.Name}' is active (suppressed by '{cause}')."
             : $"Condition '{c.Name}' is active.",
@@ -23,6 +24,7 @@ internal sealed class HomeostatEventFactory(string application, TimeProvider tim
         Timestamp = c.LastSignalAt ?? Now,
         Application = application,
         Condition = c.Name,
+        Group = c.Group,
         Summary = $"Condition '{c.Name}' cleared.",
     };
 
@@ -32,6 +34,7 @@ internal sealed class HomeostatEventFactory(string application, TimeProvider tim
         Timestamp = Now,
         Application = application,
         Condition = s.ConditionName,
+        Group = s.Group,
         Summary = !s.Succeeded
             ? $"Step '{s.Name}' of '{s.ConditionName}' failed: {s.Error?.Message}"
             : $"Step '{s.Name}' of '{s.ConditionName}' completed; verification: {s.Verification}.",
@@ -47,6 +50,7 @@ internal sealed class HomeostatEventFactory(string application, TimeProvider tim
         Timestamp = r.CompletedAt,
         Application = application,
         Condition = r.ConditionName,
+        Group = r.Group,
         Summary = $"Healing of '{r.ConditionName}' ended: {r.Outcome} after {r.Steps.Count} step(s).",
         RunId = r.RunId,
         Instance = r.Instance,
@@ -60,6 +64,7 @@ internal sealed class HomeostatEventFactory(string application, TimeProvider tim
         Timestamp = a.RequestedAt,
         Application = application,
         Condition = a.ConditionName,
+        Group = a.Group,
         Summary = $"Approval needed for step '{a.StepName}' of '{a.ConditionName}' (request {a.Id}, expires {a.ExpiresAt:u}).",
         Step = a.StepName,
         ApprovalId = a.Id,
@@ -75,6 +80,7 @@ internal sealed class HomeostatEventFactory(string application, TimeProvider tim
             Timestamp = r.ResolvedAt,
             Application = application,
             Condition = r.Request.ConditionName,
+            Group = r.Request.Group,
             Summary = r.Status switch
             {
                 ApprovalStatus.Approved => $"Step '{r.Request.StepName}' of '{r.Request.ConditionName}' approved{who}.",

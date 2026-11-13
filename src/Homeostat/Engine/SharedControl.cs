@@ -7,7 +7,8 @@ using Microsoft.Extensions.Options;
 namespace Homeostat.Engine;
 
 /// <summary>
-/// This instance's view of the control state kept in the store (pause, application switches, approval requests):
+/// This instance's view of the control state kept in the store (pause, pauses of groups, application switches, approval
+/// requests):
 /// read from the store at startup and every <see cref="HomeostatOptions.ControlRefreshInterval"/>, and right after
 /// every change made here. Reads (<c>IsPaused</c>, <c>IsOn</c>) use the view and never wait for the store.
 /// </summary>
@@ -23,7 +24,8 @@ internal sealed class SharedControl
 
     // Changes in the safe direction (a pause, a switch turned off) that the store could not take: they apply to this
     // instance at once, are written at every refresh until the store takes them, and are dropped when the store shows
-    // a newer decision. Keyed by what they change ("pause", "switch:{name}"): the latest intent wins.
+    // a newer decision. Keyed by what they change ("pause", "group-pause:{group}", "switch:{name}"): the latest intent
+    // wins.
     private readonly ConcurrentDictionary<string, Deferred> _deferred = new(StringComparer.Ordinal);
 
     private readonly IHomeostatStore _store;
@@ -89,7 +91,29 @@ internal sealed class SharedControl
 
     public ControlState Current => (_view ?? EmptyView).State;
 
+    /// <summary>
+    /// What this instance knows of the state: the view or, before the state is first read, the changes made here that
+    /// are still pending, applied to an empty state. Limits are checked against it (decision G4): before the first read
+    /// the view is empty, but every pending change is an entry and a write of its own.
+    /// </summary>
+    public ControlState Known
+    {
+        get
+        {
+            lock (_viewGate)
+            {
+                return KnownLocked();
+            }
+        }
+    }
+
+    // Under _viewGate.
+    private ControlState KnownLocked() => _view?.State ?? ApplyPending(ControlState.Empty, read: 0);
+
     public bool IsSwitchOn(string name) => (_view ?? EmptyView).Switches.Contains(name);
+
+    /// <summary>The pause of a group in this instance's view, or <c>null</c> (also before the state is first read).</summary>
+    public GroupPauseState? GroupPause(string group) => (_view ?? EmptyView).GroupPauses.GetValueOrDefault(group);
 
     public IHomeostatStore Store => _store;
 
@@ -172,21 +196,35 @@ internal sealed class SharedControl
     /// When the store refuses the change: describes the later decision the store shows, or returns <c>null</c> when the
     /// store already shows the safe state (nothing to warn about).
     /// </param>
+    /// <param name="limit">
+    /// A limit of the store (the number of groups paused at once): says why a state does not admit the change, or returns
+    /// <c>null</c>. Checked against what this instance knows (<see cref="Known"/>) before the change applies; and when the
+    /// store's write fails with <see cref="InvalidOperationException"/>, a state read from the store that does not admit
+    /// the change tells the store's refusal from an outage. A refused change is dropped and no longer applies here.
+    /// </param>
     /// <returns>
     /// <c>true</c> if the store answered now (it took the change, or refused it for a later decision, which is logged
     /// as a warning); <c>false</c> if it is deferred.
     /// </returns>
+    /// <exception cref="InvalidOperationException">The change is over the <paramref name="limit"/>, here or in the store.</exception>
     public async Task<bool> ChangeOrDeferAsync(
         string key,
         DateTimeOffset decidedAt,
         Func<IHomeostatStore, CancellationToken, ValueTask<bool>> change,
         Func<ControlState, ControlState> apply,
         Func<ControlState, bool> superseded,
-        Func<ControlState, string?>? later = null)
+        Func<ControlState, string?>? later = null,
+        Func<ControlState, string?>? limit = null)
     {
-        var deferred = new Deferred(change, apply, superseded) { DecidedAt = decidedAt, IsSafe = true, Later = later };
+        var deferred = new Deferred(change, apply, superseded) { DecidedAt = decidedAt, IsSafe = true, Later = later, Limit = limit };
         lock (_viewGate)
         {
+            // Checked under the gate with the registration: concurrent changes cannot pass the limit together.
+            if (limit?.Invoke(KnownLocked()) is { } refused)
+            {
+                throw new InvalidOperationException(refused);
+            }
+
             // Registered before the view changes, so a refresh that read the store earlier applies it on top too.
             _deferred[key] = deferred;
             if (_view is not null)
@@ -196,7 +234,19 @@ internal sealed class SharedControl
         }
 
         Dispatch();
-        if (!await TryWriteAsync(key, deferred).ConfigureAwait(false))
+        var written = await TryWriteAsync(key, deferred).ConfigureAwait(false);
+        if (written == Write.OverLimit)
+        {
+            if (await ReadOverLimitAsync(key, deferred).ConfigureAwait(false) is { } refused)
+            {
+                Drop(key, deferred, refused.State, refused.Read);
+                throw new InvalidOperationException(refused.Reason, deferred.LimitError);
+            }
+
+            written = Write.Pending;   // not confirmed: an outage, retried at every refresh
+        }
+
+        if (written == Write.Pending)
         {
             _logger.LogWarning("The Homeostat store did not take a change ({Change}): it applies to this instance now and is retried at every refresh.", Safe(key));
             return false;
@@ -266,8 +316,66 @@ internal sealed class SharedControl
     // A switch name may come from an HTTP request: a line break must not start a fake log entry.
     private static string Safe(string value) => value.ReplaceLineEndings(" ");
 
+    private enum Write
+    {
+        /// <summary>Not written (the store failed or did not answer in time): still pending.</summary>
+        Pending,
+
+        /// <summary>The store answered: it took the change, or refused it for a later decision (<see cref="Deferred.Refused"/>).</summary>
+        Answered,
+
+        /// <summary>
+        /// The store failed with <see cref="InvalidOperationException"/>, as it does for a change over its limit, but also
+        /// as some stores and clients do in an outage: still pending until a read of the store confirms the limit.
+        /// </summary>
+        OverLimit,
+    }
+
+    /// <summary>
+    /// After a write failed with <see cref="InvalidOperationException"/>: reads the store (bounded) and returns why it
+    /// refuses the change, with the state read and its number, or <c>null</c> when the state it holds admits the change or
+    /// cannot be read (then it was an outage, or room was made meanwhile: the change stays pending, fail closed).
+    /// </summary>
+    private async Task<(string Reason, ControlState State, long Read)?> ReadOverLimitAsync(string key, Deferred deferred)
+    {
+        try
+        {
+            // Numbered like a refresh's read: changes written after this point stay applied on top of it.
+            var read = Interlocked.Increment(ref _reads);
+            var state = Validate(await Bounded(() => _store.GetControlStateAsync(CancellationToken.None), ReadTimeout, CancellationToken.None).ConfigureAwait(false));
+            return deferred.Limit?.Invoke(state) is { } reason ? (reason, state, read) : null;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Could not read the Homeostat store to check a failed change ({Change}) against its limit.", Safe(key));
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Drops a change the store refused for its limit: it no longer applies here (the store will never hold it, and
+    /// retrying it at every refresh would keep, on this instance alone, a change the cluster does not have). With the
+    /// state just read, the view is rebuilt from it without the change; a refresh rebuilds it itself.
+    /// </summary>
+    /// <returns>Whether this call dropped it (not a concurrent one, nor a newer change of the same thing).</returns>
+    private bool Drop(string key, Deferred deferred, ControlState? state, long read)
+    {
+        bool dropped;
+        lock (_viewGate)
+        {
+            dropped = _deferred.TryRemove(new KeyValuePair<string, Deferred>(key, deferred));
+            if (dropped && state is not null && _view is not null)
+            {
+                Replace(ApplyPending(state, read));
+            }
+        }
+
+        Dispatch();
+        return dropped;
+    }
+
     // Writes one change; on success, records which reads may still miss it.
-    private async Task<bool> TryWriteAsync(string key, Deferred deferred)
+    private async Task<Write> TryWriteAsync(string key, Deferred deferred)
     {
         bool applied;
         try
@@ -280,7 +388,7 @@ internal sealed class SharedControl
             {
                 if (_writes.IsRunning(key))
                 {
-                    return false;   // still pending: tried again at the next refresh
+                    return Write.Pending;   // tried again at the next refresh
                 }
 
                 write = _writes.Start(key, () => deferred.Change(_store, CancellationToken.None).AsTask());
@@ -289,10 +397,18 @@ internal sealed class SharedControl
 
             applied = await write.WaitAsync(WriteTimeout).ConfigureAwait(false);
         }
+        catch (InvalidOperationException ex) when (deferred.Limit is not null)
+        {
+            // How a store refuses a change over its limit (IHomeostatStore.TrySetGroupPauseAsync); the caller confirms it
+            // with a read, since a store or its client may throw the same type in an outage.
+            _logger.LogDebug(ex, "Writing a Homeostat change ({Change}) failed; checking the store's limit.", Safe(key));
+            deferred.LimitError = ex;
+            return Write.OverLimit;
+        }
         catch (Exception ex)
         {
-            _logger.LogDebug(ex, "Writing a Homeostat change ({Change}) failed.", key);
-            return false;
+            _logger.LogDebug(ex, "Writing a Homeostat change ({Change}) failed.", Safe(key));
+            return Write.Pending;
         }
 
         if (!applied)
@@ -306,7 +422,7 @@ internal sealed class SharedControl
 
         // A read that starts from now on sees it; earlier ones may not.
         deferred.WrittenBefore = Volatile.Read(ref _reads) + 1;
-        return true;
+        return Write.Answered;
     }
 
     // Under _refreshing, after a successful read: writes what is still waiting (in parallel, so a slow store costs one
@@ -339,9 +455,25 @@ internal sealed class SharedControl
 
         async Task WriteOneAsync(string key, Deferred deferred)
         {
-            if (!await TryWriteAsync(key, deferred).ConfigureAwait(false))
+            var written = await TryWriteAsync(key, deferred).ConfigureAwait(false);
+            if (written == Write.OverLimit && read > 0 && deferred.Limit?.Invoke(state) is { } refused)
             {
+                // The state just read confirms the store's refusal (a pause deferred while the store was down, or made
+                // from a view behind the store): dropped, as a change refused for a later decision is (S2); the refresh
+                // rebuilds the view without it.
+                if (Drop(key, deferred, state: null, read))
+                {
+                    _logger.LogWarning(
+                        "The Homeostat store refused a change ({Change}) decided at {DecidedAt:O}: {Reason} It no longer applies on this instance.",
+                        Safe(key), deferred.DecidedAt, refused);
+                }
+
                 return;
+            }
+
+            if (written != Write.Answered)
+            {
+                return;   // still pending (an unconfirmed limit included: the state could not be read)
             }
 
             if (deferred.Refused)
@@ -411,6 +543,12 @@ internal sealed class SharedControl
 
         /// <summary>1 once a refusal was reported.</summary>
         public int Reported;
+
+        /// <summary>A limit of the store that may refuse the change (see ChangeOrDeferAsync), or <c>null</c>.</summary>
+        public Func<ControlState, string?>? Limit { get; init; }
+
+        /// <summary>The store's error when it may have refused the change for its <see cref="Limit"/>.</summary>
+        public volatile Exception? LimitError;
     }
 
     /// <summary>
@@ -556,7 +694,23 @@ internal sealed class SharedControl
 
     /// <summary>A copy of the state with another pause.</summary>
     public static ControlState WithPause(ControlState state, PauseState? pause)
-        => new() { Pause = pause, Switches = state.Switches, Approvals = state.Approvals };
+        => new() { Pause = pause, GroupPauses = state.GroupPauses, Switches = state.Switches, Approvals = state.Approvals };
+
+    /// <summary>A copy of the state with another pause of a group (removed with <c>null</c>).</summary>
+    public static ControlState WithGroupPause(ControlState state, string group, PauseState? pause)
+    {
+        var pauses = state.GroupPauses.Where(p => !string.Equals(p.Group, group, StringComparison.Ordinal));
+        if (pause is not null)
+        {
+            pauses = pauses.Append(GroupPauseState.From(group, pause));
+        }
+
+        return new() { Pause = state.Pause, GroupPauses = [.. pauses.OrderBy(p => p.Group, StringComparer.Ordinal)], Switches = state.Switches, Approvals = state.Approvals };
+    }
+
+    /// <summary>The pause of a group in a state, or <c>null</c>.</summary>
+    public static PauseState? GroupPauseOf(ControlState state, string group)
+        => state.GroupPauses.FirstOrDefault(p => string.Equals(p.Group, group, StringComparison.Ordinal))?.ToPause();
 
     /// <summary>A copy of the state with a switch turned on (replacing its previous state) or, with <c>null</c>, off.</summary>
     public static ControlState WithSwitch(ControlState state, string name, SwitchState? value)
@@ -567,14 +721,16 @@ internal sealed class SharedControl
             switches = switches.Append(value);
         }
 
-        return new() { Pause = state.Pause, Switches = [.. switches.OrderBy(s => s.Name, StringComparer.Ordinal)], Approvals = state.Approvals };
+        return new() { Pause = state.Pause, GroupPauses = state.GroupPauses, Switches = [.. switches.OrderBy(s => s.Name, StringComparer.Ordinal)], Approvals = state.Approvals };
     }
 
     private static ControlState Validate(ControlState? state)
     {
         // A custom store returning an incomplete state is treated like a failed read, not trusted.
-        if (state?.Switches is null || state.Approvals is null
-            || state.Switches.Any(s => s?.Name is null) || state.Approvals.Any(a => a?.Request is null))
+        // A group pause without its group could be a person's pause of any group: not trusted either (fail closed).
+        if (state?.Switches is null || state.Approvals is null || state.GroupPauses is null
+            || state.Switches.Any(s => s?.Name is null) || state.Approvals.Any(a => a?.Request is null)
+            || state.GroupPauses.Any(p => p?.Group is null))
         {
             throw new InvalidDataException("The store returned an incomplete control state.");
         }
@@ -622,6 +778,12 @@ internal sealed class SharedControl
         public ControlState State { get; } = state;
 
         public HashSet<string> Switches { get; } = state.Switches.Select(s => s.Name).ToHashSet(StringComparer.Ordinal);
+
+        // Read for every triggering signal of a condition in a group: a lookup, not a scan. (A store returning two pauses
+        // of one group: the later decision counts.)
+        public Dictionary<string, GroupPauseState> GroupPauses { get; } = state.GroupPauses
+            .GroupBy(p => p.Group, StringComparer.Ordinal)
+            .ToDictionary(g => g.Key, g => g.MaxBy(p => p.At)!, StringComparer.Ordinal);
     }
 }
 

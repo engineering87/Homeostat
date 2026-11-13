@@ -205,6 +205,12 @@ public class AspNetCoreTests
 
     private sealed class BrokenStore : Homeostat.Persistence.IHomeostatStore
     {
+        public ValueTask<bool> TryConsumeGroupBudgetAsync(string group, DateTimeOffset now, int limit, TimeSpan window, CancellationToken cancellationToken = default) => throw Down;
+
+        public ValueTask<int> GetGroupBudgetUsedAsync(string group, DateTimeOffset now, TimeSpan window, CancellationToken cancellationToken = default) => throw Down;
+
+        public ValueTask<bool> TrySetGroupPauseAsync(string group, Homeostat.Persistence.PauseState? pause, DateTimeOffset decidedAt, CancellationToken cancellationToken = default) => throw Down;
+
         private static InvalidOperationException Down => new("store down");
 
         public ValueTask<Homeostat.Persistence.PlanState> GetPlanStateAsync(string key, CancellationToken cancellationToken = default) => throw Down;

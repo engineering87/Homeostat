@@ -35,7 +35,9 @@ as the generic argument).
 | Error | `Condition {Condition}: {Action} threw an exception.` | Action failed |
 | Error | `Condition {Condition}: all {Count} healing steps were tried without success. Manual intervention required.` | Plan exhausted |
 | Error | `Condition {Condition}: action budget exhausted ({Max} actions per {Window}). Manual intervention required.` | Budget exhausted |
+| Error | `Condition {Condition}: action budget of group '{Group}' exhausted ({Max} actions per {Window}). Manual intervention required.` | The budget of the condition's [healing group](guardrails.md#budget-per-group) is exhausted |
 | Warning | `Condition {Condition}: Homeostat was paused, stopping before step {Step}.` | Paused during a run |
+| Warning | `Condition {Condition}: healing group {Group} was paused, stopping before step {Step}.` | The condition's group was paused (or one of its maintenance windows opened) during a run |
 | Warning | `Condition {Condition}: suppressed by {Cause}, stopping before step {Step}.` | Cause activated during a run |
 | Error | `Condition {Condition}: verification after {Action} threw an exception.` | A verifier failed; the step is inconclusive |
 | Error | `Condition {Condition}: the verifier after {Action} returned {Value}, which is not a VerificationOutcome; treated as Inconclusive.` | A verifier returned an undefined value |
@@ -43,9 +45,15 @@ as the generic argument).
 | Information | `Condition {Condition}: cleared before step {Step}; nothing more to do.` | Run ended with `ConditionCleared` |
 | Error | `Condition {Condition} failed to evaluate a signal from {Source}.` | A trigger or clear predicate threw |
 | Warning | `Homeostat started without any registered condition.` | Configuration issue |
+| Information | `Healing group {Group} is configured, but no condition is in it yet.` | `ConfigureGroup` for a group no condition uses (once at startup) |
+| Warning | `Healing group {Group} paused on this instance; the store will take the pause when it answers.` | A group pause made while the store is unavailable |
+| Warning | `Healing group {Group} is paused, but no condition or ConfigureGroup on this instance uses it: check the name.` | A pause of a group this instance does not know (not refused: the group may come from configuration or another instance) |
+| Information | `Healing group {Group} resumed{By}.` | A group resumed |
+| Warning | `Healing group {Group} was not resumed: a later pause of the group is in the store.` | A group resume refused in decision order |
 | Error | `Detector {Detector} failed.` | A detector threw |
 | Error | `Healing observer {Observer} threw an exception.` | An observer threw |
 | Debug | `Condition {Condition} is active, but Homeostat is paused.` | Kill switch on |
+| Debug | `Condition {Condition} is active, but its healing group {Group} is paused.` | The group's pause or one of its maintenance windows |
 | Debug | `Condition {Condition} is active, but suppressed by {Cause}.` | Retry skipped while the cause is active |
 | Debug | `Condition {Condition}: not starting, {Reason}.` | Cooldown, backoff or hold |
 | Debug | `Condition {Condition}: the plan is running on another instance.` | `OncePerCluster()` lease taken |
@@ -53,6 +61,7 @@ as the generic argument).
 | Error | `Condition {Condition}: compensating action {Undo} failed.` | Compensation failed |
 | Error | `Condition {Condition}: the store is unavailable; not starting the plan.` | Fail closed (Error at most once a minute per condition, Debug otherwise) |
 | Error | `Condition {Condition}: the store is unavailable; the action budget cannot be checked.` | Fail closed (same rate limit) |
+| Error | `Condition {Condition}: the store is unavailable; the action budget of its healing group cannot be checked.` | Fail closed (same rate limit) |
 | Error | `Condition {Condition}: the coordinator is unavailable; not starting the cluster plan.` | Fail closed for an `OncePerCluster()` plan (same rate limit) |
 | Error | `Condition {Condition}: could not save the plan state.` | Store write failed |
 | Warning | `Condition {Condition}: could not record the run in the history.` | Store write failed |
@@ -69,6 +78,10 @@ as the generic argument).
 | Warning | `{Sink} dropped {Count} event(s), the oldest, because its queue of {Size} was full: it delivers more slowly than events are raised.` | A sink falls behind (at most once a minute per sink) |
 
 Runs skipped because of a cooldown or a run already in progress are logged at `Debug` level.
+
+The entries of a run of a condition in a [healing group](conditions.md#modules-ingroup) are written in a log scope with
+one property, `HealingGroup` (the group's name), so a structured log can filter a module's runs; the message
+templates above do not change. Runs of conditions without a group have no such scope.
 
 > [!TIP]
 > Alert on every `Error` from `Homeostat.Engine.HealingRunner`, on `Inconclusive` warnings and on approval requests,
@@ -98,6 +111,7 @@ Each run produces an activity named `homeostat.heal` with these tags:
 | `homeostat.instance` | `weather-api-7d9f8` (`HomeostatOptions.InstanceId`) |
 | `homeostat.run.id` | `3f2b9c0d...` (`HealingRunResult.RunId`, also on the step events) |
 | `homeostat.outcome` | `Healed` |
+| `homeostat.group` | `reports` (only for a condition in a [healing group](conditions.md#modules-ingroup)) |
 
 ### Metrics
 
@@ -107,6 +121,9 @@ Each run produces an activity named `homeostat.heal` with these tags:
 | `homeostat.healing.actions` | Counter | `condition`, `action`, `dry_run` |
 | `homeostat.healing.outcomes` | Counter | `condition`, `outcome` |
 | `homeostat.healing.duration` | Histogram (seconds) | `condition`, `outcome` |
+
+Each of these four also carries a `group` tag for a condition in a [healing group](conditions.md#modules-ingroup); the
+tag is left out for a condition without a group, so existing queries and series do not change.
 
 Run outcomes: `Healed`, `NotHealed`, `Inconclusive`, `DryRun`, `BudgetExhausted`, `Paused`, `NotApproved`,
 `Suppressed`, `ConditionCleared`, `Canceled`, `Failed` (see [Run outcomes](healing-plans.md#run-outcomes)).
@@ -123,7 +140,7 @@ Gauges describe the current state, as seen by the instance that reports them:
 
 ### Grafana dashboard
 
-[`deploy/grafana/homeostat-dashboard.json`](https://github.com/engineering87/Homeostat/blob/main/docs/deploy/grafana/homeostat-dashboard.json) is a ready-made dashboard
+[`deploy/grafana/homeostat-dashboard.json`](https://github.com/engineering87/Homeostat/blob/main/deploy/grafana/homeostat-dashboard.json) is a ready-made dashboard
 for Prometheus: active conditions, pending approvals, switches and paused instances; runs per condition, outcomes,
 actions executed (and simulated in dry-run), p95 run duration, and outcomes by condition. Import it in Grafana and
 choose the Prometheus data source; the `Application` variable filters by the `job` label. It expects the metric names
@@ -143,7 +160,10 @@ Useful views:
 | Member | Returns |
 |---|---|
 | `IsPaused`, `PauseReason`, `IsDryRun` | Pause state (kill switch, timed pause, maintenance window) and dry-run; the pause is this instance's view of the [shared control state](persistence-and-clusters.md#shared-control-state) |
-| `GetConditions()` | A `ConditionSnapshot` per condition: status, timestamps, last signal, `ClearingSince`, `SuppressedBy` |
+| `IsGroupPaused(group)`, `GetGroupPauseReason(group)` | Whether the plans of a [healing group](guardrails.md#pause-per-group) are suspended (global pause, group pause or a window of the group), and why |
+| `GetGroups()` | A `HealingGroupStatus` per known group: its conditions, its own pause (`IsPaused`, `PauseReason`, `Pause`) and its limits |
+| `GetGroupBudgetAsync(group)` | Actions used and remaining in the group's budget window, from the store; `null` for a group without a budget |
+| `GetConditions()` | A `ConditionSnapshot` per condition: status, timestamps, last signal, `ClearingSince`, `SuppressedBy`, `Group` |
 | `GetRecentRunsAsync()` | The latest completed runs, newest first, from the store (`RunHistorySize`, default 50); with a shared store, of every instance. Each record carries its `RunId`, the one in observer events, webhooks and the audit log (`null` for runs stored by a version before 1.0.0-rc.1) |
 | `GetBudgetAsync()` | Actions used and remaining in the current budget window, from the store |
 | `GetConditionHistoryAsync()` | The latest activations and clears, newest first, with the signal that caused them (`ConditionHistorySize`, default 200); from the store when it keeps the history (the built-in stores do; with a shared store, of every instance), merged with this process's events not stored yet; only this process's events when the store cannot be read |
@@ -151,7 +171,7 @@ Useful views:
 
 `await IHomeostatApprovals.GetPendingAsync()` lists the steps waiting for approval, oldest first, without expired
 requests (from the store, so with a shared store of every instance), and `IHomeostatSwitches.GetActive()` the switches that are on, for the application or for
-this instance. `PauseAsync`, `ResumeAsync` and `ReleaseHoldAsync` change the state: see [Guardrails](guardrails.md#kill-switch)
+this instance. `PauseAsync`, `ResumeAsync`, `PauseGroupAsync`, `ResumeGroupAsync` and `ReleaseHoldAsync` change the state: see [Guardrails](guardrails.md#kill-switch)
 and [Releasing a hold](healing-plans.md#releasing-a-hold).
 
 The quickest way to see all of it is the status endpoint of [Homeostat.AspNetCore](aspnetcore.md):
@@ -193,7 +213,8 @@ public sealed class IncidentNotifier(IncidentQueue queue) : IHealingObserver
 Condition events are raised on the engine loop and step/run events on the run's thread pool thread, so
 an observer can be called concurrently and must be thread-safe. Observers are called in registration
 order. `OnStepCompleted` fires only for executed steps (not in dry-run, not for steps skipped by budget or
-pause).
+pause). For a condition in a healing group, the snapshot, the step, the run and the approval request carry it in
+`Group`, as does `HomeostatEvent.Group` for sinks (webhooks, audit log); it is `null` otherwise.
 
 `AddObserver<T>()` resolves `T` from the container (registered as a singleton unless you registered it
 yourself, in which case keep it a singleton), so the same instance can be injected elsewhere. Registering the same

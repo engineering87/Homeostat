@@ -36,7 +36,7 @@ internal sealed class SlackSink : HttpEventSink
             ObjectOf(("type", "section"), ("text", Text("mrkdwn", text))),
             ObjectOf(
                 ("type", "context"),
-                ("elements", ArrayOf(Text("mrkdwn", Limit($"Condition `{Escape(e.Condition)}` · {e.Kind}", 3000))))));
+                ("elements", ArrayOf(Text("mrkdwn", Limit($"Condition `{Escape(e.Condition)}`{GroupText(e)} · {e.Kind}", 3000))))));
 
         var buttons = new JsonArray();
         if (e.Kind == HomeostatEventKind.ApprovalRequested && options.ApprovalButtons && e.ApprovalId is { } id)
@@ -49,7 +49,7 @@ internal sealed class SlackSink : HttpEventSink
                 ("value", id),
                 ("confirm", ObjectOf(
                     ("title", Text("plain_text", "Approve this step?")),
-                    ("text", Text("plain_text", Truncate($"{e.Condition}: {e.Step}", 300))),
+                    ("text", Text("plain_text", Truncate(e.Group is { } group ? $"{e.Condition} (group {group}): {e.Step}" : $"{e.Condition}: {e.Step}", 300))),
                     ("confirm", Text("plain_text", "Approve")),
                     ("deny", Text("plain_text", "Cancel"))))));
             buttons.Add((JsonNode)ObjectOf(
@@ -79,6 +79,9 @@ internal sealed class SlackSink : HttpEventSink
     }
 
     private static JsonObject Text(string type, string text) => ObjectOf(("type", type), ("text", text));
+
+    // The healing group, only for a condition in one: messages without groups stay as they were.
+    private static string GroupText(HomeostatEvent e) => e.Group is { } group ? $" in group `{Escape(group)}`" : string.Empty;
 
     /// <summary>Slack control characters: without escaping, text from an alert could mention @channel or forge links.</summary>
     internal static string Escape(string value)
@@ -141,6 +144,7 @@ internal sealed class TeamsSink : HttpEventSink
     {
         var facts = ArrayOf(
             Fact("Condition", e.Condition),
+            Fact("Group", e.Group),
             Fact("Step", e.Step),
             Fact("Outcome", e.Outcome),
             Fact("Expires", e.ExpiresAt?.ToString("u", System.Globalization.CultureInfo.InvariantCulture)));

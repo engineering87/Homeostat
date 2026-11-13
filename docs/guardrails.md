@@ -2,7 +2,8 @@
 
 Homeostat acts on a running application, so its defaults are deliberately conservative: when in doubt, it does
 less. This page describes each guardrail (dry-run, budget, cooldown, concurrency, timeouts, pause, maintenance windows,
-approval, suppression), how Homeostat behaves when it fails itself, and every global option.
+approval, suppression), the guardrails of [healing groups](#healing-groups), how Homeostat behaves when it fails
+itself, and every global option.
 
 ```csharp
 .AddHomeostat(h => h
@@ -43,7 +44,8 @@ fail: Condition weather-feed-down: action budget exhausted (10 actions per 01:00
 ```
 
 This protects you from a faulty signal or a misconfigured condition triggering a storm of interventions.
-`IHomeostatControl.GetBudgetAsync()` reports how much of the budget is used.
+`IHomeostatControl.GetBudgetAsync()` reports how much of the budget is used. A [healing group](#healing-groups) can
+have a budget of its own, spent inside this one.
 
 ## Cooldown
 
@@ -69,6 +71,7 @@ blocks does not get one more blocked call per triggering signal.
 - At most one run per condition, always.
 - At most `MaxConcurrentHealings` runs overall; additional runs wait for a free slot.
 - A run waiting for an approval gives its slot back until the answer arrives.
+- A [healing group](#healing-groups) can have a limit of its own, inside this one.
 
 ## Timeouts
 
@@ -181,6 +184,112 @@ For a one-off deployment, prefer a timed pause (`PauseAsync(until)`, or `POST /h
 itself even if the deployment script never reaches its last step. See
 [Pause during deployments](recipes.md#pause-during-deployments).
 
+A window restricted with `.ForGroups("reports")` pauses only the plans of those [healing groups](#windows-per-group).
+
+## Healing groups
+
+A healing group is a named set of conditions, typically one module of a modular monolith (reports, ingestion,
+exports). A condition joins one with [`InGroup`](conditions.md#modules-ingroup) (or the `Group` key in
+[configuration](configuration.md#condition-keys)). The group labels everything about its conditions (snapshots, runs,
+approvals, events, metrics, logs) and has guardrails of its own, applied **on top of** the global ones, like
+bulkheads: one module that misbehaves spends its own budget and its own slots, and can be paused alone. An
+application that does not use groups behaves exactly as before.
+
+```csharp
+.AddHomeostat(h => h
+    .Configure(o => { o.MaxActionsPerWindow = 10; o.MaxConcurrentHealings = 2; })
+    .ConfigureGroup("reports", g =>
+    {
+        g.MaxActionsPerWindow = 3;          // at most 3 of the 10 actions per window
+        g.MaxConcurrentHealings = 1;        // at most 1 of the 2 slots
+    })
+    .AddMaintenanceWindow("reports-reindex", w => w.Daily(new TimeOnly(3, 0), TimeSpan.FromHours(1)).ForGroups("reports"))
+    .AddCondition("reports-db-slow", c => c.ForSource("reports-db").InGroup("reports").Heal(/* ... */)))
+```
+
+| Option of `HealingGroupOptions` | Default | Meaning |
+|---|---|---|
+| `MaxActionsPerWindow` | `null` (no group budget) | Actions the group may execute per window, inside the global budget |
+| `ActionBudgetWindow` | `null` (the global `ActionBudgetWindow`) | Rolling window of the group budget |
+| `MaxConcurrentHealings` | `null` (no group limit) | Runs of the group executing at the same time, inside the global limit |
+
+`ConfigureGroup` can be called several times for the same group: the configurations apply in order, like
+`Configure`. The options are validated when Homeostat starts (positive values, a window of at most about 49 days) and
+read once then. A group that no condition uses is allowed (its conditions can come from configuration later) and
+logged once at startup at Information level. A group needs no configuration to be paused or to have a maintenance
+window. Group names are not empty, have at most 200 characters and no control characters.
+
+`IHomeostatControl.GetGroups()` lists every group known on the instance (the groups of the conditions, the configured
+ones and the paused ones) with its conditions, its own pause and its limits; `GetGroupBudgetAsync(group)` reports the
+use of its budget from the store, or `null` for a group without a budget.
+
+### Concurrency per group
+
+A run takes **the slot of its group first, then a global slot**, and gives them back in the reverse order. A run that
+waits for its busy group therefore holds no global slot that another group could use. While a step waits for an
+approval, the run gives both slots back and takes them again, in the same order, when the answer arrives. A run
+canceled while it waits for either slot (the application stops, a cluster lease is lost) leaves no slot taken.
+
+### Budget per group
+
+Before each executed action, Homeostat consumes one unit of the **group budget first** (when the group has one), then
+one of the global budget. When the group budget is exhausted, the run stops with `BudgetExhausted` and the error names
+it:
+
+```text
+fail: Condition reports-db-slow: action budget of group 'reports' exhausted (3 actions per 01:00:00). Manual intervention required.
+```
+
+The other groups go on. When the global budget is exhausted after the group unit was consumed, that unit is not given
+back: it costs the group itself, never another group, and giving it back would need one more store write that could
+fail in turn. Compensating actions count in both budgets, best effort, and neither budget ever blocks them. A group
+budget that the store cannot check stops the run (`Failed`), like the global one: Homeostat fails closed. Group
+budgets live in the [store](persistence-and-clusters.md#shared-control-state) next to the global budget, so with a
+shared store they span every instance.
+
+### Pause per group
+
+```csharp
+await control.PauseGroupAsync("reports", until: time.GetUtcNow().AddMinutes(30), by: "deploy");
+await control.ResumeGroupAsync("reports", by: "on-call");
+```
+
+A paused group behaves for its runs exactly as Homeostat does under the [global pause](#kill-switch): no run of the
+group starts, a run in progress stops before its next step with outcome `Paused`, its compensating action still
+runs, and its conditions keep being tracked. The other groups go on. The global pause still pauses every group.
+
+The group pause follows the global pause's rules, on the same code path: it is kept in the store and reaches every
+instance within `ControlRefreshInterval`; pauses and resumes of a group are written in decision order (a late write
+never undoes a newer decision about the same group; on a tie the pause wins); a pause made while the store is down
+applies on the instance at once and is written when the store answers, while a resume fails; a resume that times out leaves the group paused (the pause is decided again after it); a timed pause ends
+by itself; a group pause record Redis cannot read counts as a pause of that group; and until the control state is
+first read, every group counts as paused. At most 256 groups can be paused at once (`ControlState.MaxGroupPauses`):
+the pause of one more fails with `InvalidOperationException`, and resuming a group (a timed pause included, once it
+ended) makes room. The instance checks the limit on what it knows: its view of the store or, before the state is first
+read (a store down at startup), the group pauses still waiting to be written, so pauses deferred during an outage stay
+bounded too. The store checks it again: when another instance took the last room within the refresh interval, the
+store refuses the pause and `PauseGroupAsync` fails with the same `InvalidOperationException`; the pause is then
+neither applied nor deferred. (Some stores and clients throw `InvalidOperationException` in an outage too, so the
+instance reads the store to confirm the limit; when the read fails or shows room, the pause is deferred as in any
+outage.) A pause deferred during an outage that the store later refuses for the limit is dropped and logged as a
+warning, like a pause refused for a later resume. The pause that a timed-out resume decides again is never refused
+here: it stays deferred until the store takes it.
+
+`IsGroupPaused(group)` tells whether the plans of a group are suspended, by the global pause, the group's pause or one
+of its windows, and `GetGroupPauseReason(group)` says why: the global `PauseReason` when Homeostat is paused (resuming
+the group would not be enough), otherwise who paused the group and until when, or which window is open. Both read the
+instance's view and never wait.
+
+### Windows per group
+
+```csharp
+.AddMaintenanceWindow("reports-reindex", w => w.Daily(new TimeOnly(3, 0), TimeSpan.FromHours(1)).ForGroups("reports", "exports"))
+```
+
+A window with groups pauses only the runs of those groups, as a pause of each group would; `IsPaused` stays `false`
+and `IsGroupPaused("reports")` is `true` during the window. A window without groups behaves as before: it pauses every
+plan. `MaintenanceWindow.Groups` lists the groups of a window (empty for a global one).
+
 ## Approval
 
 Risky steps can wait for a person: `.Then<FailoverAction>().RequireApproval()`. A rejected or unanswered
@@ -201,7 +310,7 @@ verification, an error otherwise):
 
 - verification is **inconclusive**;
 - every step of the plan has been tried without success;
-- the action budget is exhausted;
+- the action budget, or the budget of the condition's group, is exhausted;
 - an approval request expires.
 
 These logs are good candidates for alerts (see [Observability](observability.md)).
@@ -229,7 +338,9 @@ see [Security](security.md).
 | `ApplicationName` | entry assembly name | Included in notifications and audit records |
 | `InstanceId` | machine name | Identifies the instance in runs, leases, traces and instance plan keys |
 | `ClusterLeaseDuration` | 1 minute | Lease of `OncePerCluster()` plans, renewed while a run lasts |
-| `ControlRefreshInterval` | 5 seconds | How often the instance reads the pause, the application switches and the answers to approval requests from the [store](persistence-and-clusters.md#shared-control-state) |
+| `ControlRefreshInterval` | 5 seconds | How often the instance reads the pause, the pauses of groups, the application switches and the answers to approval requests from the [store](persistence-and-clusters.md#shared-control-state) |
+
+The options of each healing group are in [Healing groups](#healing-groups).
 
 Options are validated when Homeostat starts and fail fast with a descriptive message: negative or zero values where a
 positive one is required, timeouts or intervals above the .NET timer limit (about 49 days), a `DetectionInterval` below

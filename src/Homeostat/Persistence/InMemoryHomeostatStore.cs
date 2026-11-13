@@ -20,6 +20,12 @@ public sealed class InMemoryHomeostatStore : IHomeostatStore
     public ValueTask<int> GetBudgetUsedAsync(DateTimeOffset now, TimeSpan window, CancellationToken cancellationToken = default) => _store.GetBudgetUsedAsync(now, window, cancellationToken);
 
     /// <inheritdoc />
+    public ValueTask<bool> TryConsumeGroupBudgetAsync(string group, DateTimeOffset now, int limit, TimeSpan window, CancellationToken cancellationToken = default) => _store.TryConsumeGroupBudgetAsync(group, now, limit, window, cancellationToken);
+
+    /// <inheritdoc />
+    public ValueTask<int> GetGroupBudgetUsedAsync(string group, DateTimeOffset now, TimeSpan window, CancellationToken cancellationToken = default) => _store.GetGroupBudgetUsedAsync(group, now, window, cancellationToken);
+
+    /// <inheritdoc />
     public ValueTask AppendRunAsync(HealingRunRecord run, int maxRuns, CancellationToken cancellationToken = default) => _store.AppendRunAsync(run, maxRuns, cancellationToken);
 
     /// <inheritdoc />
@@ -42,6 +48,9 @@ public sealed class InMemoryHomeostatStore : IHomeostatStore
 
     /// <inheritdoc />
     public ValueTask<bool> TrySetPauseAsync(PauseState? pause, DateTimeOffset decidedAt, CancellationToken cancellationToken = default) => _store.TrySetPauseAsync(pause, decidedAt, cancellationToken);
+
+    /// <inheritdoc />
+    public ValueTask<bool> TrySetGroupPauseAsync(string group, PauseState? pause, DateTimeOffset decidedAt, CancellationToken cancellationToken = default) => _store.TrySetGroupPauseAsync(group, pause, decidedAt, cancellationToken);
 
     /// <inheritdoc />
     public ValueTask<bool> TrySetSwitchAsync(string name, SwitchState? state, DateTimeOffset decidedAt, CancellationToken cancellationToken = default) => _store.TrySetSwitchAsync(name, state, decidedAt, cancellationToken);

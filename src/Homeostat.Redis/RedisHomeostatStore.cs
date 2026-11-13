@@ -10,8 +10,8 @@ using StackExchange.Redis;
 namespace Homeostat.Redis;
 
 /// <summary>
-/// <see cref="IHomeostatStore"/> on Redis: plan state in hashes, the budget in a sorted set updated by a script
-/// (atomic across instances), the history in a capped list.
+/// <see cref="IHomeostatStore"/> on Redis: plan state in hashes, the budget (and the budget of each healing group) in a
+/// sorted set updated by a script (atomic across instances), the history in a capped list.
 /// </summary>
 internal sealed class RedisHomeostatStore : IHomeostatStore
 {
@@ -58,6 +58,7 @@ internal sealed class RedisHomeostatStore : IHomeostatStore
     private readonly TimeProvider _timeProvider;
     private readonly ILogger _logger;
     private int _pauseUnreadable;
+    private int _groupPauseUnreadable;
 
     public RedisHomeostatStore(IConnectionMultiplexer redis, IOptions<RedisStoreOptions> options, IOptions<HomeostatOptions> homeostat, TimeProvider? timeProvider = null, ILogger<RedisHomeostatStore>? logger = null)
         : this(() => redis, options, homeostat, timeProvider, logger)
@@ -106,19 +107,41 @@ internal sealed class RedisHomeostatStore : IHomeostatStore
         return ToState(result.Select(r => (RedisValue)r).ToArray());
     }
 
-    public async ValueTask<bool> TryConsumeBudgetAsync(DateTimeOffset now, int limit, TimeSpan window, CancellationToken cancellationToken = default)
+    public ValueTask<bool> TryConsumeBudgetAsync(DateTimeOffset now, int limit, TimeSpan window, CancellationToken cancellationToken = default)
+        => ConsumeBudgetAsync(_budgetKey, now, limit, window);
+
+    public ValueTask<int> GetBudgetUsedAsync(DateTimeOffset now, TimeSpan window, CancellationToken cancellationToken = default)
+        => BudgetUsedAsync(_budgetKey, now, window);
+
+    public ValueTask<bool> TryConsumeGroupBudgetAsync(string group, DateTimeOffset now, int limit, TimeSpan window, CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(group);
+        return ConsumeBudgetAsync(GroupBudgetKey(group), now, limit, window);
+    }
+
+    public ValueTask<int> GetGroupBudgetUsedAsync(string group, DateTimeOffset now, TimeSpan window, CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(group);
+        return BudgetUsedAsync(GroupBudgetKey(group), now, window);
+    }
+
+    // The budget of a group sits next to the global one (shared or per instance like it), one sorted set per group.
+    private RedisKey GroupBudgetKey(string group) => $"{_budgetKey}:group:{group}";
+
+    // The global budget and the budget of each group follow the same script, each in its own sorted set.
+    private async ValueTask<bool> ConsumeBudgetAsync(RedisKey key, DateTimeOffset now, int limit, TimeSpan window)
     {
         var result = await Db.ScriptEvaluateAsync(
             ConsumeBudgetScript,
-            [_budgetKey],
+            [key],
             [now.ToUnixTimeMilliseconds(), (long)window.TotalMilliseconds, limit, Guid.NewGuid().ToString("N")]).ConfigureAwait(false);
         return (int)result == 1;
     }
 
-    public async ValueTask<int> GetBudgetUsedAsync(DateTimeOffset now, TimeSpan window, CancellationToken cancellationToken = default)
+    private async ValueTask<int> BudgetUsedAsync(RedisKey key, DateTimeOffset now, TimeSpan window)
     {
         var count = await Db.SortedSetLengthAsync(
-            _budgetKey,
+            key,
             min: now.ToUnixTimeMilliseconds() - (long)window.TotalMilliseconds,
             max: double.PositiveInfinity,
             exclude: Exclude.Start).ConfigureAwait(false);
@@ -243,11 +266,12 @@ internal sealed class RedisHomeostatStore : IHomeostatStore
     {
         var batch = Db.CreateBatch();
         var pause = batch.StringGetAsync(ControlKey("pause"));
+        var groupPauses = batch.HashGetAllAsync(ControlKey("group-pauses"));
         var switches = batch.HashGetAllAsync(ControlKey("switches"));
         var approvals = batch.HashGetAllAsync(ControlKey("approvals"));
         var answers = batch.HashGetAllAsync(ControlKey("answers"));
         batch.Execute();
-        await Task.WhenAll(pause, switches, approvals, answers).ConfigureAwait(false);
+        await Task.WhenAll(pause, groupPauses, switches, approvals, answers).ConfigureAwait(false);
 
         var answered = (await answers.ConfigureAwait(false)).ToDictionary(e => (string)e.Name!, e => (string?)e.Value, StringComparer.Ordinal);
         var records = new List<ApprovalRecord>();
@@ -292,6 +316,7 @@ internal sealed class RedisHomeostatStore : IHomeostatStore
         return new ControlState
         {
             Pause = ReadPause(await pause.ConfigureAwait(false)),
+            GroupPauses = ReadGroupPauses(await groupPauses.ConfigureAwait(false)),
             Switches = (await switches.ConfigureAwait(false))
                 .Select(e => Read(e.Value, RedisJsonContext.Default.SwitchState))
                 .OfType<SwitchState>()
@@ -332,6 +357,48 @@ internal sealed class RedisHomeostatStore : IHomeostatStore
         return new PauseState { At = DateTimeOffset.MinValue, By = "unreadable pause record in the store (resume to replace it)" };
     }
 
+    /// <summary>
+    /// The pauses of the groups, failing closed like the global pause: a record that cannot be read counts as an
+    /// indefinite pause of its group (the field is the group's name).
+    /// </summary>
+    private GroupPauseState[] ReadGroupPauses(HashEntry[] entries)
+    {
+        var pauses = new List<GroupPauseState>(entries.Length);
+        var unreadable = new List<string>();
+        foreach (var entry in entries)
+        {
+            var group = (string?)entry.Name;
+            if (string.IsNullOrEmpty(group))
+            {
+                continue;
+            }
+
+            if (Read(entry.Value, RedisJsonContext.Default.PauseState) is { } pause)
+            {
+                pauses.Add(GroupPauseState.From(group, pause));
+            }
+            else
+            {
+                unreadable.Add(group);
+                pauses.Add(new GroupPauseState { Group = group, At = DateTimeOffset.MinValue, By = "unreadable pause record in the store (resume the group to replace it)" });
+            }
+        }
+
+        // Once until they are all readable again: the control state is read every few seconds.
+        if (unreadable.Count == 0)
+        {
+            Volatile.Write(ref _groupPauseUnreadable, 0);
+        }
+        else if (Interlocked.Exchange(ref _groupPauseUnreadable, 1) == 0)
+        {
+            _logger.LogCritical(
+                "The Homeostat pause records of the healing groups {Groups} in Redis ({Key}) cannot be read: those groups count as paused until a person resumes them.",
+                string.Join(", ", unreadable).ReplaceLineEndings(" "), (string?)ControlKey("group-pauses"));
+        }
+
+        return [.. pauses.OrderBy(p => p.Group, StringComparer.Ordinal)];
+    }
+
     // Decision times are Unix microseconds (exact in a Lua number). A change that makes Homeostat do less (a pause, a
     // switch off, a release) is accepted on a tie, as a deferred change may be written again with the same time; a change
     // that lets it act (a resume, a switch on, a claim) only when strictly later.
@@ -348,6 +415,28 @@ internal sealed class RedisHomeostatStore : IHomeostatStore
           redis.call('DEL', KEYS[1])
         else
           redis.call('SET', KEYS[1], ARGV[1])
+        end
+        return 1
+        """;
+
+    // KEYS[1] = group pauses (hash: group -> pause JSON), KEYS[2] = decided; ARGV[1] = group, ARGV[2] = pause (JSON, '' to
+    // resume), ARGV[3] = decided at, ARGV[4] = most groups paused at once. The global pause's rule, per group (field
+    // 'group-pause:{group}' of the decided hash). Returns -1 for the pause of one group too many.
+    private const string SetGroupPauseInOrderScript = """
+        local field = 'group-pause:' .. ARGV[1]
+        local latest = tonumber(redis.call('HGET', KEYS[2], field) or '-1')
+        local at = tonumber(ARGV[3])
+        if (ARGV[2] == '' and at <= latest) or at < latest then
+          return 0
+        end
+        if ARGV[2] ~= '' and redis.call('HEXISTS', KEYS[1], ARGV[1]) == 0 and redis.call('HLEN', KEYS[1]) >= tonumber(ARGV[4]) then
+          return -1
+        end
+        redis.call('HSET', KEYS[2], field, ARGV[3])
+        if ARGV[2] == '' then
+          redis.call('HDEL', KEYS[1], ARGV[1])
+        else
+          redis.call('HSET', KEYS[1], ARGV[1], ARGV[2])
         end
         return 1
         """;
@@ -422,6 +511,20 @@ internal sealed class RedisHomeostatStore : IHomeostatStore
         var result = await Db.ScriptEvaluateAsync(
             SetPauseInOrderScript, [ControlKey("pause"), ControlKey("decided")], [json, Micros(decidedAt)]).ConfigureAwait(false);
         return (int)result == 1;
+    }
+
+    public async ValueTask<bool> TrySetGroupPauseAsync(string group, PauseState? pause, DateTimeOffset decidedAt, CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(group);
+        var json = pause is null ? string.Empty : JsonSerializer.Serialize(pause, RedisJsonContext.Default.PauseState);
+        var result = (int)await Db.ScriptEvaluateAsync(
+            SetGroupPauseInOrderScript,
+            [ControlKey("group-pauses"), ControlKey("decided")],
+            [group, json, Micros(decidedAt), ControlState.MaxGroupPauses]).ConfigureAwait(false);
+        return result == -1
+            ? throw new InvalidOperationException(
+                $"At most {ControlState.MaxGroupPauses} healing groups can be paused at once: resume groups that no longer need their pause.")
+            : result == 1;
     }
 
     public async ValueTask<bool> TrySetSwitchAsync(string name, SwitchState? state, DateTimeOffset decidedAt, CancellationToken cancellationToken = default)

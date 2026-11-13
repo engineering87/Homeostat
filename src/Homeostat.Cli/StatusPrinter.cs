@@ -58,10 +58,43 @@ internal static class StatusPrinter
             foreach (var a in approvals)
             {
                 text.AppendLine(CultureInfo.InvariantCulture,
-                    $"  {a.GetProperty("id").GetString()}  {a.GetProperty("conditionName").GetString()}: {a.GetProperty("stepName").GetString()}");
+                    $"  {a.GetProperty("id").GetString()}  {a.GetProperty("conditionName").GetString()}: {a.GetProperty("stepName").GetString()}{GroupSuffix(a)}");
             }
 
             text.AppendLine("  Answer with: homeostat approve <id>  or  homeostat reject <id>");
+        }
+
+        // Healing groups: only when the application has some (the status then has a "groups" list).
+        if (status.TryGetProperty("groups", out var groups) && groups.ValueKind == JsonValueKind.Array && groups.GetArrayLength() > 0)
+        {
+            text.AppendLine().AppendLine("Groups:");
+            var list = groups.EnumerateArray().ToList();
+            var groupWidth = list.Max(g => g.GetProperty("name").GetString()!.Length);
+            foreach (var g in list)
+            {
+                var state = g.GetProperty("paused").GetBoolean() ? "paused" : "healing";
+                var parts = new List<string>();
+                if (g.TryGetProperty("budget", out var groupBudget) && groupBudget.ValueKind == JsonValueKind.Object)
+                {
+                    var used = groupBudget.GetProperty("used").GetInt32();
+                    var limit = groupBudget.GetProperty("limit").GetInt32();
+                    parts.Add(used >= limit ? $"budget {used}/{limit} EXHAUSTED" : $"budget {used}/{limit}");
+                }
+                else if (g.TryGetProperty("maxActionsPerWindow", out var max) && max.ValueKind == JsonValueKind.Number)
+                {
+                    parts.Add($"budget ?/{max.GetInt32()}");
+                }
+
+                if (g.TryGetProperty("pauseReason", out var groupReason) && groupReason.ValueKind == JsonValueKind.String)
+                {
+                    parts.Add(groupReason.GetString()!);
+                }
+
+                var line = string.Create(CultureInfo.InvariantCulture, $"  {g.GetProperty("name").GetString()!.PadRight(groupWidth)}  {state,-8}  {string.Join("; ", parts)}");
+                text.AppendLine(line.TrimEnd());
+            }
+
+            text.AppendLine("  Pause or resume one with: homeostat pause --group <name>  or  homeostat resume --group <name>");
         }
 
         text.AppendLine().AppendLine("Conditions:");
@@ -77,7 +110,7 @@ internal static class StatusPrinter
             var detail = c.TryGetProperty("suppressedBy", out var s) && s.ValueKind == JsonValueKind.String ? $"suppressed by {s.GetString()}"
                 : c.TryGetProperty("lastMessage", out var m) && m.ValueKind == JsonValueKind.String ? m.GetString()
                 : string.Empty;
-            text.AppendLine(CultureInfo.InvariantCulture, $"  {name.PadRight(width)}  {state,-8}  {detail}");
+            text.AppendLine(CultureInfo.InvariantCulture, $"  {name.PadRight(width)}  {state,-8}  {detail}{GroupSuffix(c)}");
         }
 
         if (conditions.Count == 0)
@@ -96,12 +129,16 @@ internal static class StatusPrinter
             {
                 var completed = r.GetProperty("completedAt").GetDateTimeOffset().ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture);
                 text.AppendLine(CultureInfo.InvariantCulture,
-                    $"  {completed}  {r.GetProperty("condition").GetString()}  {r.GetProperty("outcome").GetString()}");
+                    $"  {completed}  {r.GetProperty("condition").GetString()}  {r.GetProperty("outcome").GetString()}{GroupSuffix(r)}");
             }
         }
 
         return Clean(text.ToString());
     }
+
+    // " (group x)" for a condition or an approval in a healing group; nothing otherwise, so the output without groups is unchanged.
+    private static string GroupSuffix(JsonElement element)
+        => element.TryGetProperty("group", out var group) && group.ValueKind == JsonValueKind.String ? $" (group {group.GetString()})" : string.Empty;
 
     public static string PrintCoverage(JsonElement report)
     {

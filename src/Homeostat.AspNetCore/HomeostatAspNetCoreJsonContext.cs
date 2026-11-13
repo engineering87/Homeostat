@@ -51,6 +51,7 @@ internal static class HomeostatResults
                 Type = statusCode switch
                 {
                     StatusCodes.Status403Forbidden => "https://tools.ietf.org/html/rfc9110#section-15.5.4",
+                    StatusCodes.Status409Conflict => "https://tools.ietf.org/html/rfc9110#section-15.5.10",
                     StatusCodes.Status503ServiceUnavailable => "https://tools.ietf.org/html/rfc9110#section-15.6.4",
                     _ => null,
                 },

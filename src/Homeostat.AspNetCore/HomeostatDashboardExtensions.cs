@@ -16,8 +16,9 @@ public static class HomeostatDashboardExtensions
 
     /// <summary>
     /// Maps <c>GET {prefix}/dashboard</c>: a page that shows conditions, pending approvals, switches, the action budget,
-    /// recent runs, the condition history and the coverage of the last 24 hours, refreshed every 5 seconds, with buttons to approve or reject steps, pause and resume, and
-    /// turn switches on and off. It reads <c>{prefix}/status</c> and calls the control endpoints, so map
+    /// the healing groups, recent runs, the condition history and the coverage of the last 24 hours, refreshed every 5
+    /// seconds, with buttons to approve or reject steps, pause and resume (Homeostat or one healing group), and turn
+    /// switches on and off. It reads <c>{prefix}/status</c> and calls the control endpoints, so map
     /// <see cref="HomeostatEndpointRouteBuilderExtensions.MapHomeostatStatus(IEndpointRouteBuilder, string?, string, bool)"/> and
     /// <see cref="HomeostatEndpointRouteBuilderExtensions.MapHomeostatControl(IEndpointRouteBuilder, string?, string, bool)"/> with the same prefix (without the
     /// control endpoints, the dashboard is read-only). The page is self-contained (no external scripts, fonts or

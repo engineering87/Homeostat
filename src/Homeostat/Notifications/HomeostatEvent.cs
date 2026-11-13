@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace Homeostat.Notifications;
 
 /// <summary>Kinds of <see cref="HomeostatEvent"/>.</summary>
@@ -39,6 +41,10 @@ public sealed record HomeostatEvent
 
     /// <summary>Condition concerned.</summary>
     public required string Condition { get; init; }
+
+    /// <summary>The healing group of the condition (<see cref="Conditions.ConditionBuilder.InGroup"/>), or <c>null</c>.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Group { get; init; }
 
     /// <summary>One human-readable sentence.</summary>
     public required string Summary { get; init; }

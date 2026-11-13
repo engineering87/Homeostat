@@ -167,7 +167,7 @@ internal sealed class ConditionTracker
     {
         lock (_gate)
         {
-            return new ConditionSnapshot { Name = Definition.Name, Status = _status, PendingSince = _pendingSince, ActiveSince = _activeSince, LastSignalAt = _lastSignalAt, LastSignal = _lastSignal, ClearingSince = _clearingSince };
+            return new ConditionSnapshot { Name = Definition.Name, Group = Definition.Group, Status = _status, PendingSince = _pendingSince, ActiveSince = _activeSince, LastSignalAt = _lastSignalAt, LastSignal = _lastSignal, ClearingSince = _clearingSince };
         }
     }
 

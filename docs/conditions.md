@@ -269,6 +269,28 @@ Composites are evaluated after every signal, after the conditions they depend on
 the `When...` rules, `ClearWhen` and `Occurrences` do not apply to a composite and throw `InvalidOperationException`.
 Unknown names, self-references and cycles fail at startup.
 
+### Modules: `InGroup`
+
+In a modular monolith, give each module's conditions a healing group:
+
+```csharp
+.AddCondition("reports-db-slow", c => c
+    .ForSource("reports-db")
+    .InGroup("reports")
+    .Heal(p => p.ClearConnectionPools<NpgsqlConnection>()))
+```
+
+A condition belongs to one group at most: calling `InGroup` again replaces the group. The group name is not empty,
+has at most 200 characters and no control characters (`ArgumentException` otherwise); configuration uses the
+[`Group` key](configuration.md#condition-keys), and a reload may move a condition to another group (a run keeps the
+group it started with, and stops before its next step if the new group is paused). The group shows wherever the
+condition is shown to people: `ConditionSnapshot.Group`, `HealingRunResult.Group`, `HealingStepResult.Group`,
+`HealingRunRecord.Group` (stored; `null` in records written before), `PendingApproval.Group`, `HomeostatEvent.Group`,
+the `group` metric tag and the `HealingGroup` log scope ([Observability](observability.md)). The group's own
+guardrails (budget, concurrency, pause, maintenance windows) are in
+[Guardrails](guardrails.md#healing-groups). A condition without a group has none of this: `Group` is `null`, and only
+the global guardrails apply.
+
 ## Lifecycle
 
 ```mermaid
@@ -331,6 +353,7 @@ hand over to each other. Only one run executes at a time by default (`MaxConcurr
 ## Rules and validation
 
 - Condition names must be unique; duplicates fail at startup.
+- A group name (`InGroup`) is not empty, has at most 200 characters and no control characters.
 - `SustainedFor` and `ClearAfter` cannot be negative or longer than about 49 days (the .NET timer limit).
 - `SuppressedBy`, `WhenAllActive` and `WhenAnyActive` must name registered conditions, without self-references
   or cycles.

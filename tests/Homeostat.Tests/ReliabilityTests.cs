@@ -131,6 +131,12 @@ public class ReliabilityTests
     /// <summary>A store whose calls never complete and ignore their token, the worst a custom store can do.</summary>
     private sealed class SilentStore : IHomeostatStore
     {
+        public ValueTask<bool> TryConsumeGroupBudgetAsync(string group, DateTimeOffset now, int limit, TimeSpan window, CancellationToken cancellationToken = default) => Never<bool>();
+
+        public ValueTask<int> GetGroupBudgetUsedAsync(string group, DateTimeOffset now, TimeSpan window, CancellationToken cancellationToken = default) => Never<int>();
+
+        public ValueTask<bool> TrySetGroupPauseAsync(string group, PauseState? pause, DateTimeOffset decidedAt, CancellationToken cancellationToken = default) => Never<bool>();
+
         private static ValueTask<T> Never<T>() => new(new TaskCompletionSource<T>().Task);
 
         private static ValueTask Never() => new(new TaskCompletionSource().Task);

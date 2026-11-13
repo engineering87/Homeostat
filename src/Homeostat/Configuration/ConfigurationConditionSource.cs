@@ -14,7 +14,7 @@ internal sealed class ConfigurationConditionSource
     {
         "Source", "Severity", "ValueAbove", "ValueBelow", "RisingFasterThan", "FallingFasterThan", "AnomalouslyHigh",
         "AnomalouslyLow", "ProjectedAbove", "ProjectedBelow", "SeasonallyHigh", "SeasonallyLow", "ClearWhenHealthy", "SustainedFor", "ClearAfter", "SuppressedBy", "Occurrences", "AllActive",
-        "AnyActive", "Plan",
+        "AnyActive", "Plan", "Group",
     };
 
     /// <summary>Settings that decide when a signal triggers the condition: at most one per condition.</summary>
@@ -209,6 +209,13 @@ internal sealed class ConfigurationConditionSource
             if (Duration(section, "ClearAfter") is { } clearAfter)
             {
                 builder.ClearAfter(clearAfter);
+            }
+
+            // A group is a name: a section or an empty value is a mistake, not "no group".
+            var group = section.GetSection("Group");
+            if (group.Exists())
+            {
+                builder.InGroup(group.Value ?? throw new InvalidOperationException("Group must be the name of a healing group."));
             }
 
             if (Strings(section, "SuppressedBy") is { Length: > 0 } causes)

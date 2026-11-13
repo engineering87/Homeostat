@@ -53,6 +53,21 @@ expected to stay stable through 1.0.0.
   `homeostat.approvals.pending`, `homeostat.switches.on`, `homeostat.paused`, `homeostat.dry_run`.
 - Homeostat's own health check (`AddHomeostatCheck`).
 
+#### Healing groups (modular monoliths)
+
+- A condition can belong to a healing group, typically one module of a modular monolith (`InGroup("reports")`, or the
+  `Group` key in configuration). The group is shown on conditions, runs, approvals and events, in the status, the
+  dashboard and the CLI, and as a tag on metrics and traces.
+- Group guardrails inside the global ones, set with `ConfigureGroup(group, g => ...)`: an action budget per group, so
+  one module cannot spend the actions of the others, and a limit on concurrent runs per group, so a long run in one
+  module does not hold another.
+- A group can be paused alone (`IHomeostatControl.PauseGroupAsync`, `POST /homeostat/groups/{group}/pause`, the
+  dashboard, `homeostat pause --group`), on every instance, with the same decision order and fail-closed rules as the
+  global pause; maintenance windows can apply to some groups only (`ForGroups`).
+- The store contract adds group budgets and group pauses, implemented by the memory, file and Redis stores. The
+  Homeostat health check reports an exhausted group budget or a paused group.
+- [From architecture to configuration](docs/architecture-examples.md) has a third example, a modular monolith.
+
 #### Conditions
 
 - Conditions on values, trends and anomalies (`WhenValueAbove`, `WhenRisingFasterThan`, `WhenAnomalouslyHigh`...),

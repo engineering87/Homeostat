@@ -45,6 +45,26 @@ public interface IHomeostatStore
     /// <param name="cancellationToken">Cancellation token.</param>
     ValueTask<int> GetBudgetUsedAsync(DateTimeOffset now, TimeSpan window, CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Consumes one unit of the action budget of a healing group if fewer than <paramref name="limit"/> were used within
+    /// <paramref name="window"/>: the same atomicity and expiry as <see cref="TryConsumeBudgetAsync"/>, with one budget
+    /// per group, separate from the global one (Homeostat consumes the group's unit first, then the global one).
+    /// </summary>
+    /// <param name="group">The healing group.</param>
+    /// <param name="now">Current time.</param>
+    /// <param name="limit">Maximum actions of the group per window.</param>
+    /// <param name="window">Sliding window.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns><c>true</c> if the action may run as far as the group is concerned.</returns>
+    ValueTask<bool> TryConsumeGroupBudgetAsync(string group, DateTimeOffset now, int limit, TimeSpan window, CancellationToken cancellationToken = default);
+
+    /// <summary>Returns how many actions of a healing group were consumed within <paramref name="window"/>.</summary>
+    /// <param name="group">The healing group.</param>
+    /// <param name="now">Current time.</param>
+    /// <param name="window">Sliding window.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    ValueTask<int> GetGroupBudgetUsedAsync(string group, DateTimeOffset now, TimeSpan window, CancellationToken cancellationToken = default);
+
     /// <summary>Adds a run to the history, keeping at most <paramref name="maxRuns"/> runs.</summary>
     /// <param name="run">The run.</param>
     /// <param name="maxRuns">History size.</param>
@@ -97,7 +117,7 @@ public interface IHomeostatStore
     ValueTask SetDocumentAsync(string key, string document, CancellationToken cancellationToken = default)
         => ValueTask.CompletedTask;
 
-    /// <summary>The pause, the application switches and the approval requests.</summary>
+    /// <summary>The pause, the pauses of healing groups, the application switches and the approval requests.</summary>
     /// <param name="cancellationToken">Cancellation token.</param>
     ValueTask<ControlState> GetControlStateAsync(CancellationToken cancellationToken = default);
 
@@ -113,6 +133,22 @@ public interface IHomeostatStore
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns><c>true</c> if applied; <c>false</c> if a later decision about the pause is already in the store.</returns>
     ValueTask<bool> TrySetPauseAsync(PauseState? pause, DateTimeOffset decidedAt, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Sets the pause of a healing group, or removes it with <c>null</c> (a resume), <b>in decision order</b>, with the
+    /// same rules as <see cref="TrySetPauseAsync"/> for each group on its own: a decision older than the latest one about
+    /// the same group is refused, and on a tie the pause wins. The pauses are returned in
+    /// <see cref="ControlState.GroupPauses"/>.
+    /// </summary>
+    /// <param name="group">The healing group.</param>
+    /// <param name="pause">The pause, or <c>null</c> to resume the group.</param>
+    /// <param name="decidedAt">When the decision was taken (<see cref="PauseState.At"/> for a pause).</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns><c>true</c> if applied; <c>false</c> if a later decision about the group's pause is already in the store.</returns>
+    /// <exception cref="InvalidOperationException">
+    /// The pause of a group not paused yet, while <see cref="ControlState.MaxGroupPauses"/> groups are paused.
+    /// </exception>
+    ValueTask<bool> TrySetGroupPauseAsync(string group, PauseState? pause, DateTimeOffset decidedAt, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Turns an application switch on (replacing its previous state) or, with <c>null</c>, off, <b>in decision order</b>:

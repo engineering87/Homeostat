@@ -54,7 +54,7 @@ internal static class HomeostatCli
         // status
         var json = new Option<bool>("--json") { Description = "Print the raw JSON." };
         var failOnActive = new Option<bool>("--fail-on-active") { Description = $"Exit with code {ActiveConditions} when a condition is active (for scripts and pipelines)." };
-        var status = new Command("status", "Show conditions, approvals, switches, budget and recent runs.") { json, failOnActive };
+        var status = new Command("status", "Show conditions, approvals, switches, budget, healing groups and recent runs.") { json, failOnActive };
         status.SetAction((result, ct) => Run(error, async () =>
         {
             using var client = Connect(result);
@@ -164,25 +164,30 @@ internal static class HomeostatCli
         }));
         root.Subcommands.Add(replay);
 
-        // pause / resume
+        // pause / resume (all healing, or one healing group)
         var duration = new Option<string?>("--for") { Description = "Resume by itself after this time: 30m, 2h, 1d or hh:mm:ss.", HelpName = "duration" };
-        var pause = new Command("pause", "Stop all healing (kill switch). Conditions are still tracked.") { duration };
+        var pauseGroup = new Option<string?>("--group", "-g") { Description = "Pause only this healing group.", HelpName = "name" };
+        var pause = new Command("pause", "Stop all healing (kill switch), or the healing of one group. Conditions are still tracked.") { duration, pauseGroup };
         pause.SetAction((result, ct) => Run(error, async () =>
         {
             using var client = Connect(result);
-            var path = result.GetValue(duration) is { } text ? $"pause?for={Uri.EscapeDataString(Durations.ToHms(text))}" : "pause";
+            var target = result.GetValue(pauseGroup) is { } group ? $"groups/{Uri.EscapeDataString(group)}/pause" : "pause";
+            var path = result.GetValue(duration) is { } text ? $"{target}?for={Uri.EscapeDataString(Durations.ToHms(text))}" : target;
             await client.PostAsync(path, ct);
-            await output.WriteLineAsync(result.GetValue(duration) is { } d ? $"Paused for {d}." : "Paused until resumed.");
+            var what = result.GetValue(pauseGroup) is { } name ? $"Group '{name}' paused" : "Paused";
+            await output.WriteLineAsync(result.GetValue(duration) is { } d ? $"{what} for {d}." : $"{what} until resumed.");
             return Ok;
         }));
         root.Subcommands.Add(pause);
 
-        var resume = new Command("resume", "Resume healing.");
+        var resumeGroup = new Option<string?>("--group", "-g") { Description = "Resume only this healing group.", HelpName = "name" };
+        var resume = new Command("resume", "Resume healing, or the healing of one group.") { resumeGroup };
         resume.SetAction((result, ct) => Run(error, async () =>
         {
             using var client = Connect(result);
-            await client.PostAsync("resume", ct);
-            await output.WriteLineAsync("Resumed.");
+            var group = result.GetValue(resumeGroup);
+            await client.PostAsync(group is null ? "resume" : $"groups/{Uri.EscapeDataString(group)}/resume", ct);
+            await output.WriteLineAsync(group is null ? "Resumed." : $"Group '{group}' resumed.");
             return Ok;
         }));
         root.Subcommands.Add(resume);
@@ -386,6 +391,8 @@ internal sealed class Client : IDisposable
         {
             HttpStatusCode.Unauthorized => "Not authenticated: pass a token with --token or HOMEOSTAT_TOKEN.",
             HttpStatusCode.Forbidden => "Not allowed: the token does not satisfy the endpoint's policy." + (detail is null ? string.Empty : $" {detail}"),
+            // A problem document says what was not found; a bare 404 is an answered request or an unmapped endpoint.
+            HttpStatusCode.NotFound when Detail(body, titleFallback: false) is { } notFound => $"Not found: {notFound}",
             HttpStatusCode.NotFound => $"Not found ({response.RequestMessage?.RequestUri?.AbsolutePath}): the request may have been answered already, or the endpoint is not mapped with this prefix.",
             HttpStatusCode.BadRequest => $"Rejected: {detail ?? "the request is not valid."}",
             >= HttpStatusCode.MultipleChoices and < HttpStatusCode.BadRequest =>
@@ -402,7 +409,12 @@ internal sealed class Client : IDisposable
     /// <c>null</c> for an empty body or one that is not JSON (an HTML error page). Control characters are replaced and
     /// the length bounded: the text comes from the server and goes to a terminal.
     /// </summary>
-    internal static string? Detail(string body)
+    internal static string? Detail(string body) => Detail(body, titleFallback: true);
+
+    /// <inheritdoc cref="Detail(string)"/>
+    /// <param name="body">The answer's body.</param>
+    /// <param name="titleFallback"><c>false</c> to ignore a problem document without a <c>detail</c> (its title only repeats the status).</param>
+    internal static string? Detail(string body, bool titleFallback)
     {
         if (string.IsNullOrWhiteSpace(body))
         {
@@ -418,7 +430,7 @@ internal sealed class Client : IDisposable
             {
                 JsonValueKind.String => root.GetString(),
                 JsonValueKind.Object when root.TryGetProperty("detail", out var d) && d.ValueKind == JsonValueKind.String && d.GetString() is { Length: > 0 } value => value,
-                JsonValueKind.Object when root.TryGetProperty("title", out var t) && t.ValueKind == JsonValueKind.String => t.GetString(),
+                JsonValueKind.Object when titleFallback && root.TryGetProperty("title", out var t) && t.ValueKind == JsonValueKind.String => t.GetString(),
                 _ => null,
             };
         }

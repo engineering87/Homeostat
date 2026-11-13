@@ -154,6 +154,12 @@ public class IntegrationReviewTests
 
     private sealed class ScriptedStore : IHomeostatStore
     {
+        public ValueTask<bool> TryConsumeGroupBudgetAsync(string group, DateTimeOffset now, int limit, TimeSpan window, CancellationToken cancellationToken = default) { Check(); return _inner.TryConsumeGroupBudgetAsync(group, now, limit, window, cancellationToken); }
+
+        public ValueTask<int> GetGroupBudgetUsedAsync(string group, DateTimeOffset now, TimeSpan window, CancellationToken cancellationToken = default) { Check(); return _inner.GetGroupBudgetUsedAsync(group, now, window, cancellationToken); }
+
+        public ValueTask<bool> TrySetGroupPauseAsync(string group, PauseState? pause, DateTimeOffset decidedAt, CancellationToken cancellationToken = default) { Check(); return _inner.TrySetGroupPauseAsync(group, pause, decidedAt, cancellationToken); }
+
         private readonly InMemoryHomeostatStore _inner = new();
 
         /// <summary>When set, every control state read and write fails with it.</summary>

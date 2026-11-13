@@ -19,6 +19,7 @@ internal sealed class HomeostatControl : IHomeostatControl
     private readonly Engine.SharedControl _shared;
     private readonly Engine.PlanStateCache _planStates;
     private readonly Microsoft.Extensions.Logging.ILogger _logger;
+    private readonly HealingGroups _groups;
 
     public HomeostatControl(
         ConditionSet conditions,
@@ -30,8 +31,10 @@ internal sealed class HomeostatControl : IHomeostatControl
         Diagnostics.ConditionHistory history,
         Engine.SharedControl shared,
         Engine.PlanStateCache planStates,
+        HealingGroups groups,
         Microsoft.Extensions.Logging.ILogger<HomeostatControl>? logger = null)
     {
+        _groups = groups;
         _logger = (Microsoft.Extensions.Logging.ILogger?)logger ?? Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance;
         _shared = shared;
         _planStates = planStates;
@@ -55,8 +58,7 @@ internal sealed class HomeostatControl : IHomeostatControl
             }
 
             var now = _timeProvider.GetUtcNow();
-            return _shared.Current.Pause is { } pause && (pause.Until is not { } until || now < until)
-                || _maintenance.IsActive(now);
+            return InForce(_shared.Current.Pause, now) || _maintenance.IsActive(now);
         }
     }
 
@@ -71,56 +73,182 @@ internal sealed class HomeostatControl : IHomeostatControl
             }
 
             var now = _timeProvider.GetUtcNow();
-            if (_shared.Current.Pause is { } pause && (pause.Until is not { } until || now < until))
+            if (_shared.Current.Pause is { } pause && InForce(pause, now))
             {
-                var by = pause.By is { Length: > 0 } who ? $" by {who}" : string.Empty;
-                return pause.Until is { } end ? $"paused until {end:O}{by}" : $"paused{by}";
+                return Describe(pause);
             }
 
             return _maintenance.ActiveWindow(now) is { } window ? $"maintenance window '{window}'" : null;
         }
     }
 
+    // Also read for every triggering signal of a condition in a group: no formatting, a lookup in the view.
+    public bool IsGroupPaused(string group)
+    {
+        ArgumentNullException.ThrowIfNull(group);
+        return IsPaused || IsOwnGroupPause(group, _timeProvider.GetUtcNow());
+    }
+
+    public string? GetGroupPauseReason(string group)
+    {
+        ArgumentNullException.ThrowIfNull(group);
+        return PauseReason ?? OwnGroupPauseReason(group, _timeProvider.GetUtcNow());
+    }
+
+    // The group's own pause: by a person, or by one of its maintenance windows (not the global pause).
+    private bool IsOwnGroupPause(string group, DateTimeOffset now)
+        => InForce(_shared.GroupPause(group), now) || _maintenance.ActiveGroupWindow(now, group) is not null;
+
+    private string? OwnGroupPauseReason(string group, DateTimeOffset now)
+    {
+        if (_shared.GroupPause(group) is { } pause && InForce(pause, now))
+        {
+            return Describe(pause.ToPause());
+        }
+
+        return _maintenance.ActiveGroupWindow(now, group) is { } window ? $"maintenance window '{window}'" : null;
+    }
+
+    private static bool InForce(PauseState? pause, DateTimeOffset now) => pause is not null && (pause.Until is not { } until || now < until);
+
+    private static bool InForce(GroupPauseState? pause, DateTimeOffset now) => pause is not null && (pause.Until is not { } until || now < until);
+
+    private static string Describe(PauseState pause)
+    {
+        var by = pause.By is { Length: > 0 } who ? $" by {who}" : string.Empty;
+        return pause.Until is { } end ? $"paused until {end:O}{by}" : $"paused{by}";
+    }
+
     public bool IsDryRun => _options.DryRun;
 
-    public async ValueTask PauseAsync(DateTimeOffset? until = null, string? by = null, CancellationToken cancellationToken = default)
+    public ValueTask PauseAsync(DateTimeOffset? until = null, string? by = null, CancellationToken cancellationToken = default)
+        => PauseCoreAsync(PauseTarget.Global, until, by);
+
+    public ValueTask ResumeAsync(string? by = null, CancellationToken cancellationToken = default)
+        => ResumeCoreAsync(PauseTarget.Global, by, cancellationToken);
+
+    public ValueTask PauseGroupAsync(string group, DateTimeOffset? until = null, string? by = null, CancellationToken cancellationToken = default)
     {
-        // Pausing is the safe direction: when the store cannot take it, it applies here at once and is written when the
-        // store answers (unless a newer pause or resume is there by then), so an outage never prevents stopping Homeostat.
-        var pause = new PauseState { Until = until, By = by, At = _timeProvider.GetUtcNow() };
-        if (!await _shared.ChangeOrDeferAsync(
-            "pause",
-            pause.At,
-            (store, ct) => store.TrySetPauseAsync(pause, pause.At, ct),
-            s => Engine.SharedControl.WithPause(s, pause),
-            s => s.Pause is { } stored && stored.At > pause.At,
-            LaterThanPause).ConfigureAwait(false))
+        var target = PauseTarget.Of(Guardrails.HealingGroupNames.Validate(group, nameof(group)));
+
+        // Bounded memory (decision F7): a pause of one group too many is refused here, before it applies anywhere
+        // (thrown at once, so callers tell it from a store failure). Replacing the pause of a group already paused is
+        // always allowed. Counted on what this instance knows: before the state is first read, the pauses of groups
+        // still waiting to be written count, so a store down at startup does not let pending pauses grow without end.
+        // The store checks again (this instance's view may be behind it): see DecidePauseAsync.
+        if (GroupPauseLimit(_shared.Known, group) is { } refused)
         {
-            _logger.LogWarning("Homeostat paused on this instance; the store will take the pause when it answers.");
+            throw new InvalidOperationException(refused);
         }
+
+        // An unknown name is not refused (decision G4: the group may come from configuration or from another
+        // instance), but a mistyped name would pause nothing: say so.
+        if (!_groups.Configured.Contains(group, StringComparer.Ordinal)
+            && !_conditions.Trackers.Any(t => string.Equals(t.Definition.Group, group, StringComparison.Ordinal)))
+        {
+            _logger.LogWarning("Healing group {Group} is paused, but no condition or ConfigureGroup on this instance uses it: check the name.", group);
+        }
+
+        return PauseCoreAsync(target, until, by, s => GroupPauseLimit(s, group));
     }
+
+    // Why a state does not admit one more paused group, or null (the group is paused already, or there is room).
+    private static string? GroupPauseLimit(ControlState state, string group)
+        => Engine.SharedControl.GroupPauseOf(state, group) is null
+            && state.GroupPauses.Select(p => p.Group).Distinct(StringComparer.Ordinal).Count() >= ControlState.MaxGroupPauses
+            ? $"At most {ControlState.MaxGroupPauses} healing groups can be paused at once: resume groups that no longer need their pause."
+            : null;
+
+    public ValueTask ResumeGroupAsync(string group, string? by = null, CancellationToken cancellationToken = default)
+        => ResumeCoreAsync(PauseTarget.Of(Guardrails.HealingGroupNames.Validate(group, nameof(group))), by, cancellationToken);
 
     // Who paused again after a resume timed out while this instance showed no pause.
     internal const string TimedOutResume = "Homeostat (a resume that timed out)";
 
-    // A pause refused by the store: a later pause leaves Homeostat paused (nothing lost); a later resume does not.
-    private static string? LaterThanPause(ControlState stored)
-        => stored.Pause is null ? "Homeostat resumed by a decision taken after this pause" : null;
+    /// <summary>
+    /// What a pause or a resume is about: the global pause, or the pause of one group. Both follow the same path (the
+    /// same deferral, decision order, read-backs and fail-closed rules), so the decisions S1 to S9 hold for groups by
+    /// construction.
+    /// </summary>
+    private sealed class PauseTarget
+    {
+        public static readonly PauseTarget Global = new(null);
 
-    public async ValueTask ResumeAsync(string? by = null, CancellationToken cancellationToken = default)
+        private PauseTarget(string? group)
+        {
+            Group = group;
+            Key = group is null ? "pause" : $"group-pause:{group}";
+        }
+
+        public static PauseTarget Of(string group) => new(group);
+
+        public string? Group { get; }
+
+        /// <summary>What the change is about in the shared control (one pending change per key).</summary>
+        public string Key { get; }
+
+        public PauseState? Read(ControlState state)
+            => Group is null ? state.Pause : Engine.SharedControl.GroupPauseOf(state, Group);
+
+        public ControlState With(ControlState state, PauseState? pause)
+            => Group is null ? Engine.SharedControl.WithPause(state, pause) : Engine.SharedControl.WithGroupPause(state, Group, pause);
+
+        public ValueTask<bool> WriteAsync(IHomeostatStore store, PauseState? pause, DateTimeOffset decidedAt, CancellationToken cancellationToken)
+            => Group is null ? store.TrySetPauseAsync(pause, decidedAt, cancellationToken) : store.TrySetGroupPauseAsync(Group, pause, decidedAt, cancellationToken);
+
+        // A pause refused by the store: a later pause leaves the target paused (nothing lost); a later resume does not.
+        public string? LaterThanPause(ControlState stored)
+            => Read(stored) is not null ? null
+                : Group is null ? "Homeostat resumed by a decision taken after this pause"
+                : $"healing group '{Group}' resumed by a decision taken after this pause";
+    }
+
+    private async ValueTask PauseCoreAsync(PauseTarget target, DateTimeOffset? until, string? by, Func<ControlState, string?>? limit = null)
+    {
+        // Pausing is the safe direction: when the store cannot take it, it applies here at once and is written when the
+        // store answers (unless a newer pause or resume is there by then), so an outage never prevents stopping Homeostat.
+        var pause = new PauseState { Until = until, By = by, At = _timeProvider.GetUtcNow() };
+        if (!await DecidePauseAsync(target, pause, limit).ConfigureAwait(false))
+        {
+            if (target.Group is null)
+            {
+                _logger.LogWarning("Homeostat paused on this instance; the store will take the pause when it answers.");
+            }
+            else
+            {
+                _logger.LogWarning("Healing group {Group} paused on this instance; the store will take the pause when it answers.", target.Group);
+            }
+        }
+    }
+
+    // With a limit (a person's pause of a group): a pause the store refuses for its limit (InvalidOperationException,
+    // confirmed by a read) is not deferred but dropped, and the caller gets the InvalidOperationException, as when this
+    // instance's view already showed the limit. Without one (the pause decided again after a resume that timed out, S4),
+    // any store failure defers it: it is retried until the store takes it (fail closed).
+    private Task<bool> DecidePauseAsync(PauseTarget target, PauseState pause, Func<ControlState, string?>? limit = null)
+        => _shared.ChangeOrDeferAsync(
+            target.Key,
+            pause.At,
+            (store, ct) => target.WriteAsync(store, pause, pause.At, ct),
+            s => target.With(s, pause),
+            s => target.Read(s) is { } stored && stored.At > pause.At,
+            target.LaterThanPause,
+            limit);
+
+    private async ValueTask ResumeCoreAsync(PauseTarget target, string? by, CancellationToken cancellationToken)
     {
         // Resuming lets plans act again: it must reach the store, or it does not happen.
         // In decision order: a pause decided after this resume (on another instance, or written late) stands.
         var decidedAt = _timeProvider.GetUtcNow();
-        var before = _shared.Current.Pause;
+        var before = target.Read(_shared.Current);
         bool applied;
         try
         {
             applied = await _shared.ChangeAsync(
-                "pause",
+                target.Key,
                 decidedAt,
-                (store, ct) => store.TrySetPauseAsync(null, decidedAt, ct),
-                s => Engine.SharedControl.WithPause(s, null),
+                (store, ct) => target.WriteAsync(store, null, decidedAt, ct),
+                s => target.With(s, null),
                 cancellationToken).ConfigureAwait(false);
         }
         catch (Exception ex) when (ex is TimeoutException or OperationCanceledException)
@@ -132,23 +260,77 @@ internal sealed class HomeostatControl : IHomeostatControl
             var again = before is not null
                 ? new PauseState { Until = before.Until, By = before.By, At = _timeProvider.GetUtcNow() }
                 : new PauseState { By = TimedOutResume, At = _timeProvider.GetUtcNow() };
-            await _shared.ChangeOrDeferAsync(
-                "pause",
-                again.At,
-                (store, ct) => store.TrySetPauseAsync(again, again.At, ct),
-                s => Engine.SharedControl.WithPause(s, again),
-                s => s.Pause is { } stored && stored.At > again.At,
-                LaterThanPause).ConfigureAwait(false);
+            await DecidePauseAsync(target, again).ConfigureAwait(false);
             throw;
+        }
+
+        var who = by is { Length: > 0 } name ? $" by {name.ReplaceLineEndings(" ")}" : string.Empty;
+        if (target.Group is null)
+        {
+            if (!applied)
+            {
+                _logger.LogWarning("Homeostat was not resumed: a later pause is in the store.");
+                return;
+            }
+
+            _logger.LogInformation("Homeostat resumed{By}.", who);
+            return;
         }
 
         if (!applied)
         {
-            _logger.LogWarning("Homeostat was not resumed: a later pause is in the store.");
+            _logger.LogWarning("Healing group {Group} was not resumed: a later pause of the group is in the store.", target.Group);
             return;
         }
 
-        _logger.LogInformation("Homeostat resumed{By}.", by is { Length: > 0 } who ? $" by {who.ReplaceLineEndings(" ")}" : string.Empty);
+        _logger.LogInformation("Healing group {Group} resumed{By}.", target.Group, who);
+    }
+
+    public IReadOnlyList<Guardrails.HealingGroupStatus> GetGroups()
+    {
+        var now = _timeProvider.GetUtcNow();
+        var conditions = new Dictionary<string, List<string>>(StringComparer.Ordinal);
+        foreach (var tracker in _conditions.Trackers)
+        {
+            if (tracker.Definition.Group is { } group)
+            {
+                (conditions.TryGetValue(group, out var list) ? list : conditions[group] = []).Add(tracker.Definition.Name);
+            }
+        }
+
+        var names = conditions.Keys
+            .Concat(_groups.Configured)
+            .Concat(_shared.Current.GroupPauses.Select(p => p.Group))
+            .Distinct(StringComparer.Ordinal)
+            .Order(StringComparer.Ordinal);
+        return names.Select(name =>
+        {
+            var guardrails = _groups.Get(name);
+            return new Guardrails.HealingGroupStatus
+            {
+                Name = name,
+                Conditions = conditions.TryGetValue(name, out var members) ? members : [],
+                IsPaused = !_shared.IsKnown || IsOwnGroupPause(name, now),
+                PauseReason = _shared.IsKnown ? OwnGroupPauseReason(name, now) : "waiting for the control state from the store",
+                Pause = _shared.GroupPause(name),
+                MaxConcurrentHealings = guardrails?.MaxConcurrentHealings,
+                MaxActionsPerWindow = guardrails?.MaxActionsPerWindow,
+                ActionBudgetWindow = guardrails?.MaxActionsPerWindow is null ? null : guardrails.ActionBudgetWindow,
+            };
+        }).ToArray();
+    }
+
+    public async ValueTask<ActionBudgetStatus?> GetGroupBudgetAsync(string group, CancellationToken cancellationToken = default)
+    {
+        Guardrails.HealingGroupNames.Validate(group, nameof(group));
+        if (_groups.Get(group) is not { MaxActionsPerWindow: { } limit } guardrails)
+        {
+            return null;
+        }
+
+        var now = _timeProvider.GetUtcNow();
+        var used = await Engine.SharedControl.Bounded(() => _store.GetGroupBudgetUsedAsync(group, now, guardrails.ActionBudgetWindow, cancellationToken), Engine.SharedControl.ReadTimeout, cancellationToken).ConfigureAwait(false);
+        return new ActionBudgetStatus { Group = group, Used = used, Limit = limit, Window = guardrails.ActionBudgetWindow };
     }
 
     public async ValueTask<bool> ReleaseHoldAsync(string condition, CancellationToken cancellationToken = default)

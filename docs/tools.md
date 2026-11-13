@@ -15,11 +15,13 @@ dotnet tool install --global Homeostat.Cli --prerelease
 export HOMEOSTAT_URL=https://weather-api.internal
 export HOMEOSTAT_TOKEN=...            # bearer token accepted by the endpoints' policy
 
-homeostat status                      # conditions, approvals, switches, budget, recent runs
+homeostat status                      # conditions, approvals, switches, budget, healing groups, recent runs
 homeostat status --json               # the raw status
 homeostat status --fail-on-active     # exit code 3 when a condition is active (pipelines, smoke tests)
 homeostat pause --for 30m             # kill switch with automatic resume: 30m, 2h, 1d or hh:mm:ss
 homeostat resume
+homeostat pause --group reports --for 1h   # pause one healing group only (-g for short); the others go on
+homeostat resume --group reports
 homeostat approve 4f1c...             # ids are shown by 'homeostat status'
 homeostat reject 4f1c...
 homeostat release weather-feed-down   # lift the hold of a plan after a rejection
@@ -58,6 +60,14 @@ answers again. `resume`, `approve`, `reject`, `release` and `switch on` answer `
 the explanation the application gives (nothing was changed, the change may still be applied so check `status` before
 trying again, or the change was not made), as the dashboard does. `homeostat release <condition>` lifts the hold of a plan after a rejected approval, without
 waiting for the condition to clear: see [Releasing a hold](healing-plans.md#releasing-a-hold).
+
+`homeostat pause --group <name> [--for <duration>]` and `homeostat resume --group <name>` pause and resume one
+[healing group](guardrails.md#healing-groups) through `POST {prefix}/groups/{name}/pause` and `.../resume`, with the same
+duration format, store behavior, error messages and exit codes as `pause` and `resume` (a group name with a slash is
+sent escaped). In an application with groups, `homeostat status` also lists them under `Groups:` (each group's state,
+`paused` or `healing`, its budget use, `EXHAUSTED` when it is used up, and why it is paused), and shows
+`(group <name>)` after each condition, approval and recent run of a group; without groups the output is unchanged.
+When the application answers `404` with a problem detail, the CLI prints it after `Not found:`.
 
 `homeostat coverage [--last 4h] [--fail-below 0.8] [--json]` shows which conditions activated, which plans ran and
 which steps never ran, over the last day unless `--last` says otherwise. With `--fail-below`, a share between 0 and 1,

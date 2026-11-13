@@ -15,9 +15,9 @@ namespace Homeostat.Persistence;
 /// at once instead of overwriting the other's state.
 /// </summary>
 /// <remarks>
-/// The pause and the switches turned on by a person or by code are kept across restarts; switches turned on by a plan
-/// are not, since the condition that owns them starts again from scratch. Approval requests are not kept: the run that
-/// waits for them does not survive a restart.
+/// The pause, the pauses of healing groups, the action budgets and the switches turned on by a person or by code are
+/// kept across restarts; switches turned on by a plan are not, since the condition that owns them starts again from
+/// scratch. Approval requests are not kept: the run that waits for them does not survive a restart.
 /// </remarks>
 public sealed class FileHomeostatStore : IHomeostatStore, IDisposable
 {
@@ -80,6 +80,7 @@ public sealed class FileHomeostatStore : IHomeostatStore, IDisposable
             {
                 // Forget plans that have not run for a long time (renamed conditions, old instance names).
                 var cutoff = DateTimeOffset.UtcNow - options.PlanStateRetention;
+                var groupPauses = LoadGroupPauses(document.GroupPauses, logger);
                 var plans = (document.Plans ?? [])
                     .Where(p => p.Value is not null && (p.Value.Held || p.Value.LastRunEndedAt is null || p.Value.LastRunEndedAt >= cutoff))
                     .ToDictionary(p => p.Key, p => p.Value, StringComparer.Ordinal);
@@ -89,6 +90,13 @@ public sealed class FileHomeostatStore : IHomeostatStore, IDisposable
                     Documents = (document.Documents ?? []).Where(d => d.Value is not null).ToDictionary(d => d.Key, d => d.Value, StringComparer.Ordinal),
                     Pause = document.Pause,
                     Switches = WithoutNulls(document.Switches).Where(s => !string.IsNullOrWhiteSpace(s.Name)).ToArray(),
+                    GroupPauses = groupPauses,
+                    GroupBudgets = (document.GroupBudgets ?? [])
+                        .Where(b => !string.IsNullOrWhiteSpace(b.Key) && b.Value is not null)
+                        .ToDictionary(b => b.Key, b => (IReadOnlyList<DateTimeOffset>)b.Value, StringComparer.Ordinal),
+                    GroupBudgetEnds = (document.GroupBudgetEnds ?? [])
+                        .Where(b => !string.IsNullOrWhiteSpace(b.Key))
+                        .ToDictionary(b => b.Key, b => b.Value, StringComparer.Ordinal),
                 });
             }
 
@@ -146,6 +154,27 @@ public sealed class FileHomeostatStore : IHomeostatStore, IDisposable
         }
     }
 
+    // An unreadable pause counts as a pause (decision S8): no pause of the file is dropped. A group pause without a group
+    // cannot be applied to any group: like a switch without a name, left out. Two pauses of one group (a hand edit): the
+    // later decision is kept, as the shared view keeps it. More than ControlState.MaxGroupPauses (a hand edit): all are
+    // kept, since dropping one would let Homeostat act through it; the limit only refuses new pauses until groups are
+    // resumed (memory stays bounded by the file, which the store never makes longer than the limit).
+    private static GroupPauseState[] LoadGroupPauses(List<GroupPauseState>? stored, ILogger? logger)
+    {
+        var pauses = WithoutNulls(stored).Where(p => !string.IsNullOrWhiteSpace(p.Group))
+            .GroupBy(p => p.Group, StringComparer.Ordinal)
+            .Select(g => g.MaxBy(p => p.At)!)
+            .ToArray();
+        if (pauses.Length > ControlState.MaxGroupPauses)
+        {
+            (logger ?? NullLogger.Instance).LogCritical(
+                "The Homeostat store file holds {Count} group pauses, more than the {Limit} the store allows: all are kept, and no other group can be paused until groups are resumed.",
+                pauses.Length, ControlState.MaxGroupPauses);
+        }
+
+        return pauses;
+    }
+
     private static T[] WithoutNulls<T>(List<T>? items)
         where T : class
         => items is null ? [] : items.Where(i => i is not null).ToArray();
@@ -176,6 +205,13 @@ public sealed class FileHomeostatStore : IHomeostatStore, IDisposable
                     Documents = new Dictionary<string, string>(snapshot.Documents, StringComparer.Ordinal),
                     Pause = snapshot.Pause,
                     Switches = snapshot.Switches.Where(s => s.Condition is null).ToList(),
+                    GroupPauses = snapshot.GroupPauses.Count == 0 ? null : snapshot.GroupPauses.OrderBy(p => p.Group, StringComparer.Ordinal).ToList(),
+                    GroupBudgets = snapshot.GroupBudgets.Count == 0
+                        ? null
+                        : snapshot.GroupBudgets.ToDictionary(b => b.Key, b => b.Value.ToList(), StringComparer.Ordinal),
+                    GroupBudgetEnds = snapshot.GroupBudgetEnds.Count == 0
+                        ? null
+                        : snapshot.GroupBudgetEnds.ToDictionary(b => b.Key, b => b.Value, StringComparer.Ordinal),
                 },
                 Json.TypeInfo<Document>());
             stream.Flush(flushToDisk: true);
@@ -194,6 +230,13 @@ public sealed class FileHomeostatStore : IHomeostatStore, IDisposable
         public PauseState? Pause { get; init; }
 
         public List<SwitchState>? Switches { get; init; }
+
+        public List<GroupPauseState>? GroupPauses { get; init; }
+
+        public Dictionary<string, List<DateTimeOffset>>? GroupBudgets { get; init; }
+
+        /// <summary>When each group budget is empty (its latest unit has left its window): removed from then on.</summary>
+        public Dictionary<string, DateTimeOffset>? GroupBudgetEnds { get; init; }
     }
 
     /// <summary>The in-memory state, written to the file after every change.</summary>
@@ -238,6 +281,12 @@ public sealed class FileHomeostatStore : IHomeostatStore, IDisposable
     public ValueTask<int> GetBudgetUsedAsync(DateTimeOffset now, TimeSpan window, CancellationToken cancellationToken = default) => _store.GetBudgetUsedAsync(now, window, cancellationToken);
 
     /// <inheritdoc />
+    public ValueTask<bool> TryConsumeGroupBudgetAsync(string group, DateTimeOffset now, int limit, TimeSpan window, CancellationToken cancellationToken = default) => _store.TryConsumeGroupBudgetAsync(group, now, limit, window, cancellationToken);
+
+    /// <inheritdoc />
+    public ValueTask<int> GetGroupBudgetUsedAsync(string group, DateTimeOffset now, TimeSpan window, CancellationToken cancellationToken = default) => _store.GetGroupBudgetUsedAsync(group, now, window, cancellationToken);
+
+    /// <inheritdoc />
     public ValueTask AppendRunAsync(HealingRunRecord run, int maxRuns, CancellationToken cancellationToken = default) => _store.AppendRunAsync(run, maxRuns, cancellationToken);
 
     /// <inheritdoc />
@@ -260,6 +309,9 @@ public sealed class FileHomeostatStore : IHomeostatStore, IDisposable
 
     /// <inheritdoc />
     public ValueTask<bool> TrySetPauseAsync(PauseState? pause, DateTimeOffset decidedAt, CancellationToken cancellationToken = default) => _store.TrySetPauseAsync(pause, decidedAt, cancellationToken);
+
+    /// <inheritdoc />
+    public ValueTask<bool> TrySetGroupPauseAsync(string group, PauseState? pause, DateTimeOffset decidedAt, CancellationToken cancellationToken = default) => _store.TrySetGroupPauseAsync(group, pause, decidedAt, cancellationToken);
 
     /// <inheritdoc />
     public ValueTask<bool> TrySetSwitchAsync(string name, SwitchState? state, DateTimeOffset decidedAt, CancellationToken cancellationToken = default) => _store.TrySetSwitchAsync(name, state, decidedAt, cancellationToken);

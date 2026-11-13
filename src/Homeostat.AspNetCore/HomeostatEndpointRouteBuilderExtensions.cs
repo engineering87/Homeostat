@@ -14,7 +14,7 @@ namespace Homeostat;
 public static class HomeostatEndpointRouteBuilderExtensions
 {
     /// <summary>
-    /// Maps <c>GET {prefix}/status</c>: conditions, switches, pending approvals, recent runs and budget, as JSON; and
+    /// Maps <c>GET {prefix}/status</c>: conditions, switches, pending approvals, recent runs, budget and healing groups, as JSON; and
     /// <c>GET {prefix}/coverage</c> (<c>?last=04:00:00</c> or <c>?since=2026-11-02T08:00:00Z</c>, default the last 24
     /// hours): which conditions activated, which plans ran and which steps never ran (see <see cref="Diagnostics.CoverageReport"/>);
     /// and <c>GET {prefix}/history</c>: the latest condition activations and clears, newest first (optionally
@@ -48,6 +48,7 @@ public static class HomeostatEndpointRouteBuilderExtensions
     /// Maps the control endpoints:
     /// <list type="bullet">
     /// <item><description><c>POST {prefix}/pause</c> (optionally <c>?for=00:30:00</c>, resuming by itself) and <c>POST {prefix}/resume</c>: kill switch.</description></item>
+    /// <item><description><c>POST {prefix}/groups/{group}/pause</c> (the same <c>?for=</c>) and <c>.../resume</c>: pause or resume one healing group.</description></item>
     /// <item><description><c>POST {prefix}/approvals/{id}/approve</c> and <c>.../reject</c>: answer an approval request; the user name is recorded.</description></item>
     /// <item><description><c>POST {prefix}/switches/{name}/on</c> and <c>.../off</c>: flip a switch by hand.</description></item>
     /// </list>
@@ -88,16 +89,9 @@ public static class HomeostatEndpointRouteBuilderExtensions
 
         group.MapPost("/pause", (IHomeostatControl control, TimeProvider time, ClaimsPrincipal user, string? @for, CancellationToken ct) =>
         {
-            DateTimeOffset? until = null;
-            if (@for is not null)
+            if (!TryGetPauseEnd(@for, time, out var until))
             {
-                if (!TimeSpan.TryParse(@for, System.Globalization.CultureInfo.InvariantCulture, out var duration)
-                    || duration <= TimeSpan.Zero || duration > MaxPause)
-                {
-                    return Task.FromResult(HomeostatResults.BadRequest("'for' must be a positive duration of at most 30 days, in the d.hh:mm:ss format."));
-                }
-
-                until = time.GetUtcNow() + duration;
+                return Task.FromResult(InvalidPauseDuration());
             }
 
             return StoreCallAsync(() => control.PauseAsync(until, UserName(user), CancellationToken.None), ct);
@@ -105,6 +99,48 @@ public static class HomeostatEndpointRouteBuilderExtensions
 
         group.MapPost("/resume", (IHomeostatControl control, ClaimsPrincipal user, CancellationToken ct)
             => StoreCallAsync(() => control.ResumeAsync(UserName(user), CancellationToken.None), ct, letsAct: true));
+
+        // The pause of one healing group: the same parameters, validation, store timeout and answers as the global pause
+        // (decision G4: a group pause takes the global pause's path in the core).
+        group.MapPost("/groups/{group}/pause", (string group, IHomeostatControl control, TimeProvider time, ClaimsPrincipal user, string? @for, CancellationToken ct) =>
+        {
+            group = RouteName(group);
+            if (!IsValidGroupName(group))
+            {
+                return Task.FromResult(Results.BadRequest());
+            }
+
+            if (!TryGetPauseEnd(@for, time, out var until))
+            {
+                return Task.FromResult(InvalidPauseDuration());
+            }
+
+            return StoreCallAsync(async () =>
+            {
+                try
+                {
+                    await control.PauseGroupAsync(group, until, UserName(user), CancellationToken.None).ConfigureAwait(false);
+                }
+                catch (InvalidOperationException ex)
+                {
+                    // Refused by the control (too many groups paused at once), at once or once the store refused it for
+                    // the same reason (the control confirms it with a read; an outage defers the pause instead of
+                    // throwing): not a store failure, so not the "nothing was changed, the store is unavailable" answer.
+                    throw new RefusedChangeException(ex.Message);
+                }
+            }, ct);
+        });
+
+        group.MapPost("/groups/{group}/resume", (string group, IHomeostatControl control, ClaimsPrincipal user, CancellationToken ct) =>
+        {
+            group = RouteName(group);
+            if (!IsValidGroupName(group))
+            {
+                return Task.FromResult(Results.BadRequest());
+            }
+
+            return StoreCallAsync(() => control.ResumeGroupAsync(group, UserName(user), CancellationToken.None), ct, letsAct: true);
+        });
 
         group.MapPost("/conditions/{name}/release", (string name, IHomeostatControl control, CancellationToken ct) =>
         {
@@ -163,12 +199,40 @@ public static class HomeostatEndpointRouteBuilderExtensions
 
     private const int MaxSwitchNameLength = 200;
 
+    // Like the core's healing group names (HealingGroupNames): the same limit as switch names.
+    private const int MaxGroupNameLength = 200;
+
     private static readonly TimeSpan MaxPause = TimeSpan.FromDays(30);
 
     // A store that does not answer: the request gets a 503 instead of waiting, so requests do not pile up.
     // Longer than SharedControl.WriteTimeout, so a pause or a switch turned off that the store does not take in time
     // (applied here, written later) answers 204 rather than 503.
     internal static readonly TimeSpan StoreTimeout = TimeSpan.FromSeconds(15);
+
+    /// <summary>The end of a pause from the <c>for</c> query parameter: <c>null</c> without one (until resumed).</summary>
+    private static bool TryGetPauseEnd(string? value, TimeProvider time, out DateTimeOffset? until)
+    {
+        until = null;
+        if (value is null)
+        {
+            return true;
+        }
+
+        if (!TimeSpan.TryParse(value, System.Globalization.CultureInfo.InvariantCulture, out var duration)
+            || duration <= TimeSpan.Zero || duration > MaxPause)
+        {
+            return false;
+        }
+
+        until = time.GetUtcNow() + duration;
+        return true;
+    }
+
+    private static IResult InvalidPauseDuration()
+        => HomeostatResults.BadRequest("'for' must be a positive duration of at most 30 days, in the d.hh:mm:ss format.");
+
+    /// <summary>A change the control refused before applying anything (not a store failure): answered <c>409</c> with its reason.</summary>
+    private sealed class RefusedChangeException(string message) : Exception(message);
 
     internal static bool IsForgeable(HttpRequest request)
     {
@@ -288,6 +352,10 @@ public static class HomeostatEndpointRouteBuilderExtensions
         {
             return Results.BadRequest();
         }
+        catch (RefusedChangeException ex)
+        {
+            return HomeostatResults.Problem(ex.Message, StatusCodes.Status409Conflict);
+        }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
             // The client is gone: nobody reads the answer, and the change goes on by itself.
@@ -311,7 +379,7 @@ public static class HomeostatEndpointRouteBuilderExtensions
     // A resume or a turn-on that times out is decided again in the safe direction (decision S4): it does not stand.
     private static IResult StoreTimedOutSafely()
         => HomeostatResults.Problem(
-            "The Homeostat store did not answer in time; the change was not made: Homeostat stays paused, or the switch stays off. Try again later.",
+            "The Homeostat store did not answer in time; the change was not made: Homeostat (or the healing group) stays paused, or the switch stays off. Try again later.",
             StatusCodes.Status503ServiceUnavailable);
 
     private static IResult StoreOutcomeUnknown()
@@ -325,6 +393,7 @@ public static class HomeostatEndpointRouteBuilderExtensions
         IHomeostatApprovals approvals,
         IOptions<HomeostatOptions> options,
         ILoggerFactory loggers,
+        TimeProvider time,
         CancellationToken cancellationToken)
     {
         // The status stays available when the store is not: that is when operators need it most.
@@ -332,13 +401,20 @@ public static class HomeostatEndpointRouteBuilderExtensions
         IReadOnlyList<RunInfo> runInfos = [];
         IReadOnlyList<PendingApproval> pending = [];
         string? storeError = null;
-        // The three reads together (the dashboard polls this), each kept if it succeeds.
+        // The reads together (the dashboard polls this), each kept if it succeeds: the budgets of the groups that have
+        // one are read alongside the global budget, each bounded alike. The groups are fixed by the application's
+        // configuration (only configured groups have a budget), so their number is bounded.
+        var groups = control.GetGroups();
         var pendingRead = StoreCall.Run(() => approvals.GetPendingAsync(cancellationToken), StoreTimeout, cancellationToken);
         var budgetRead = StoreCall.Run(() => control.GetBudgetAsync(cancellationToken), StoreTimeout, cancellationToken);
         var runsRead = StoreCall.Run(() => control.GetRecentRunsAsync(cancellationToken), StoreTimeout, cancellationToken);
+        var groupBudgetReads = groups
+            .Where(g => g.MaxActionsPerWindow is not null)
+            .ToDictionary(g => g.Name, g => StoreCall.Run(() => control.GetGroupBudgetAsync(g.Name, cancellationToken), StoreTimeout, cancellationToken), StringComparer.Ordinal);
+        Task[] reads = [pendingRead, budgetRead, runsRead, .. groupBudgetReads.Values];
         try
         {
-            await Task.WhenAll(pendingRead, budgetRead, runsRead).ConfigureAwait(false);
+            await Task.WhenAll(reads).ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -348,7 +424,7 @@ public static class HomeostatEndpointRouteBuilderExtensions
         {
             // No exception message: it can carry connection details (server names, user names). The type tells a
             // timeout from a refused connection; the details go to the log only.
-            var error = new Task[] { pendingRead, budgetRead, runsRead }.FirstOrDefault(t => t.IsFaulted)?.Exception?.InnerException ?? ex;
+            var error = reads.FirstOrDefault(t => t.IsFaulted)?.Exception?.InnerException ?? ex;
             storeError = $"The Homeostat store could not be read ({error.GetType().Name}); the application log has the details.";
             loggers.CreateLogger("Homeostat.AspNetCore").LogWarning(error, "GET /status: the Homeostat store could not be read.");
         }
@@ -360,14 +436,19 @@ public static class HomeostatEndpointRouteBuilderExtensions
 
         if (budgetRead.IsCompletedSuccessfully)
         {
-            var budget = budgetRead.Result;
-            budgetStatus = new BudgetStatus(budget.Used, budget.Limit, budget.Remaining, budget.Window.TotalSeconds);
+            budgetStatus = BudgetStatus.From(budgetRead.Result);
         }
 
         if (runsRead.IsCompletedSuccessfully)
         {
             runInfos = runsRead.Result.Select(RunInfo.From).ToArray();
         }
+
+        var now = time.GetUtcNow();
+        var groupInfos = groups.Count == 0 ? null : groups.Select(g => GroupStatusInfo.From(
+            g,
+            groupBudgetReads.TryGetValue(g.Name, out var read) && read.IsCompletedSuccessfully ? read.Result : null,
+            now)).ToArray();
 
         var status = new HomeostatStatus(
             options.Value.ApplicationName,
@@ -380,7 +461,8 @@ public static class HomeostatEndpointRouteBuilderExtensions
             switches.GetActive(),
             pending,
             runInfos,
-            storeError);
+            storeError,
+            groupInfos);
         return Results.Json(status, HomeostatAspNetCoreJsonContext.Default.HomeostatStatus);
     }
 
@@ -462,6 +544,13 @@ public static class HomeostatEndpointRouteBuilderExtensions
     /// <summary>A switch or condition name from a URL: not empty, not too long, and without control characters (no line breaks in logs).</summary>
     internal static bool IsValidSwitchName(string name)
         => name.Length is > 0 and <= MaxSwitchNameLength && !name.Any(char.IsControl);
+
+    /// <summary>
+    /// A healing group name from a URL, validated as the core validates group names: not blank, at most 200 characters,
+    /// no control characters.
+    /// </summary>
+    internal static bool IsValidGroupName(string name)
+        => !string.IsNullOrWhiteSpace(name) && name.Length <= MaxGroupNameLength && !name.Any(char.IsControl);
 
     /// <summary>A condition name from a URL: not empty and without control characters (conditions have no length limit).</summary>
     internal static bool IsValidConditionName(string name)

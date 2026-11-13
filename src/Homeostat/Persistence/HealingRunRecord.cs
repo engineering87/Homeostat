@@ -1,3 +1,4 @@
+using System.Text.Json.Serialization;
 using Homeostat.Healing;
 
 namespace Homeostat.Persistence;
@@ -7,6 +8,13 @@ public sealed record HealingRunRecord
 {
     /// <summary>Condition healed.</summary>
     public required string ConditionName { get; init; }
+
+    /// <summary>
+    /// The healing group of the condition when the run started (<see cref="HealingRunResult.Group"/>); <c>null</c> without
+    /// a group, and for runs stored before it was recorded.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Group { get; init; }
 
     /// <summary>How the run ended.</summary>
     public required HealingRunOutcome Outcome { get; init; }
@@ -38,6 +46,7 @@ public sealed record HealingRunRecord
         return new HealingRunRecord
         {
             ConditionName = run.ConditionName,
+            Group = run.Group,
             Outcome = run.Outcome,
             StartedAt = run.StartedAt,
             CompletedAt = run.CompletedAt,

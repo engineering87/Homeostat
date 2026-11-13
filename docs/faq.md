@@ -61,6 +61,16 @@ yours (which components to watch, when a failure is real, what depends on what, 
 order) you state in conditions and healing plans. See
 [Where the knowledge of your architecture goes](concepts.md#where-the-knowledge-of-your-architecture-goes).
 
+### Does Homeostat work in a modular monolith?
+
+Yes. Each module can write down its own knowledge in its own extension method (`AddHomeostat` can be called once per
+module) and put its conditions in a healing group with `InGroup`. A group has its own budget, concurrency limit, pause
+and maintenance windows, applied inside the global ones, so one module that misbehaves cannot spend the actions or
+hold the slots of the others, and can be paused alone (`POST /homeostat/groups/{group}/pause`, the dashboard or
+`homeostat pause --group`). See
+[Example 3: a modular monolith](architecture-examples.md#example-3-a-modular-monolith) and
+[Healing groups](guardrails.md#healing-groups).
+
 ### Is it safe to use in production?
 
 The defaults are chosen for that: dry-run on, budget, cooldown, timeouts, one run at a time, kill

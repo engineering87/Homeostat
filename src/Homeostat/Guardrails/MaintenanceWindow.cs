@@ -2,11 +2,13 @@ namespace Homeostat.Guardrails;
 
 /// <summary>
 /// A recurring period during which Homeostat behaves as paused: conditions are tracked, no plan starts and runs in
-/// progress stop before their next step. Configure it with <see cref="HomeostatBuilder.AddMaintenanceWindow"/>.
+/// progress stop before their next step. Configure it with <see cref="HomeostatBuilder.AddMaintenanceWindow"/>. With
+/// <see cref="ForGroups"/>, only the plans of the conditions in those healing groups are paused.
 /// </summary>
 public sealed class MaintenanceWindow
 {
     private readonly HashSet<DayOfWeek> _days = [];
+    private readonly List<string> _groups = [];
     private bool _frozen;
 
     internal MaintenanceWindow(string name) => Name = name;
@@ -22,6 +24,12 @@ public sealed class MaintenanceWindow
 
     /// <summary>Days on which the window starts; empty means every day.</summary>
     public IReadOnlyCollection<DayOfWeek> Days => _days;
+
+    /// <summary>
+    /// The healing groups the window pauses (<see cref="ForGroups"/>); empty (the default) for a window that pauses every
+    /// plan.
+    /// </summary>
+    public IReadOnlyList<string> Groups => _groups;
 
     /// <summary>Time zone of <see cref="Start"/>; UTC by default.</summary>
     public TimeZoneInfo TimeZone { get; private set; } = TimeZoneInfo.Utc;
@@ -53,6 +61,39 @@ public sealed class MaintenanceWindow
         foreach (var day in days)
         {
             _days.Add(day);
+        }
+
+        return this;
+    }
+
+    /// <summary>
+    /// Restricts the window to the plans of the conditions in the given healing groups (see
+    /// <see cref="Conditions.ConditionBuilder.InGroup"/>): during the window they behave as if their group were paused,
+    /// and every other plan runs. Can be called several times; the groups add up.
+    /// </summary>
+    /// <param name="groups">Names of the groups: not empty, at most 200 characters, no control characters.</param>
+    /// <exception cref="ArgumentException">A group name is not valid, or no group is given.</exception>
+    /// <exception cref="InvalidOperationException">Called after <c>AddMaintenanceWindow</c> registered the window.</exception>
+    public MaintenanceWindow ForGroups(params string[] groups)
+    {
+        ThrowIfFrozen();
+        ArgumentNullException.ThrowIfNull(groups);
+        if (groups.Length == 0)
+        {
+            throw new ArgumentException("Name at least one healing group; a window without groups pauses every plan.", nameof(groups));
+        }
+
+        foreach (var group in groups)
+        {
+            HealingGroupNames.Validate(group, nameof(groups));
+        }
+
+        foreach (var group in groups)
+        {
+            if (!_groups.Contains(group, StringComparer.Ordinal))
+            {
+                _groups.Add(group);
+            }
         }
 
         return this;

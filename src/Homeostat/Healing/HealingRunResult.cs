@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace Homeostat.Healing;
 
 /// <summary>How a healing run ended.</summary>
@@ -19,10 +21,10 @@ public enum HealingRunOutcome
     /// <summary>Dry-run: steps were logged, not executed.</summary>
     DryRun = 4,
 
-    /// <summary>The global action budget was exhausted.</summary>
+    /// <summary>The global action budget, or the budget of the condition's healing group, was exhausted.</summary>
     BudgetExhausted = 5,
 
-    /// <summary>Homeostat was paused during the run.</summary>
+    /// <summary>Homeostat, or the condition's healing group, was paused (by a person or a maintenance window).</summary>
     Paused = 6,
 
     /// <summary>A step requiring approval was rejected or not approved in time.</summary>
@@ -49,6 +51,10 @@ public sealed record HealingStepResult
 
     /// <summary>Condition being healed.</summary>
     public required string ConditionName { get; init; }
+
+    /// <summary>The healing group of the condition (<see cref="Conditions.ConditionBuilder.InGroup"/>), or <c>null</c>.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Group { get; init; }
 
     /// <summary>Zero-based index of the step.</summary>
     public required int Step { get; init; }
@@ -80,6 +86,13 @@ public sealed record HealingRunResult
 
     /// <summary>Condition being healed.</summary>
     public required string ConditionName { get; init; }
+
+    /// <summary>
+    /// The healing group of the condition when the run started (<see cref="Conditions.ConditionBuilder.InGroup"/>), or
+    /// <c>null</c>.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Group { get; init; }
 
     /// <summary>The instance that ran the plan (<see cref="HomeostatOptions.InstanceId"/>).</summary>
     public required string Instance { get; init; }

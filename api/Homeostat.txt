@@ -1,4 +1,9 @@
 namespace Homeostat
+  public sealed class HealingGroupOptions
+    public HealingGroupOptions()
+    public System.TimeSpan? ActionBudgetWindow { get; set; }
+    public int? MaxActionsPerWindow { get; set; }
+    public int? MaxConcurrentHealings { get; set; }
   public static class HealingPlanBuilderDataExtensions
     public static Homeostat.Healing.HealingPlanBuilder ClearConnectionPools<TConnection>(this Homeostat.Healing.HealingPlanBuilder plan) where TConnection : System.Data.Common.DbConnection
   public static class HomeostatAuditLogExtensions
@@ -15,6 +20,7 @@ namespace Homeostat
     public Homeostat.HomeostatBuilder AddObserver<TObserver>() where TObserver : class, Homeostat.IHealingObserver
     public Homeostat.HomeostatBuilder AddThreadPoolStarvationDetector(System.Action<Homeostat.Detectors.ThreadPoolStarvationDetectorOptions>? configure = null)
     public Homeostat.HomeostatBuilder Configure(System.Action<Homeostat.HomeostatOptions> configure)
+    public Homeostat.HomeostatBuilder ConfigureGroup(string group, System.Action<Homeostat.HealingGroupOptions> configure)
     public Homeostat.HomeostatBuilder UseCoordinator(System.Func<System.IServiceProvider, Homeostat.Coordination.IHomeostatCoordinator> factory)
     public Homeostat.HomeostatBuilder UseCoordinator<TCoordinator>() where TCoordinator : class, Homeostat.Coordination.IHomeostatCoordinator
     public Homeostat.HomeostatBuilder UseFileStore(string path, System.Action<Homeostat.Persistence.FileStoreOptions>? configure = null)
@@ -91,10 +97,16 @@ namespace Homeostat
     public default System.Threading.Tasks.ValueTask<System.Collections.Generic.IReadOnlyList<Homeostat.Persistence.ConditionEventRecord>> GetConditionHistoryAsync(System.Threading.CancellationToken cancellationToken = default)
     public System.Collections.Generic.IReadOnlyList<Homeostat.Conditions.ConditionSnapshot> GetConditions()
     public System.Threading.Tasks.ValueTask<Homeostat.Diagnostics.CoverageReport> GetCoverageAsync(System.DateTimeOffset since, System.Threading.CancellationToken cancellationToken = default)
+    public System.Threading.Tasks.ValueTask<Homeostat.Guardrails.ActionBudgetStatus?> GetGroupBudgetAsync(string group, System.Threading.CancellationToken cancellationToken = default)
+    public string? GetGroupPauseReason(string group)
+    public System.Collections.Generic.IReadOnlyList<Homeostat.Guardrails.HealingGroupStatus> GetGroups()
     public System.Threading.Tasks.ValueTask<System.Collections.Generic.IReadOnlyList<Homeostat.Persistence.HealingRunRecord>> GetRecentRunsAsync(System.Threading.CancellationToken cancellationToken = default)
+    public bool IsGroupPaused(string group)
     public System.Threading.Tasks.ValueTask PauseAsync(System.DateTimeOffset? until = null, string? by = null, System.Threading.CancellationToken cancellationToken = default)
+    public System.Threading.Tasks.ValueTask PauseGroupAsync(string group, System.DateTimeOffset? until = null, string? by = null, System.Threading.CancellationToken cancellationToken = default)
     public System.Threading.Tasks.ValueTask<bool> ReleaseHoldAsync(string condition, System.Threading.CancellationToken cancellationToken = default)
     public System.Threading.Tasks.ValueTask ResumeAsync(string? by = null, System.Threading.CancellationToken cancellationToken = default)
+    public System.Threading.Tasks.ValueTask ResumeGroupAsync(string group, string? by = null, System.Threading.CancellationToken cancellationToken = default)
   public interface IHomeostatSwitches
     public event System.EventHandler<Homeostat.SwitchChangedEventArgs>? Changed
     public System.Collections.Generic.IReadOnlyCollection<string> GetActive()
@@ -139,6 +151,7 @@ namespace Homeostat.Conditions
     public Homeostat.Conditions.ConditionBuilder ClearWhen(System.Func<Homeostat.Signals.Signal, bool> predicate)
     public Homeostat.Conditions.ConditionBuilder ForSource(string source)
     public Homeostat.Conditions.ConditionBuilder Heal(System.Action<Homeostat.Healing.HealingPlanBuilder> configure)
+    public Homeostat.Conditions.ConditionBuilder InGroup(string group)
     public Homeostat.Conditions.ConditionBuilder Occurrences(int count, System.TimeSpan within)
     public Homeostat.Conditions.ConditionBuilder SuppressedBy(params string[] conditionNames)
     public Homeostat.Conditions.ConditionBuilder SustainedFor(System.TimeSpan duration)
@@ -161,6 +174,7 @@ namespace Homeostat.Conditions
     public ConditionSnapshot()
     public System.DateTimeOffset? ActiveSince { get; init; }
     public System.DateTimeOffset? ClearingSince { get; init; }
+    public string? Group { get; init; }
     public Homeostat.Signals.Signal? LastSignal { get; init; }
     public System.DateTimeOffset? LastSignalAt { get; init; }
     public string Name { get; init; }
@@ -283,6 +297,7 @@ namespace Homeostat.Diagnostics
 namespace Homeostat.Guardrails
   public sealed record ActionBudgetStatus
     public ActionBudgetStatus()
+    public string? Group { get; init; }
     public bool IsExhausted { get; }
     public int Limit { get; init; }
     public int Remaining { get; }
@@ -294,13 +309,31 @@ namespace Homeostat.Guardrails
     public override string ToString()
     public static bool op_Equality(Homeostat.Guardrails.ActionBudgetStatus? left, Homeostat.Guardrails.ActionBudgetStatus? right)
     public static bool op_Inequality(Homeostat.Guardrails.ActionBudgetStatus? left, Homeostat.Guardrails.ActionBudgetStatus? right)
+  public sealed record HealingGroupStatus
+    public HealingGroupStatus()
+    public System.TimeSpan? ActionBudgetWindow { get; init; }
+    public System.Collections.Generic.IReadOnlyList<string> Conditions { get; init; }
+    public bool IsPaused { get; init; }
+    public int? MaxActionsPerWindow { get; init; }
+    public int? MaxConcurrentHealings { get; init; }
+    public string Name { get; init; }
+    public Homeostat.Persistence.GroupPauseState? Pause { get; init; }
+    public string? PauseReason { get; init; }
+    public bool Equals(Homeostat.Guardrails.HealingGroupStatus? other)
+    public override bool Equals(object? obj)
+    public override int GetHashCode()
+    public override string ToString()
+    public static bool op_Equality(Homeostat.Guardrails.HealingGroupStatus? left, Homeostat.Guardrails.HealingGroupStatus? right)
+    public static bool op_Inequality(Homeostat.Guardrails.HealingGroupStatus? left, Homeostat.Guardrails.HealingGroupStatus? right)
   public sealed class MaintenanceWindow
     public System.Collections.Generic.IReadOnlyCollection<System.DayOfWeek> Days { get; }
     public System.TimeSpan Duration { get; }
+    public System.Collections.Generic.IReadOnlyList<string> Groups { get; }
     public string Name { get; }
     public System.TimeOnly Start { get; }
     public System.TimeZoneInfo TimeZone { get; }
     public Homeostat.Guardrails.MaintenanceWindow Daily(System.TimeOnly start, System.TimeSpan duration)
+    public Homeostat.Guardrails.MaintenanceWindow ForGroups(params string[] groups)
     public Homeostat.Guardrails.MaintenanceWindow InTimeZone(System.TimeZoneInfo timeZone)
     public bool IsActive(System.DateTimeOffset now)
     public Homeostat.Guardrails.MaintenanceWindow On(params System.DayOfWeek[] days)
@@ -373,6 +406,7 @@ namespace Homeostat.Healing
     public HealingRunResult()
     public System.DateTimeOffset CompletedAt { get; init; }
     public string ConditionName { get; init; }
+    public string? Group { get; init; }
     public string Instance { get; init; }
     public Homeostat.Healing.HealingRunOutcome Outcome { get; init; }
     public string RunId { get; init; }
@@ -388,6 +422,7 @@ namespace Homeostat.Healing
     public HealingStepResult()
     public string ConditionName { get; init; }
     public System.Exception? Error { get; init; }
+    public string? Group { get; init; }
     public string Name { get; init; }
     public string RunId { get; init; }
     public int Step { get; init; }
@@ -408,6 +443,7 @@ namespace Homeostat.Healing
     public PendingApproval()
     public string ConditionName { get; init; }
     public System.DateTimeOffset ExpiresAt { get; init; }
+    public string? Group { get; init; }
     public string Id { get; init; }
     public System.DateTimeOffset RequestedAt { get; init; }
     public int Step { get; init; }
@@ -499,6 +535,7 @@ namespace Homeostat.Notifications
     public string Condition { get; init; }
     public string? Error { get; init; }
     public System.DateTimeOffset? ExpiresAt { get; init; }
+    public string? Group { get; init; }
     public string? Instance { get; init; }
     public Homeostat.Notifications.HomeostatEventKind Kind { get; init; }
     public string? Outcome { get; init; }
@@ -549,9 +586,11 @@ namespace Homeostat.Persistence
     public static bool op_Equality(Homeostat.Persistence.ConditionEventRecord? left, Homeostat.Persistence.ConditionEventRecord? right)
     public static bool op_Inequality(Homeostat.Persistence.ConditionEventRecord? left, Homeostat.Persistence.ConditionEventRecord? right)
   public sealed class ControlState
+    public const int MaxGroupPauses = 256
     public ControlState()
     public System.Collections.Generic.IReadOnlyList<Homeostat.Persistence.ApprovalRecord> Approvals { get; init; }
     public static Homeostat.Persistence.ControlState Empty { get; }
+    public System.Collections.Generic.IReadOnlyList<Homeostat.Persistence.GroupPauseState> GroupPauses { get; init; }
     public Homeostat.Persistence.PauseState? Pause { get; init; }
     public System.Collections.Generic.IReadOnlyList<Homeostat.Persistence.SwitchState> Switches { get; init; }
   public enum FailureCountChange : int
@@ -572,24 +611,36 @@ namespace Homeostat.Persistence
     public System.Threading.Tasks.ValueTask<System.Collections.Generic.IReadOnlyList<Homeostat.Persistence.ConditionEventRecord>> GetConditionEventsAsync(int maxEvents, System.Threading.CancellationToken cancellationToken = default)
     public System.Threading.Tasks.ValueTask<Homeostat.Persistence.ControlState> GetControlStateAsync(System.Threading.CancellationToken cancellationToken = default)
     public System.Threading.Tasks.ValueTask<string?> GetDocumentAsync(string key, System.Threading.CancellationToken cancellationToken = default)
+    public System.Threading.Tasks.ValueTask<int> GetGroupBudgetUsedAsync(string group, System.DateTimeOffset now, System.TimeSpan window, System.Threading.CancellationToken cancellationToken = default)
     public System.Threading.Tasks.ValueTask<Homeostat.Persistence.PlanState> GetPlanStateAsync(string key, System.Threading.CancellationToken cancellationToken = default)
     public System.Threading.Tasks.ValueTask<System.Collections.Generic.IReadOnlyList<Homeostat.Persistence.HealingRunRecord>> GetRecentRunsAsync(int maxRuns, System.Threading.CancellationToken cancellationToken = default)
     public System.Threading.Tasks.ValueTask RemoveApprovalAsync(string id, System.Threading.CancellationToken cancellationToken = default)
     public System.Threading.Tasks.ValueTask SetDocumentAsync(string key, string document, System.Threading.CancellationToken cancellationToken = default)
     public System.Threading.Tasks.ValueTask<bool> TryClaimSwitchAsync(Homeostat.Persistence.SwitchState state, System.Threading.CancellationToken cancellationToken = default)
     public System.Threading.Tasks.ValueTask<bool> TryConsumeBudgetAsync(System.DateTimeOffset now, int limit, System.TimeSpan window, System.Threading.CancellationToken cancellationToken = default)
+    public System.Threading.Tasks.ValueTask<bool> TryConsumeGroupBudgetAsync(string group, System.DateTimeOffset now, int limit, System.TimeSpan window, System.Threading.CancellationToken cancellationToken = default)
     public System.Threading.Tasks.ValueTask<bool> TryReleaseSwitchAsync(string name, string condition, string? instance, System.DateTimeOffset decidedAt, System.Threading.CancellationToken cancellationToken = default)
     public System.Threading.Tasks.ValueTask<bool> TryResolveApprovalAsync(string id, Homeostat.Healing.ApprovalStatus status, string? resolvedBy, System.Threading.CancellationToken cancellationToken = default)
+    public System.Threading.Tasks.ValueTask<bool> TrySetGroupPauseAsync(string group, Homeostat.Persistence.PauseState? pause, System.DateTimeOffset decidedAt, System.Threading.CancellationToken cancellationToken = default)
     public System.Threading.Tasks.ValueTask<bool> TrySetPauseAsync(Homeostat.Persistence.PauseState? pause, System.DateTimeOffset decidedAt, System.Threading.CancellationToken cancellationToken = default)
     public System.Threading.Tasks.ValueTask<bool> TrySetSwitchAsync(string name, Homeostat.Persistence.SwitchState? state, System.DateTimeOffset decidedAt, System.Threading.CancellationToken cancellationToken = default)
     public System.Threading.Tasks.ValueTask<Homeostat.Persistence.PlanState> UpdatePlanStateAsync(string key, Homeostat.Persistence.PlanStateUpdate update, System.Threading.CancellationToken cancellationToken = default)
   public sealed class FileStoreOptions
     public FileStoreOptions()
     public System.TimeSpan PlanStateRetention { get; set; }
+  public sealed class GroupPauseState
+    public GroupPauseState()
+    public System.DateTimeOffset At { get; init; }
+    public string? By { get; init; }
+    public string Group { get; init; }
+    public System.DateTimeOffset? Until { get; init; }
+    public static Homeostat.Persistence.GroupPauseState From(string group, Homeostat.Persistence.PauseState pause)
+    public Homeostat.Persistence.PauseState ToPause()
   public sealed record HealingRunRecord
     public HealingRunRecord()
     public System.DateTimeOffset CompletedAt { get; init; }
     public string ConditionName { get; init; }
+    public string? Group { get; init; }
     public string Instance { get; init; }
     public Homeostat.Healing.HealingRunOutcome Outcome { get; init; }
     public string? RunId { get; init; }
@@ -625,14 +676,17 @@ namespace Homeostat.Persistence
     public default System.Threading.Tasks.ValueTask<System.Collections.Generic.IReadOnlyList<Homeostat.Persistence.ConditionEventRecord>> GetConditionEventsAsync(int maxEvents, System.Threading.CancellationToken cancellationToken = default)
     public System.Threading.Tasks.ValueTask<Homeostat.Persistence.ControlState> GetControlStateAsync(System.Threading.CancellationToken cancellationToken = default)
     public default System.Threading.Tasks.ValueTask<string?> GetDocumentAsync(string key, System.Threading.CancellationToken cancellationToken = default)
+    public System.Threading.Tasks.ValueTask<int> GetGroupBudgetUsedAsync(string group, System.DateTimeOffset now, System.TimeSpan window, System.Threading.CancellationToken cancellationToken = default)
     public System.Threading.Tasks.ValueTask<Homeostat.Persistence.PlanState> GetPlanStateAsync(string key, System.Threading.CancellationToken cancellationToken = default)
     public System.Threading.Tasks.ValueTask<System.Collections.Generic.IReadOnlyList<Homeostat.Persistence.HealingRunRecord>> GetRecentRunsAsync(int maxRuns, System.Threading.CancellationToken cancellationToken = default)
     public System.Threading.Tasks.ValueTask RemoveApprovalAsync(string id, System.Threading.CancellationToken cancellationToken = default)
     public default System.Threading.Tasks.ValueTask SetDocumentAsync(string key, string document, System.Threading.CancellationToken cancellationToken = default)
     public System.Threading.Tasks.ValueTask<bool> TryClaimSwitchAsync(Homeostat.Persistence.SwitchState state, System.Threading.CancellationToken cancellationToken = default)
     public System.Threading.Tasks.ValueTask<bool> TryConsumeBudgetAsync(System.DateTimeOffset now, int limit, System.TimeSpan window, System.Threading.CancellationToken cancellationToken = default)
+    public System.Threading.Tasks.ValueTask<bool> TryConsumeGroupBudgetAsync(string group, System.DateTimeOffset now, int limit, System.TimeSpan window, System.Threading.CancellationToken cancellationToken = default)
     public System.Threading.Tasks.ValueTask<bool> TryReleaseSwitchAsync(string name, string condition, string? instance, System.DateTimeOffset decidedAt, System.Threading.CancellationToken cancellationToken = default)
     public System.Threading.Tasks.ValueTask<bool> TryResolveApprovalAsync(string id, Homeostat.Healing.ApprovalStatus status, string? resolvedBy, System.Threading.CancellationToken cancellationToken = default)
+    public System.Threading.Tasks.ValueTask<bool> TrySetGroupPauseAsync(string group, Homeostat.Persistence.PauseState? pause, System.DateTimeOffset decidedAt, System.Threading.CancellationToken cancellationToken = default)
     public System.Threading.Tasks.ValueTask<bool> TrySetPauseAsync(Homeostat.Persistence.PauseState? pause, System.DateTimeOffset decidedAt, System.Threading.CancellationToken cancellationToken = default)
     public System.Threading.Tasks.ValueTask<bool> TrySetSwitchAsync(string name, Homeostat.Persistence.SwitchState? state, System.DateTimeOffset decidedAt, System.Threading.CancellationToken cancellationToken = default)
     public System.Threading.Tasks.ValueTask<Homeostat.Persistence.PlanState> UpdatePlanStateAsync(string key, Homeostat.Persistence.PlanStateUpdate update, System.Threading.CancellationToken cancellationToken = default)
@@ -647,14 +701,17 @@ namespace Homeostat.Persistence
     public System.Threading.Tasks.ValueTask<System.Collections.Generic.IReadOnlyList<Homeostat.Persistence.ConditionEventRecord>> GetConditionEventsAsync(int maxEvents, System.Threading.CancellationToken cancellationToken = default)
     public System.Threading.Tasks.ValueTask<Homeostat.Persistence.ControlState> GetControlStateAsync(System.Threading.CancellationToken cancellationToken = default)
     public System.Threading.Tasks.ValueTask<string?> GetDocumentAsync(string key, System.Threading.CancellationToken cancellationToken = default)
+    public System.Threading.Tasks.ValueTask<int> GetGroupBudgetUsedAsync(string group, System.DateTimeOffset now, System.TimeSpan window, System.Threading.CancellationToken cancellationToken = default)
     public System.Threading.Tasks.ValueTask<Homeostat.Persistence.PlanState> GetPlanStateAsync(string key, System.Threading.CancellationToken cancellationToken = default)
     public System.Threading.Tasks.ValueTask<System.Collections.Generic.IReadOnlyList<Homeostat.Persistence.HealingRunRecord>> GetRecentRunsAsync(int maxRuns, System.Threading.CancellationToken cancellationToken = default)
     public System.Threading.Tasks.ValueTask RemoveApprovalAsync(string id, System.Threading.CancellationToken cancellationToken = default)
     public System.Threading.Tasks.ValueTask SetDocumentAsync(string key, string document, System.Threading.CancellationToken cancellationToken = default)
     public System.Threading.Tasks.ValueTask<bool> TryClaimSwitchAsync(Homeostat.Persistence.SwitchState state, System.Threading.CancellationToken cancellationToken = default)
     public System.Threading.Tasks.ValueTask<bool> TryConsumeBudgetAsync(System.DateTimeOffset now, int limit, System.TimeSpan window, System.Threading.CancellationToken cancellationToken = default)
+    public System.Threading.Tasks.ValueTask<bool> TryConsumeGroupBudgetAsync(string group, System.DateTimeOffset now, int limit, System.TimeSpan window, System.Threading.CancellationToken cancellationToken = default)
     public System.Threading.Tasks.ValueTask<bool> TryReleaseSwitchAsync(string name, string condition, string? instance, System.DateTimeOffset decidedAt, System.Threading.CancellationToken cancellationToken = default)
     public System.Threading.Tasks.ValueTask<bool> TryResolveApprovalAsync(string id, Homeostat.Healing.ApprovalStatus status, string? resolvedBy, System.Threading.CancellationToken cancellationToken = default)
+    public System.Threading.Tasks.ValueTask<bool> TrySetGroupPauseAsync(string group, Homeostat.Persistence.PauseState? pause, System.DateTimeOffset decidedAt, System.Threading.CancellationToken cancellationToken = default)
     public System.Threading.Tasks.ValueTask<bool> TrySetPauseAsync(Homeostat.Persistence.PauseState? pause, System.DateTimeOffset decidedAt, System.Threading.CancellationToken cancellationToken = default)
     public System.Threading.Tasks.ValueTask<bool> TrySetSwitchAsync(string name, Homeostat.Persistence.SwitchState? state, System.DateTimeOffset decidedAt, System.Threading.CancellationToken cancellationToken = default)
     public System.Threading.Tasks.ValueTask<Homeostat.Persistence.PlanState> UpdatePlanStateAsync(string key, Homeostat.Persistence.PlanStateUpdate update, System.Threading.CancellationToken cancellationToken = default)

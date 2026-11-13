@@ -181,7 +181,7 @@ public static partial class HomeostatTeamsEndpointExtensions
         }
     }
 
-    private static string Pending(IReadOnlyList<PendingApproval> pending)
+    internal static string Pending(IReadOnlyList<PendingApproval> pending)
     {
         if (pending.Count == 0)
         {
@@ -193,7 +193,7 @@ public static partial class HomeostatTeamsEndpointExtensions
         {
             // Teams renders replies as Markdown: names are wrapped in code spans, so they show as typed.
             text.Append(CultureInfo.InvariantCulture,
-                $"\n\n`{Code(p.Id)}`: `{Code(p.ConditionName)}`, step `{Code(p.StepName)}`, expires {p.ExpiresAt:u}");
+                $"\n\n`{Code(p.Id)}`: `{Code(p.ConditionName)}`{(p.Group is { } group ? $" in group `{Code(group)}`" : string.Empty)}, step `{Code(p.StepName)}`, expires {p.ExpiresAt:u}");
         }
 
         return text.ToString();

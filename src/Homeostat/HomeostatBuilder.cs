@@ -29,6 +29,37 @@ public sealed class HomeostatBuilder
     }
 
     /// <summary>
+    /// Sets the guardrails of a healing group (the conditions placed in it with <see cref="ConditionBuilder.InGroup"/>):
+    /// its own action budget and concurrency limit, applied inside the global ones. Can be called several times for the
+    /// same group: the configurations apply in order, like <see cref="Configure"/>. A group that no condition uses is
+    /// allowed (conditions can come from configuration later) and logged once at startup.
+    /// </summary>
+    /// <param name="group">Name of the group: not empty, at most 200 characters, no control characters.</param>
+    /// <param name="configure">Changes the <see cref="HealingGroupOptions"/> of the group.</param>
+    /// <returns>This builder.</returns>
+    /// <exception cref="ArgumentException">The group name is not valid.</exception>
+    /// <example><code>h.ConfigureGroup("reports", g => { g.MaxActionsPerWindow = 3; g.MaxConcurrentHealings = 1; })</code></example>
+    public HomeostatBuilder ConfigureGroup(string group, Action<HealingGroupOptions> configure)
+    {
+        HealingGroupNames.Validate(group, nameof(group));
+        ArgumentNullException.ThrowIfNull(configure);
+
+        if (!Services.Any(d => d.ServiceType == typeof(HealingGroupRegistration) && d.ImplementationInstance is HealingGroupRegistration r
+            && string.Equals(r.Name, group, StringComparison.Ordinal)))
+        {
+            Services.AddSingleton(new HealingGroupRegistration(group));
+            Services.AddOptions<HealingGroupOptions>(group)
+                .Validate(o => o.MaxActionsPerWindow is null or > 0, $"Healing group '{group}': MaxActionsPerWindow must be positive.")
+                .Validate(o => o.ActionBudgetWindow is not { } window || TimerLimits.IsValid(window), $"Healing group '{group}': ActionBudgetWindow must be positive and at most about 49 days.")
+                .Validate(o => o.MaxConcurrentHealings is null or > 0, $"Healing group '{group}': MaxConcurrentHealings must be positive.")
+                .ValidateOnStart();
+        }
+
+        Services.Configure(group, configure);
+        return this;
+    }
+
+    /// <summary>
     /// Registers a condition (when a problem is real: which signals, which rule, for how long) and, optionally, the
     /// healing plan that runs while it is active.
     /// </summary>

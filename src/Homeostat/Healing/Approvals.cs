@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace Homeostat.Healing;
 
 /// <summary>A step waiting for a person to approve it.</summary>
@@ -10,6 +12,10 @@ public sealed record PendingApproval
 
     /// <summary>Condition being healed.</summary>
     public required string ConditionName { get; init; }
+
+    /// <summary>The healing group of the condition (<see cref="Conditions.ConditionBuilder.InGroup"/>), or <c>null</c>.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Group { get; init; }
 
     /// <summary>Zero-based index of the step.</summary>
     public required int Step { get; init; }

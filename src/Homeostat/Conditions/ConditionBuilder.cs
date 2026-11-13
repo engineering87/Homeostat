@@ -32,6 +32,7 @@ public sealed class ConditionBuilder
     private CompositeMode? _composite;
     private string[] _dependsOn = [];
     private HealingPlanBuilder? _plan;
+    private string? _group;
 
     internal ConditionBuilder(string name, IServiceCollection services)
     {
@@ -312,6 +313,23 @@ public sealed class ConditionBuilder
     }
 
     /// <summary>
+    /// Places the condition in a healing group, typically one module of a modular monolith: the group labels its
+    /// snapshots, runs, approvals, metrics and logs, and its guardrails apply on top of the global ones (see
+    /// <see cref="HomeostatBuilder.ConfigureGroup"/>, <see cref="IHomeostatControl.PauseGroupAsync"/> and
+    /// <see cref="Guardrails.MaintenanceWindow.ForGroups"/>). A condition belongs to one group at most: calling this
+    /// again replaces the group. Without it, the condition has no group, and only the global guardrails apply.
+    /// </summary>
+    /// <param name="group">Name of the group: not empty, at most 200 characters, no control characters.</param>
+    /// <returns>This builder.</returns>
+    /// <exception cref="ArgumentException">The group name is not valid.</exception>
+    /// <example><code>c.ForSource("reports-db").InGroup("reports")</code></example>
+    public ConditionBuilder InGroup(string group)
+    {
+        _group = Guardrails.HealingGroupNames.Validate(group, nameof(group));
+        return this;
+    }
+
+    /// <summary>
     /// Defines the healing plan that runs when the condition becomes active: steps tried in order, each verified
     /// before the next one, under the guardrails (dry-run, budget, cooldown, approvals). Without a plan the condition
     /// is only observed: tracked, logged and reported.
@@ -540,7 +558,7 @@ public sealed class ConditionBuilder
 
         return new ConditionDefinition(
             _name, relevant, trigger, clear, _sustainFor, _clearAfter, _suppressedBy.ToArray(), _plan?.Build(_name),
-            record, _composite, _dependsOn, _baseline is null ? [] : [_baseline], source);
+            record, _composite, _dependsOn, _baseline is null ? [] : [_baseline], source, _group);
     }
 
     private static bool DefaultTrigger(Signal signal) => signal.Severity >= SignalSeverity.Unhealthy;

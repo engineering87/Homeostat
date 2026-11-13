@@ -89,6 +89,39 @@ value that is not a finite number (a detector may publish `double.NaN`) is writt
 shape of this document, and of the history and coverage documents below, is part of the public contract: fields
 are added in minor versions, never renamed or removed before a major version (see [Versioning](versioning.md)).
 
+### Healing groups in the status
+
+In an application with [healing groups](guardrails.md#healing-groups), the status also has a `groups` list (the groups
+of `IHomeostatControl.GetGroups()`: those of the registered conditions, those configured with `ConfigureGroup`, and
+those with a pause in the store, ordered by name), and `group` on each condition, run and pending approval of a group:
+
+```json
+{
+  "groups": [
+    {
+      "name": "reports",
+      "conditions": [ "reports-db-slow", "reports-export-stuck" ],
+      "paused": true,
+      "pauseReason": "paused until 2030-01-01T11:00:00.0000000+00:00 by alice",
+      "pausedBy": "alice",
+      "pausedUntil": "2030-01-01T11:00:00+00:00",
+      "maxConcurrentHealings": 1,
+      "maxActionsPerWindow": 3,
+      "budget": { "used": 3, "limit": 3, "remaining": 0, "windowSeconds": 3600 }
+    }
+  ],
+  "conditions": [ { "name": "reports-db-slow", "status": "Active", "group": "reports" } ]
+}
+```
+
+`paused` is the group's own pause (by a person, or one of its maintenance windows); the global pause, which pauses every
+group, is the status's own `paused`. `pausedBy` and `pausedUntil` are shown while the group's pause applies (a timed pause stays stored after its end until
+the group is resumed: it is not shown then, even while a maintenance window of the group keeps `paused` true). The budget
+of each group that has one is read from the store together with the global budget, each read bounded alike; when it
+cannot be read, `budget` is left out (`maxActionsPerWindow` still shows the limit) and `storeError` says why. Fields that
+are `null` are left out: an application without groups gets no `groups` field and no `group` on conditions, runs or
+approvals, so its status is the same as before.
+
 If the store cannot be read, the endpoint still answers: `storeError` says so, with the type of the error (for
 example `TimeoutException`; the message itself, which can name servers, is only in the application log), and each of `budget`,
 `recentRuns` and `pendingApprovals` that could not be read is `null` (budget) or empty (runs, approvals). Times are
@@ -123,6 +156,9 @@ why it needs a policy too.
 | `POST /homeostat/pause` | Kill switch on: no new step starts, on every instance that shares the store | `204` |
 | `POST /homeostat/pause?for=00:30:00` | Paused for a duration (at most 30 days, `d.hh:mm:ss` format), then resumes by itself (for deployment scripts) | `204`, or `400` for an invalid duration |
 | `POST /homeostat/resume` | Kill switch off | `204` |
+| `POST /homeostat/groups/{group}/pause` | Pauses one [healing group](guardrails.md#healing-groups) only, on every instance that shares the store; the other groups go on | `204`, `400` for an invalid name, or `409` when 256 other groups are paused already |
+| `POST /homeostat/groups/{group}/pause?for=00:30:00` | Pauses the group for a duration (same format and limit as the global pause), then it resumes by itself | `204`, or `400` for an invalid duration |
+| `POST /homeostat/groups/{group}/resume` | Lets the group heal again (the global pause and the group's maintenance windows still apply) | `204`, or `400` for an invalid name |
 | `POST /homeostat/approvals/{id}/approve` | Approves a pending step, on any instance | `204`, or `404` if the request does not exist (any more) |
 | `POST /homeostat/approvals/{id}/reject` | Rejects it: the run stops and the plan is held | `204` or `404` |
 | `POST /homeostat/conditions/{name}/release` | Lifts the hold of the condition's plan after a rejection ([details](healing-plans.md#releasing-a-hold)) | `204`, or `404` for an unknown condition or one without a plan |
@@ -131,25 +167,32 @@ why it needs a policy too.
 | `POST /homeostat/switches/{name}/off` | Turns a switch off, for the application and the instance that answers | `204` |
 
 The switch endpoints and the release endpoint answer `400` for a name that is longer than 200 characters or contains
-control characters. A name with a slash (`feed/eu`) is sent escaped (`feed%2Feu`), as the dashboard and the CLI do;
+control characters; the group endpoints do too, and for a blank group name. A name with a slash (`feed/eu`) is sent escaped (`feed%2Feu`), as the dashboard and the CLI do;
 ASP.NET Core leaves `%2F` escaped in route values, so the endpoints decode it (only it: the other escapes are already
 decoded).
 
-Pause, approvals and switches are kept in the [store](persistence-and-clusters.md#shared-control-state). When the
-store cannot be reached, a change that lets Homeostat act (resume, turn a switch on, answer an approval, release a
-hold) answers `503` and is not made ("nothing was changed"). A change in the safe direction (pause, turn a switch off)
+Pause, group pauses, approvals and switches are kept in the [store](persistence-and-clusters.md#shared-control-state). When the
+store cannot be reached, a change that lets Homeostat act (resume, resume a group, turn a switch on, answer an approval, release a
+hold) answers `503` and is not made ("nothing was changed"). A change in the safe direction (pause, pause a group, turn a switch off)
 applies at once on the instance that answers, answers `204`, and is written to the store as soon as the store takes it,
 so an outage never keeps chaos, an isolated circuit or a paused consumer on. A request waits at most 15 seconds for
 the store. A store that does not answer in time (a timeout) also answers `503`, with a message that depends on the
-change: a resume or a turn-on that times out is decided again in the safe direction (Homeostat pauses again, the switch
-is turned off), whatever the instance showed before (its view may be behind the store), so it was not made; an approval or the release of a hold may still be applied by the store after the
+change: a resume (of Homeostat or of a group) or a turn-on that times out is decided again in the safe direction
+(Homeostat or the group pauses again, the switch is turned off), whatever the instance showed before (its view may be behind the store), so it was not made; an approval or the release of a hold may still be applied by the store after the
 answer, so check `GET /status` before trying again. A change runs to its
 end even when the client disconnects (the store call does not take the request's token); the endpoint then returns
 without an answer. Changes reach the other instances within `ControlRefreshInterval`
 (5 seconds by default).
 
 The name of the authenticated user (`User.Identity.Name`) is recorded as the approver in logs, events and the audit
-log, and with the pause and the switches it turns on: who paused appears in `pauseReason`.
+log, and with the pauses and the switches it turns on: who paused appears in `pauseReason` (of the status, or of the
+group).
+
+A group pause that the control refuses (`ControlState.MaxGroupPauses`, 256, other groups are paused already) answers
+`409` with the reason; it is not a store failure. That holds also when the answering instance's view was behind the
+store and the store refused the pause: nothing is applied, on that instance or elsewhere. The group endpoints accept any valid group
+name, also one that no condition of the answering instance uses (decision G4: conditions can come from configuration,
+or from another instance, later than the pause): check the name in `GET /status` before pausing.
 
 > [!IMPORTANT]
 > The policy decides who can pause Homeostat or approve a failover. Make it specific (an operations role or group),
@@ -173,7 +216,9 @@ app.MapHomeostatDashboard("operations");   // GET /homeostat/dashboard
 
 The dashboard is a page for operators. It shows active conditions first, steps waiting for approval with **Approve**
 and **Reject** buttons, a **Pause** button (until resumed, or for 15 minutes, 1 hour or 4 hours) and **Resume**,
-switches (turn them off, or on by name), the action budget, the recent runs with their steps, the condition history
+switches (turn them off, or on by name), the action budget, the healing groups (when the application has some: each
+group's state, budget and limits, with **Pause** and **Resume** buttons and a duration for the pause), the recent runs
+with their steps (and the group of each condition, run and approval), the condition history
 and the coverage of the last 24 hours (steps that always failed or never ran). It refreshes every 5 seconds (history
 and coverage every 30 seconds; nothing while the tab is hidden) and follows the system light or dark theme.
 
@@ -270,10 +315,15 @@ builder.Services.AddHealthChecks()
 | State | Status | Description |
 |---|---|---|
 | Nothing to report | Healthy | `No active condition.` |
-| Paused, budget exhausted, a step waiting for approval, or an active condition | Degraded (configurable) | The reasons, for example `paused by alice; active: weather-feed-down` |
+| Paused, a healing group paused, the budget or a group's budget exhausted, a step waiting for approval, or an active condition | Degraded (configurable) | The reasons, for example `paused by alice; action budget of group 'reports' exhausted; active: weather-feed-down` |
 | Store unavailable | Degraded (always) | `The Homeostat store is unavailable.` (the store's error is in the application log only, never in the result: it can name servers) |
 
-The result data contains `paused`, `dry_run`, `active_conditions`, `budget_remaining` and `pending_approvals`.
+The result data contains `paused`, `dry_run`, `active_conditions`, `budget_remaining` and `pending_approvals`; in an
+application with [healing groups](guardrails.md#healing-groups), also `paused_groups` (the groups paused themselves, by
+a person or a maintenance window) and `exhausted_group_budgets` (the groups whose own budget is used up: their healing
+stopped while the others go on). Like the global pause and budget, either one needs attention (the `failureStatus`).
+The group budgets are read inside the same bounded read as the global budget and the approvals, shared by concurrent
+probes; a group budget that cannot be read makes the store count as unavailable (Degraded), never as not exhausted.
 Use `failureStatus: HealthStatus.Unhealthy` to make it stricter (`null`, the default, means Degraded), `tags` to
 select it in a dedicated endpoint, and `timeout` to bound it like any other check. A store outage, and a check that
 fails or exceeds its `timeout`, are always reported as Degraded, whatever `failureStatus`: the store is shared, so an

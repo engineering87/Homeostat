@@ -69,6 +69,7 @@ A condition has at most one trigger: `Severity`, `ValueAbove`, `ValueBelow`, `Ri
 | `ClearWhenHealthy` | `ClearWhen(s => s.Severity == Healthy)` | `true` |
 | `SustainedFor`, `ClearAfter` | `SustainedFor`, `ClearAfter` | `"30s"`, `"00:02:00"` |
 | `SuppressedBy` | `SuppressedBy` | `[ "network-down" ]` or `"a,b"` |
+| `Group` | `InGroup` | `"reports"` (one name: not empty, at most 200 characters, no control characters) |
 | `RisingFasterThan:PerMinute`, `:Window`, `:MinimumSamples` | `WhenRisingFasterThan` | `0.005`, `"15m"`, `5` (optional) |
 | `FallingFasterThan:PerMinute`, `:Window`, `:MinimumSamples` | `WhenFallingFasterThan` | `-`, as above |
 | `AnomalouslyHigh:ZScore`, `:Window`, `:MinimumHistory` | `WhenAnomalouslyHigh` | `3`, `"1h"`, `30` (optional) |
@@ -113,7 +114,8 @@ Homeostat rebuilds the conditions defined there:
 - conditions whose **configuration did not change are not touched**, including the history of their
   `Occurrences`, trend and anomaly rules;
 - conditions whose **configuration changed keep their status** (an active condition stays active with its new
-  rules), but the history of those rules starts again, except the baseline of a seasonal rule whose cycle (period,
+  rules; a changed `Group` moves it to the new group, whose guardrails apply from its next run), but the history of
+  those rules starts again, except the baseline of a seasonal rule whose cycle (period,
   slot and time zone) did not change, which is kept;
 - new conditions start inactive; removed conditions stop being tracked: their pending approvals are withdrawn,
   the switches they turned on are turned off (on this instance, and in the store for application switches), and a run
@@ -169,6 +171,13 @@ builder.Services.Configure<HomeostatOptions>(builder.Configuration.GetSection("H
 
 (`Configure` with a section comes from `Microsoft.Extensions.Configuration.Binder`, included in ASP.NET Core
 applications. Option values use the `hh:mm:ss` format.)
+
+The guardrails of a [healing group](guardrails.md#healing-groups) bind the same way, through `ConfigureGroup` (which
+also registers the group):
+
+```csharp
+h.ConfigureGroup("reports", g => builder.Configuration.GetSection("Homeostat:Groups:reports").Bind(g));
+```
 
 The `dotnet new` templates read a single key instead, `Homeostat:DryRun`, with
 `.Configure(o => o.DryRun = builder.Configuration.GetValue("Homeostat:DryRun", true))`. When you start binding the

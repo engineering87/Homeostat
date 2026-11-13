@@ -22,8 +22,10 @@ internal sealed class ConditionDefinition
         CompositeMode? composite = null,
         IReadOnlyList<string>? dependsOn = null,
         IReadOnlyList<SeasonalBaseline>? baselines = null,
-        string? source = null)
+        string? source = null,
+        string? group = null)
     {
+        Group = group;
         Source = source;
         Baselines = baselines ?? [];
         Record = record;
@@ -41,6 +43,9 @@ internal sealed class ConditionDefinition
 
     /// <summary>Unique name of the condition, used in logs, metrics and endpoints.</summary>
     public string Name { get; }
+
+    /// <summary>The healing group of the condition (<see cref="ConditionBuilder.InGroup"/>), or <c>null</c>.</summary>
+    public string? Group { get; }
 
     /// <summary>The only source this condition listens to, or <c>null</c> when a custom filter decides alone.</summary>
     internal string? Source { get; }

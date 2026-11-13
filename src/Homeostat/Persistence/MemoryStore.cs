@@ -17,10 +17,18 @@ internal class MemoryStore : IHomeostatStore
     private readonly Dictionary<string, SwitchState> _switches = new(StringComparer.Ordinal);
     private readonly Dictionary<string, ApprovalRecord> _approvals = new(StringComparer.Ordinal);
     private PauseState? _pause;
+    private readonly Dictionary<string, PauseState> _groupPauses = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, Queue<DateTimeOffset>> _groupBudgets = new(StringComparer.Ordinal);
 
-    // When the latest decision about the pause and about each switch was taken: an older write is refused. Kept in
-    // memory only (a late write does not outlive a restart).
+    // When every unit spent by a group has left its window (the latest unit plus the window of the latest call about the
+    // group): from then on its budget is empty and is removed, by any budget call. Groups that are renamed or removed are
+    // never asked about again, and the file store would otherwise keep their budgets forever.
+    private readonly Dictionary<string, DateTimeOffset> _groupBudgetEnds = new(StringComparer.Ordinal);
+
+    // When the latest decision about the pause, about the pause of each group and about each switch was taken: an older
+    // write is refused. Kept in memory only (a late write does not outlive a restart).
     private DateTimeOffset _pauseDecidedAt = DateTimeOffset.MinValue;
+    private readonly Dictionary<string, DateTimeOffset> _groupPauseDecidedAt = new(StringComparer.Ordinal);
     private readonly Dictionary<string, DateTimeOffset> _switchDecidedAt = new(StringComparer.Ordinal);
 
     /// <inheritdoc />
@@ -55,15 +63,8 @@ internal class MemoryStore : IHomeostatStore
     {
         lock (_gate)
         {
-            Expire(now, window);
-            if (_budget.Count >= limit)
-            {
-                return ValueTask.FromResult(false);
-            }
-
-            _budget.Enqueue(now);
-            OnChanged();
-            return ValueTask.FromResult(true);
+            RemoveEndedGroupBudgets(now);
+            return ValueTask.FromResult(TryConsumeLocked(_budget, now, limit, window));
         }
     }
 
@@ -72,9 +73,112 @@ internal class MemoryStore : IHomeostatStore
     {
         lock (_gate)
         {
-            Expire(now, window);
+            RemoveEndedGroupBudgets(now);
+            Expire(_budget, now, window);
             return ValueTask.FromResult(_budget.Count);
         }
+    }
+
+    /// <inheritdoc />
+    public ValueTask<bool> TryConsumeGroupBudgetAsync(string group, DateTimeOffset now, int limit, TimeSpan window, CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(group);
+        lock (_gate)
+        {
+            RemoveEndedGroupBudgets(now);
+            if (!_groupBudgets.TryGetValue(group, out var budget))
+            {
+                budget = new Queue<DateTimeOffset>();
+                _groupBudgets[group] = budget;
+            }
+
+            // Recorded before the unit is saved, so the file holds both (a file store that cannot save restores both).
+            // When the unit is refused, the end is later than needed: the budget is only kept longer.
+            _groupBudgetEnds[group] = EndOf(budget.Count > 0 && budget.Max() > now ? budget.Max() : now, window);
+            try
+            {
+                return ValueTask.FromResult(TryConsumeLocked(budget, now, limit, window));
+            }
+            finally
+            {
+                // An empty budget is not kept: one entry per group that spent something within its window. (Looked up
+                // again: a file store that could not save the change restored its saved state meanwhile.)
+                if (_groupBudgets.TryGetValue(group, out var kept) && kept.Count == 0)
+                {
+                    _groupBudgets.Remove(group);
+                    _groupBudgetEnds.Remove(group);
+                }
+            }
+        }
+    }
+
+    /// <inheritdoc />
+    public ValueTask<int> GetGroupBudgetUsedAsync(string group, DateTimeOffset now, TimeSpan window, CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(group);
+        lock (_gate)
+        {
+            RemoveEndedGroupBudgets(now);
+            if (!_groupBudgets.TryGetValue(group, out var budget))
+            {
+                return ValueTask.FromResult(0);
+            }
+
+            Expire(budget, now, window);
+            if (budget.Count == 0)
+            {
+                _groupBudgets.Remove(group);
+                _groupBudgetEnds.Remove(group);
+                return ValueTask.FromResult(0);
+            }
+
+            // The window of the latest call counts (a configuration reload may change it).
+            _groupBudgetEnds[group] = EndOf(budget.Max(), window);
+            return ValueTask.FromResult(budget.Count);
+        }
+    }
+
+    private static DateTimeOffset EndOf(DateTimeOffset last, TimeSpan window)
+        => window >= DateTimeOffset.MaxValue - last ? DateTimeOffset.MaxValue : last + window;
+
+    // Caller holds the lock: removes the budgets of groups whose every unit has left its window. Not saved by itself (the
+    // budgets left out are empty either way); the next change saves the file without them. A budget whose end is not
+    // known (none recorded) is kept until a call about its group records one.
+    private void RemoveEndedGroupBudgets(DateTimeOffset now)
+    {
+        if (_groupBudgetEnds.Count == 0)
+        {
+            return;
+        }
+
+        List<string>? ended = null;
+        foreach (var (group, end) in _groupBudgetEnds)
+        {
+            if (now >= end)
+            {
+                (ended ??= []).Add(group);
+            }
+        }
+
+        foreach (var group in ended ?? [])
+        {
+            _groupBudgets.Remove(group);
+            _groupBudgetEnds.Remove(group);
+        }
+    }
+
+    // Caller holds the lock: the global budget and the budget of each group follow the same rule.
+    private bool TryConsumeLocked(Queue<DateTimeOffset> budget, DateTimeOffset now, int limit, TimeSpan window)
+    {
+        Expire(budget, now, window);
+        if (budget.Count >= limit)
+        {
+            return false;
+        }
+
+        budget.Enqueue(now);
+        OnChanged();
+        return true;
     }
 
     /// <inheritdoc />
@@ -182,6 +286,7 @@ internal class MemoryStore : IHomeostatStore
             return ValueTask.FromResult(new ControlState
             {
                 Pause = _pause,
+                GroupPauses = _groupPauses.OrderBy(p => p.Key, StringComparer.Ordinal).Select(p => GroupPauseState.From(p.Key, p.Value)).ToArray(),
                 Switches = _switches.Values.OrderBy(s => s.Name, StringComparer.Ordinal).ToArray(),
                 Approvals = _approvals.Values.OrderBy(a => a.Request.RequestedAt).ToArray(),
             });
@@ -210,29 +315,80 @@ internal class MemoryStore : IHomeostatStore
 
     /// <inheritdoc />
     public ValueTask<bool> TrySetPauseAsync(PauseState? pause, DateTimeOffset decidedAt, CancellationToken cancellationToken = default)
+        => ValueTask.FromResult(SetPauseInOrder(group: null, pause, decidedAt));
+
+    /// <inheritdoc />
+    public ValueTask<bool> TrySetGroupPauseAsync(string group, PauseState? pause, DateTimeOffset decidedAt, CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(group);
+        return ValueTask.FromResult(SetPauseInOrder(group, pause, decidedAt));
+    }
+
+    // The global pause (group null) and the pause of each group: the same decision order, each on its own.
+    private bool SetPauseInOrder(string? group, PauseState? pause, DateTimeOffset decidedAt)
     {
         lock (_gate)
         {
-            if (!InOrder(decidedAt, _pauseDecidedAt, lessAction: pause is not null))
+            var hadDecision = group is null || _groupPauseDecidedAt.ContainsKey(group);
+            var previous = group is null ? _pauseDecidedAt : _groupPauseDecidedAt.GetValueOrDefault(group, DateTimeOffset.MinValue);
+            if (!InOrder(decidedAt, previous, lessAction: pause is not null))
             {
-                return ValueTask.FromResult(false);
+                return false;
             }
 
-            var previous = _pauseDecidedAt;
-            _pauseDecidedAt = decidedAt;
+            if (group is not null && pause is not null && !_groupPauses.ContainsKey(group) && _groupPauses.Count >= ControlState.MaxGroupPauses)
+            {
+                throw new InvalidOperationException(
+                    $"At most {ControlState.MaxGroupPauses} healing groups can be paused at once: resume groups that no longer need their pause.");
+            }
+
+            SetPauseDecision(group, decidedAt);
             try
             {
-                _pause = pause;
+                if (group is null)
+                {
+                    _pause = pause;
+                }
+                else if (pause is null)
+                {
+                    _groupPauses.Remove(group);
+                }
+                else
+                {
+                    _groupPauses[group] = pause;
+                }
+
                 OnChanged();
             }
             catch
             {
                 // Not saved (the file store undoes the change): neither is the decision.
-                _pauseDecidedAt = previous;
+                if (hadDecision)
+                {
+                    SetPauseDecision(group, previous);
+                }
+                else
+                {
+                    _groupPauseDecidedAt.Remove(group!);
+                }
+
                 throw;
             }
 
-            return ValueTask.FromResult(true);
+            return true;
+        }
+    }
+
+    // Caller holds the lock.
+    private void SetPauseDecision(string? group, DateTimeOffset decidedAt)
+    {
+        if (group is null)
+        {
+            _pauseDecidedAt = decidedAt;
+        }
+        else
+        {
+            _groupPauseDecidedAt[group] = decidedAt;
         }
     }
 
@@ -412,7 +568,10 @@ internal class MemoryStore : IHomeostatStore
             Events = _events.ToArray(),
             Documents = new Dictionary<string, string>(_documents, StringComparer.Ordinal),
             Pause = _pause,
+            GroupPauses = _groupPauses.Select(p => GroupPauseState.From(p.Key, p.Value)).ToArray(),
             Switches = _switches.Values.ToArray(),
+            GroupBudgets = _groupBudgets.ToDictionary(b => b.Key, b => (IReadOnlyList<DateTimeOffset>)b.Value.ToArray(), StringComparer.Ordinal),
+            GroupBudgetEnds = new Dictionary<string, DateTimeOffset>(_groupBudgetEnds, StringComparer.Ordinal),
         };
 
     /// <summary>Replaces the state, for a derived store loading persisted data.</summary>
@@ -451,6 +610,26 @@ internal class MemoryStore : IHomeostatStore
             }
 
             _pause = snapshot.Pause;
+            _groupPauses.Clear();
+            foreach (var pause in snapshot.GroupPauses)
+            {
+                _groupPauses[pause.Group] = pause.ToPause();
+            }
+
+            _groupBudgets.Clear();
+            _groupBudgetEnds.Clear();
+            foreach (var (group, spent) in snapshot.GroupBudgets)
+            {
+                if (spent.Count > 0)
+                {
+                    _groupBudgets[group] = new Queue<DateTimeOffset>(spent.Order());
+                    if (snapshot.GroupBudgetEnds.TryGetValue(group, out var end))
+                    {
+                        _groupBudgetEnds[group] = end;
+                    }
+                }
+            }
+
             _switches.Clear();
             foreach (var state in snapshot.Switches)
             {
@@ -460,11 +639,11 @@ internal class MemoryStore : IHomeostatStore
     }
 
     // Caller holds the lock.
-    private void Expire(DateTimeOffset now, TimeSpan window)
+    private static void Expire(Queue<DateTimeOffset> budget, DateTimeOffset now, TimeSpan window)
     {
-        while (_budget.Count > 0 && now - _budget.Peek() >= window)
+        while (budget.Count > 0 && now - budget.Peek() >= window)
         {
-            _budget.Dequeue();
+            budget.Dequeue();
         }
     }
 
@@ -480,5 +659,11 @@ internal class MemoryStore : IHomeostatStore
         public PauseState? Pause { get; init; }
 
         public IReadOnlyList<SwitchState> Switches { get; init; } = [];
+
+        public IReadOnlyList<GroupPauseState> GroupPauses { get; init; } = [];
+
+        public IReadOnlyDictionary<string, IReadOnlyList<DateTimeOffset>> GroupBudgets { get; init; } = new Dictionary<string, IReadOnlyList<DateTimeOffset>>();
+
+        public IReadOnlyDictionary<string, DateTimeOffset> GroupBudgetEnds { get; init; } = new Dictionary<string, DateTimeOffset>();
     }
 }

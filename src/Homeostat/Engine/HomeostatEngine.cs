@@ -23,6 +23,7 @@ internal sealed class HomeostatEngine : BackgroundService
     private readonly TimeProvider _timeProvider;
     private readonly Diagnostics.ConditionHistory _history;
     private readonly SeasonalBaselineKeeper _keeper;
+    private readonly Guardrails.HealingGroups _groups;
 
     public HomeostatEngine(
         SignalChannel channel,
@@ -38,8 +39,10 @@ internal sealed class HomeostatEngine : BackgroundService
         IEnumerable<Recording.SignalRecorder> recorders,
         TimeProvider timeProvider,
         Diagnostics.ConditionHistory history,
-        SeasonalBaselineKeeper keeper)
+        SeasonalBaselineKeeper keeper,
+        Guardrails.HealingGroups groups)
     {
+        _groups = groups;
         _history = history;
         _keeper = keeper;
         _activations = activations;
@@ -63,6 +66,13 @@ internal sealed class HomeostatEngine : BackgroundService
         if (_conditions.Trackers.Count == 0)
         {
             _logger.LogWarning("Homeostat started without any registered condition.");
+        }
+
+        // Allowed (conditions can come from configuration later), but often a typo in a group name: said once.
+        var used = _conditions.Trackers.Select(t => t.Definition.Group).OfType<string>().ToHashSet(StringComparer.Ordinal);
+        foreach (var unused in _groups.Configured.Where(g => !used.Contains(g)).Order(StringComparer.Ordinal))
+        {
+            _logger.LogInformation("Healing group {Group} is configured, but no condition is in it yet.", unused);
         }
 
 

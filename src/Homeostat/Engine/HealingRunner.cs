@@ -30,6 +30,7 @@ internal sealed class HealingRunner
     private readonly TimeProvider _timeProvider;
     private readonly ILogger<HealingRunner> _logger;
     private readonly SemaphoreSlim _concurrency;
+    private readonly Guardrails.HealingGroups _groups;
     // One entry per running plan; the value identifies the run, so a run only ever removes its own entry.
     private readonly ConcurrentDictionary<string, object> _running = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<Task, byte> _inFlight = new();
@@ -65,8 +66,10 @@ internal sealed class HealingRunner
         TimeProvider timeProvider,
         ILogger<HealingRunner> logger,
         HomeostatSwitches switches,
-        PlanStateCache planStates)
+        PlanStateCache planStates,
+        Guardrails.HealingGroups groups)
     {
+        _groups = groups;
         _switches = switches;
         _knownState = planStates.Known;
         _heldReadAt = planStates.HeldReadAt;
@@ -106,12 +109,19 @@ internal sealed class HealingRunner
             return false;
         }
 
-        if (_control.IsPaused)
+        if (IsPaused(definition.Group))
         {
             // Debug: an active condition reports this on every triggering signal while paused.
             if (_logger.IsEnabled(LogLevel.Debug))
             {
-                _logger.LogDebug("Condition {Condition} is active, but Homeostat is paused.", name);
+                if (_control.IsPaused)
+                {
+                    _logger.LogDebug("Condition {Condition} is active, but Homeostat is paused.", name);
+                }
+                else
+                {
+                    _logger.LogDebug("Condition {Condition} is active, but its healing group {Group} is paused.", name, definition.Group);
+                }
             }
             return false;
         }
@@ -236,6 +246,12 @@ internal sealed class HealingRunner
         _logger.LogError(exception, message, condition);
     }
 
+    /// <summary>
+    /// Whether the plans of a condition in <paramref name="group"/> are paused: the global pause, and for a condition in a
+    /// group its group's pause and maintenance windows, which behave exactly like the global ones for that group.
+    /// </summary>
+    private bool IsPaused(string? group) => group is null ? _control.IsPaused : _control.IsGroupPaused(group);
+
     /// <summary>Why the plan cannot start now, or <c>null</c>; without <paramref name="describe"/>, a reason that is not formatted.</summary>
     private string? Blocked(HealingPlan plan, PlanState state, DateTimeOffset now, bool describe = true)
     {
@@ -259,6 +275,13 @@ internal sealed class HealingRunner
     private async Task StartAsync(ConditionTracker tracker, HealingPlan plan, Signal trigger, object run, CancellationToken cancellationToken)
     {
         var name = plan.ConditionName;
+
+        // The group as the run starts: its guardrails and label stay the run's even if a reload moves the condition.
+        var group = tracker.Definition.Group;
+
+        // Every log entry of the run carries its group (the message templates stay as documented). Only for a condition
+        // in a group: nothing changes for the others.
+        using var groupScope = group is null ? null : _logger.BeginScope(new GroupLogScope(group));
         IHomeostatLease? lease = null;
         CancellationTokenSource? runCts = null;
         try
@@ -344,7 +367,7 @@ internal sealed class HealingRunner
 
             // A cluster run stops before its next step if the lease may have been lost.
             runCts = lease is null ? null : CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, lease.Lost);
-            var saved = await RunAsync(tracker, plan, trigger, key, run, runCts?.Token ?? cancellationToken).ConfigureAwait(false);
+            var saved = await RunAsync(tracker, plan, trigger, key, run, group, runCts?.Token ?? cancellationToken).ConfigureAwait(false);
             if (!saved && lease is not null && !lease.Lost.IsCancellationRequested)
             {
                 // The cooldown exists only in this instance's memory: releasing the lease now would let another
@@ -418,7 +441,7 @@ internal sealed class HealingRunner
     }
 
     /// <summary>Runs the plan and records the outcome; <c>false</c> when the plan state could not be saved.</summary>
-    private async Task<bool> RunAsync(ConditionTracker tracker, HealingPlan plan, Signal trigger, string key, object run, CancellationToken cancellationToken)
+    private async Task<bool> RunAsync(ConditionTracker tracker, HealingPlan plan, Signal trigger, string key, object run, string? group, CancellationToken cancellationToken)
     {
         var name = plan.ConditionName;
         var startedAt = _timeProvider.GetUtcNow();
@@ -430,19 +453,33 @@ internal sealed class HealingRunner
 
         using var activity = TelemetryEnabled ? HomeostatDiagnostics.ActivitySource.StartActivity("homeostat.heal") : null;
         activity?.SetTag("homeostat.condition", name);
+        if (group is not null)
+        {
+            activity?.SetTag("homeostat.group", group);
+        }
+
         activity?.SetTag("homeostat.signal.source", trigger.Source);
         activity?.SetTag("homeostat.instance", _options.InstanceId);
         activity?.SetTag("homeostat.run.id", runId);
         if (TelemetryEnabled)
         {
-            HomeostatDiagnostics.Runs.Add(1, new KeyValuePair<string, object?>("condition", name));
+            if (group is null)
+            {
+                HomeostatDiagnostics.Runs.Add(1, new KeyValuePair<string, object?>("condition", name));
+            }
+            else
+            {
+                HomeostatDiagnostics.Runs.Add(1, new KeyValuePair<string, object?>("condition", name), new KeyValuePair<string, object?>("group", group));
+            }
         }
 
-        var slot = new ConcurrencySlot(_concurrency);
+        // The group's guardrails as the run starts (none for a condition without a group, or in a group not configured).
+        var guardrails = _groups.Get(group);
+        var slot = new ConcurrencySlot(_concurrency, guardrails?.Concurrency);
         try
         {
             await slot.AcquireAsync(cancellationToken).ConfigureAwait(false);
-            (outcome, held) = await ExecutePlanAsync(tracker, plan, trigger, runId, steps, slot, cancellationToken).ConfigureAwait(false);
+            (outcome, held) = await ExecutePlanAsync(tracker, plan, trigger, runId, steps, slot, group, guardrails, cancellationToken).ConfigureAwait(false);
         }
         catch (Exception) when (cancellationToken.IsCancellationRequested)
         {
@@ -457,11 +494,18 @@ internal sealed class HealingRunner
         finally
         {
             var outcomeName = outcome.ToString();
-            var tags = new[]
-            {
-                new KeyValuePair<string, object?>("condition", name),
-                new KeyValuePair<string, object?>("outcome", outcomeName),
-            };
+            var tags = group is null
+                ? new[]
+                {
+                    new KeyValuePair<string, object?>("condition", name),
+                    new KeyValuePair<string, object?>("outcome", outcomeName),
+                }
+                : new[]
+                {
+                    new KeyValuePair<string, object?>("condition", name),
+                    new KeyValuePair<string, object?>("outcome", outcomeName),
+                    new KeyValuePair<string, object?>("group", group),
+                };
             if (TelemetryEnabled)
             {
                 HomeostatDiagnostics.Outcomes.Add(1, tags);
@@ -477,6 +521,7 @@ internal sealed class HealingRunner
         {
             RunId = runId,
             ConditionName = name,
+            Group = group,
             Instance = _options.InstanceId,
             Outcome = outcome,
             Steps = steps.ToArray(),
@@ -602,6 +647,8 @@ internal sealed class HealingRunner
         string runId,
         List<HealingStepResult> results,
         ConcurrencySlot slot,
+        string? group,
+        Guardrails.HealingGroup? guardrails,
         CancellationToken cancellationToken)
     {
         var name = plan.ConditionName;
@@ -624,7 +671,7 @@ internal sealed class HealingRunner
                         name, i + 1, planSteps.Count, planSteps[i].Name);
                 }
 
-                RecordAction(name, planSteps[i].Name, dryRun: true);
+                RecordAction(name, group, planSteps[i].Name, dryRun: true);
             }
 
             return (HealingRunOutcome.DryRun, false);
@@ -634,20 +681,21 @@ internal sealed class HealingRunner
         {
             var step = planSteps[i];
 
-            if (CheckStop(tracker, i) is { } stop)
+            if (CheckStop(tracker, i, group) is { } stop)
             {
                 return (stop, false);
             }
 
             if (step.RequiresApproval)
             {
-                // Waiting for a person must not block the other plans: give the concurrency slot back meanwhile.
+                // Waiting for a person must not block the other plans: give the concurrency slots back meanwhile (the
+                // global one, then the group's), and take them again in the usual order (the group's, then the global one).
                 slot.Release();
-                var approval = await WaitForApprovalAsync(name, i, planSteps.Count, step, trigger, cancellationToken).ConfigureAwait(false);
+                var approval = await WaitForApprovalAsync(name, group, i, planSteps.Count, step, trigger, cancellationToken).ConfigureAwait(false);
                 await slot.AcquireAsync(cancellationToken).ConfigureAwait(false);
 
                 // The world may have changed while waiting (cleared, paused, suppressed).
-                if (CheckStop(tracker, i) is { } stopAfterApproval)
+                if (CheckStop(tracker, i, group) is { } stopAfterApproval)
                 {
                     return (stopAfterApproval, false);
                 }
@@ -665,27 +713,9 @@ internal sealed class HealingRunner
                 }
             }
 
-            bool allowed;
-            try
+            if (await ConsumeBudgetsAsync(name, guardrails, cancellationToken).ConfigureAwait(false) is { } refused)
             {
-                var now = _timeProvider.GetUtcNow();
-                allowed = await SharedControl.Bounded(
-                    () => _store.TryConsumeBudgetAsync(now, _options.MaxActionsPerWindow, _options.ActionBudgetWindow, cancellationToken),
-                    SharedControl.WriteTimeout, cancellationToken).ConfigureAwait(false);
-            }
-            catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
-            {
-                // Fail closed: an action whose budget cannot be checked does not run.
-                LogStoreFailure(name, ex, "Condition {Condition}: the store is unavailable; the action budget cannot be checked.");
-                return (HealingRunOutcome.Failed, false);
-            }
-
-            if (!allowed)
-            {
-                _logger.LogError(
-                    "Condition {Condition}: action budget exhausted ({Max} actions per {Window}). Manual intervention required.",
-                    name, _options.MaxActionsPerWindow, _options.ActionBudgetWindow);
-                return (HealingRunOutcome.BudgetExhausted, false);
+                return (refused, false);
             }
 
             // Disposed when the step ends, or, if an action or a verifier was abandoned at its timeout and still runs,
@@ -702,7 +732,7 @@ internal sealed class HealingRunner
             _logger.LogWarning(
                 "Condition {Condition}: executing step {Step}/{Total} {Action}.",
                 name, i + 1, planSteps.Count, step.Name);
-            RecordAction(name, step.Name, dryRun: false);
+            RecordAction(name, group, step.Name, dryRun: false);
 
             // A switch that was already on without any condition owning it was turned on by a person: the step
             // must not take it over, or the condition clearing would turn it off against their decision. (A cluster
@@ -728,13 +758,14 @@ internal sealed class HealingRunner
                     stillRunning = !await WhenAbandonedActionEndedAsync(context, step, cancellationToken).ConfigureAwait(false);
                     undoneAfterFailure = stillRunning
                         ? false
-                        : await TryUndoAsync(context, step, undoAfterFailure, plan, scope.ServiceProvider, cancellationToken).ConfigureAwait(false);
+                        : await TryUndoAsync(context, step, undoAfterFailure, plan, scope.ServiceProvider, guardrails, cancellationToken).ConfigureAwait(false);
                 }
 
                 Report(results, new HealingStepResult
                 {
                     RunId = runId,
                     ConditionName = name,
+                    Group = group,
                     Step = i,
                     Name = step.Name,
                     Succeeded = false,
@@ -848,13 +879,14 @@ internal sealed class HealingRunner
             bool? undone = null;
             if (verification == VerificationOutcome.NotHealed && step.ResolveUndo is { } resolveUndo)
             {
-                undone = await TryUndoAsync(context, step, resolveUndo, plan, scope.ServiceProvider, cancellationToken).ConfigureAwait(false);
+                undone = await TryUndoAsync(context, step, resolveUndo, plan, scope.ServiceProvider, guardrails, cancellationToken).ConfigureAwait(false);
             }
 
             Report(results, new HealingStepResult
             {
                 RunId = runId,
                 ConditionName = name,
+                Group = group,
                 Step = i,
                 Name = step.Name,
                 Succeeded = true,
@@ -930,17 +962,26 @@ internal sealed class HealingRunner
         Func<IServiceProvider, IHealingAction> resolveUndo,
         HealingPlan plan,
         IServiceProvider services,
+        Guardrails.HealingGroup? guardrails,
         CancellationToken cancellationToken)
     {
-        // The compensating action reverts what this run just changed: the pause, the maintenance windows and the budget,
-        // which keep Homeostat from making new changes, never block it, or the application would stay degraded by a
-        // change that did not help. It still counts in the budget, best effort.
+        // The compensating action reverts what this run just changed: the pause, the maintenance windows and the budgets
+        // (the global one and the group's), which keep Homeostat from making new changes, never block it, or the
+        // application would stay degraded by a change that did not help. It still counts in both budgets, best effort:
+        // both at once, so a slow store delays it by one bound, not two.
         try
         {
             var now = _timeProvider.GetUtcNow();
-            await SharedControl.Bounded(
-                () => _store.TryConsumeBudgetAsync(now, _options.MaxActionsPerWindow, _options.ActionBudgetWindow, cancellationToken),
-                TimeSpan.FromSeconds(5), cancellationToken).ConfigureAwait(false);
+            var counting = new List<Task>(2)
+            {
+                Task.Run(() => _store.TryConsumeBudgetAsync(now, _options.MaxActionsPerWindow, _options.ActionBudgetWindow, cancellationToken).AsTask(), CancellationToken.None),
+            };
+            if (guardrails is { MaxActionsPerWindow: { } groupLimit })
+            {
+                counting.Add(Task.Run(() => _store.TryConsumeGroupBudgetAsync(guardrails.Name, now, groupLimit, guardrails.ActionBudgetWindow, cancellationToken).AsTask(), CancellationToken.None));
+            }
+
+            await Task.WhenAll(counting).WaitAsync(TimeSpan.FromSeconds(5), cancellationToken).ConfigureAwait(false);
         }
         catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
         {
@@ -965,13 +1006,23 @@ internal sealed class HealingRunner
         }
     }
 
-    private HealingRunOutcome? CheckStop(ConditionTracker tracker, int index)
+    private HealingRunOutcome? CheckStop(ConditionTracker tracker, int index, string? group)
     {
         var name = tracker.Definition.Name;
 
         if (_control.IsPaused)
         {
             _logger.LogWarning("Condition {Condition}: Homeostat was paused, stopping before step {Step}.", name, index + 1);
+            return HealingRunOutcome.Paused;
+        }
+
+        // The run's group, and the condition's current one if a reload moved it meanwhile: stopping is the safe direction.
+        var current = tracker.Definition.Group;
+        if (group is not null && IsPaused(group) || current is not null && !string.Equals(current, group, StringComparison.Ordinal) && IsPaused(current))
+        {
+            _logger.LogWarning(
+                "Condition {Condition}: healing group {Group} was paused, stopping before step {Step}.",
+                name, group is not null && IsPaused(group) ? group : current, index + 1);
             return HealingRunOutcome.Paused;
         }
 
@@ -991,7 +1042,7 @@ internal sealed class HealingRunner
     }
 
     private async Task<ApprovalStatus> WaitForApprovalAsync(
-        string name, int index, int total, HealingStep step, Signal trigger, CancellationToken cancellationToken)
+        string name, string? group, int index, int total, HealingStep step, Signal trigger, CancellationToken cancellationToken)
     {
         var timeout = step.ApprovalTimeout ?? _options.DefaultApprovalTimeout;
         var requestedAt = _timeProvider.GetUtcNow();
@@ -999,6 +1050,7 @@ internal sealed class HealingRunner
         {
             Id = Guid.NewGuid().ToString("N"),
             ConditionName = name,
+            Group = group,
             Step = index,
             StepName = step.Name,
             RequestedAt = requestedAt,
@@ -1070,25 +1122,65 @@ internal sealed class HealingRunner
         return status;
     }
 
-    /// <summary>The run's claim on <see cref="HomeostatOptions.MaxConcurrentHealings"/>, released at most once.</summary>
-    private sealed class ConcurrencySlot(SemaphoreSlim semaphore)
+    /// <summary>
+    /// The run's claim on <see cref="HomeostatOptions.MaxConcurrentHealings"/> and, for a group with a limit, on
+    /// <see cref="HealingGroupOptions.MaxConcurrentHealings"/>: each released at most once. The group's slot is taken
+    /// first and the global one second, so a run waiting for its busy group never holds a global slot that another
+    /// group could use; they are released in the reverse order. A wait canceled after the group's slot was taken leaves
+    /// it held until <see cref="Release"/>, which the run always calls.
+    /// </summary>
+    private sealed class ConcurrencySlot(SemaphoreSlim global, SemaphoreSlim? group)
     {
-        private bool _held;
+        private bool _heldGlobal;
+        private bool _heldGroup;
 
         public async Task AcquireAsync(CancellationToken cancellationToken)
         {
-            await semaphore.WaitAsync(cancellationToken).ConfigureAwait(false);
-            _held = true;
+            if (group is not null && !_heldGroup)
+            {
+                await group.WaitAsync(cancellationToken).ConfigureAwait(false);
+                _heldGroup = true;
+            }
+
+            if (!_heldGlobal)
+            {
+                await global.WaitAsync(cancellationToken).ConfigureAwait(false);
+                _heldGlobal = true;
+            }
         }
 
         public void Release()
         {
-            if (_held)
+            if (_heldGlobal)
             {
-                _held = false;
-                semaphore.Release();
+                _heldGlobal = false;
+                global.Release();
+            }
+
+            if (_heldGroup)
+            {
+                _heldGroup = false;
+                group!.Release();
             }
         }
+    }
+
+    /// <summary>The log scope of a run in a group: one property, <c>HealingGroup</c>.</summary>
+    private sealed class GroupLogScope(string group) : IReadOnlyList<KeyValuePair<string, object?>>
+    {
+        public int Count => 1;
+
+        public KeyValuePair<string, object?> this[int index]
+            => index == 0 ? new("HealingGroup", group) : throw new ArgumentOutOfRangeException(nameof(index));
+
+        public IEnumerator<KeyValuePair<string, object?>> GetEnumerator()
+        {
+            yield return this[0];
+        }
+
+        System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator() => GetEnumerator();
+
+        public override string ToString() => $"HealingGroup:{group}";
     }
 
     private async Task<(bool Executed, Exception? Error)> TryExecuteAsync(
@@ -1330,9 +1422,14 @@ internal sealed class HealingRunner
     /// </summary>
     internal bool TelemetryEnabled { get; set; } = true;
 
-    private void RecordAction(string condition, string step, bool dryRun)
+    private void RecordAction(string condition, string? group, string step, bool dryRun)
     {
-        if (TelemetryEnabled)
+        if (!TelemetryEnabled)
+        {
+            return;
+        }
+
+        if (group is null)
         {
             HomeostatDiagnostics.Actions.Add(
                 1,
@@ -1340,5 +1437,73 @@ internal sealed class HealingRunner
                 new KeyValuePair<string, object?>("action", step),
                 new KeyValuePair<string, object?>("dry_run", dryRun));
         }
+        else
+        {
+            HomeostatDiagnostics.Actions.Add(
+                1,
+                new KeyValuePair<string, object?>("condition", condition),
+                new KeyValuePair<string, object?>("action", step),
+                new KeyValuePair<string, object?>("dry_run", dryRun),
+                new KeyValuePair<string, object?>("group", group));
+        }
+    }
+
+    /// <summary>
+    /// Consumes the budgets of one action: the group's first (when the group has one), then the global one. <c>null</c>
+    /// when the action may run; otherwise how the run ends. A group unit consumed before the global budget refused is not
+    /// given back: it costs only the group itself, never another group, and a refund would need a second store write
+    /// that could fail in turn.
+    /// </summary>
+    private async Task<HealingRunOutcome?> ConsumeBudgetsAsync(string name, Guardrails.HealingGroup? guardrails, CancellationToken cancellationToken)
+    {
+        var now = _timeProvider.GetUtcNow();
+        if (guardrails is { MaxActionsPerWindow: { } groupLimit })
+        {
+            bool groupAllowed;
+            try
+            {
+                groupAllowed = await SharedControl.Bounded(
+                    () => _store.TryConsumeGroupBudgetAsync(guardrails.Name, now, groupLimit, guardrails.ActionBudgetWindow, cancellationToken),
+                    SharedControl.WriteTimeout, cancellationToken).ConfigureAwait(false);
+            }
+            catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
+            {
+                // Fail closed, like the global budget: an action whose budget cannot be checked does not run.
+                LogStoreFailure(name, ex, "Condition {Condition}: the store is unavailable; the action budget of its healing group cannot be checked.");
+                return HealingRunOutcome.Failed;
+            }
+
+            if (!groupAllowed)
+            {
+                _logger.LogError(
+                    "Condition {Condition}: action budget of group '{Group}' exhausted ({Max} actions per {Window}). Manual intervention required.",
+                    name, guardrails.Name, groupLimit, guardrails.ActionBudgetWindow);
+                return HealingRunOutcome.BudgetExhausted;
+            }
+        }
+
+        bool allowed;
+        try
+        {
+            allowed = await SharedControl.Bounded(
+                () => _store.TryConsumeBudgetAsync(now, _options.MaxActionsPerWindow, _options.ActionBudgetWindow, cancellationToken),
+                SharedControl.WriteTimeout, cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
+        {
+            // Fail closed: an action whose budget cannot be checked does not run.
+            LogStoreFailure(name, ex, "Condition {Condition}: the store is unavailable; the action budget cannot be checked.");
+            return HealingRunOutcome.Failed;
+        }
+
+        if (!allowed)
+        {
+            _logger.LogError(
+                "Condition {Condition}: action budget exhausted ({Max} actions per {Window}). Manual intervention required.",
+                name, _options.MaxActionsPerWindow, _options.ActionBudgetWindow);
+            return HealingRunOutcome.BudgetExhausted;
+        }
+
+        return null;
     }
 }

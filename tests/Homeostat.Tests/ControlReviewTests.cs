@@ -531,6 +531,12 @@ public class ControlReviewTests
     /// <summary>An in-memory store with switches for the failures each test needs.</summary>
     private sealed class HookStore : IHomeostatStore
     {
+        public ValueTask<bool> TryConsumeGroupBudgetAsync(string group, DateTimeOffset now, int limit, TimeSpan window, CancellationToken cancellationToken = default) { Check(); return Inner.TryConsumeGroupBudgetAsync(group, now, limit, window, cancellationToken); }
+
+        public ValueTask<int> GetGroupBudgetUsedAsync(string group, DateTimeOffset now, TimeSpan window, CancellationToken cancellationToken = default) { Check(); return Inner.GetGroupBudgetUsedAsync(group, now, window, cancellationToken); }
+
+        public ValueTask<bool> TrySetGroupPauseAsync(string group, PauseState? pause, DateTimeOffset decidedAt, CancellationToken cancellationToken = default) { Check(); return Inner.TrySetGroupPauseAsync(group, pause, decidedAt, cancellationToken); }
+
         private readonly SemaphoreSlim _switchWrites = new(1, 1);
 
         public InMemoryHomeostatStore Inner { get; } = new();

@@ -10,11 +10,11 @@ decide which plans run once per cluster. The last section is the contract for wr
 | State | Why it matters |
 |---|---|
 | Plan state: end of the last run, failures in a row, held after a rejection, the instance that ran it last | Cooldowns, [backoff](healing-plans.md#cooldown-backoff) and holds survive restarts and apply across instances |
-| Action budget | A restart does not reset the budget; with a shared store, the budget is shared by every instance |
+| Action budget, and the budget of each [healing group](guardrails.md#healing-groups) | A restart does not reset the budget; with a shared store, the budget is shared by every instance |
 | Run history | `GetRecentRunsAsync()` and the status endpoint show what happened, on every instance, before the restart |
 | Condition history: activations and clears, with the signal that caused them | `GetConditionHistoryAsync()`, `GET /homeostat/history`, the dashboard and the coverage reports see every instance, across restarts (`ConditionHistorySize`, 200 events by default). Events written while the store is down are retried every 30 seconds |
 | Documents: small JSON documents kept by features, such as the learned baselines of [seasonal rules](conditions.md#seasonal-anomalies-whenseasonallyhigh-and-whenseasonallylow) | A deployment does not throw away weeks of learning |
-| Pause: who paused, when, and until when | With a shared store, a pause given on one instance stops every instance |
+| Pause: who paused, when, and until when; the same for each paused healing group | With a shared store, a pause given on one instance stops every instance |
 | Application switches: who turned them on, and the condition that owns them, if any | A switch turned on through any instance is on for all of them |
 | Approval requests, pending or answered | Any instance lists and answers them; the answer reaches the instance whose run waits for it |
 
@@ -23,10 +23,10 @@ within a few detection intervals, which is what you want after a restart. The hi
 
 ## Shared control state
 
-The pause, the application switches and the approval requests form the control state. Every instance keeps a
+The pause, the pauses of healing groups, the application switches and the approval requests form the control state. Every instance keeps a
 view of it in memory, read from the store at startup, every `HomeostatOptions.ControlRefreshInterval` (5 seconds by
-default) and right after every change made on that instance. `IsPaused` and `IsOn` read the view, so they never wait
-for the store. A change made on another instance applies here within one refresh interval; an answer to an approval
+default) and right after every change made on that instance. `IsPaused`, `IsGroupPaused` and `IsOn` read the view, so they
+never wait for the store. A change made on another instance applies here within one refresh interval; an answer to an approval
 request reaches the waiting instance within the same delay. When the store cannot be read, the instance keeps its
 last known view and logs a warning. Until the view has been read once (at startup, with the store unreachable),
 Homeostat counts as paused, with the reason "waiting for the control state from the store": it cannot know whether a
@@ -60,11 +60,15 @@ The [`TurnOnSwitch`](actions.md#turnonswitchname-and-ihomeostatswitches) step pi
 
 Which store keeps what:
 
-| Store | Pause | Switches turned on by a person or by code | Switches owned by a condition | Approval requests |
+| Store | Pause and group pauses | Switches turned on by a person or by code | Switches owned by a condition | Approval requests |
 |---|---|---|---|---|
 | In memory | Until the process stops | Until the process stops | Until the process stops | Until the process stops |
 | File | Across restarts | Across restarts | Not kept: the condition starts again from scratch | Not kept: the run that waits does not survive a restart |
 | Redis | Shared, across restarts | Shared, across restarts | Shared | Shared |
+
+The pause of a healing group (`PauseGroupAsync`) follows exactly the rules of the global pause described here: kept in
+the store, applied at once when the store is down and written when it answers, written in decision order per group,
+decided again after a resume that timed out. `ControlState.GroupPauses` holds at most 256 of them.
 
 Requests whose instance stopped before collecting the answer are dropped a day after they expired (by the Redis store
 when it reads the control state, by the in-memory and file stores when a new request is added). An answer to an
@@ -72,14 +76,14 @@ approval that the store does not confirm in time is checked once more: if the st
 if it recorded another answer, the call returns `false`; otherwise it throws a `TimeoutException` saying the outcome is
 unknown, since the store may still apply it.
 
-When the store cannot be reached, a change that lets Homeostat act (resume, turn a switch on, answer an approval,
-release a hold) fails, with `503` from the control endpoints: it was not made. A change in the safe direction (pause,
-turn a switch off, release a switch Homeostat turned on) applies at once on the instance where it is made. That
+When the store cannot be reached, a change that lets Homeostat act (resume Homeostat or a group, turn a switch on, answer
+an approval, release a hold) fails, with `503` from the control endpoints: it was not made. A change in the safe direction (pause Homeostat
+or a group, turn a switch off, release a switch Homeostat turned on) applies at once on the instance where it is made. That
 instance writes it to the store at every refresh until the store takes it, unless the store shows a newer decision by
 then (see [ASP.NET Core](aspnetcore.md#control)).
 
 Every change carries the time it was decided, by the clock of the instance where it was made, and the store keeps the
-latest decision about the pause and about each switch. **Keep the clocks of the instances synchronized (NTP)**: an
+latest decision about the pause, about the pause of each group and about each switch. **Keep the clocks of the instances synchronized (NTP)**: an
 instance whose clock is ahead takes decisions that look later than they are. When the store refuses a change in the
 safe direction because it holds a later decision (for example a pause written after a resume decided later on another
 instance), the instance logs a warning that names what the store holds (`Homeostat resumed by a decision taken after
@@ -127,6 +131,12 @@ later. While open, the store holds an exclusive lock on `{path}.lock`: a second 
 old and new process of a rolling deploy on a shared volume) fails at startup with a clear error instead of
 overwriting the other's state. Use a path that survives a restart (a volume, in a container) and that only the
 application's user can write.
+
+The file never loses a pause it holds (decision S8): a file edited by hand with two pauses of one group keeps the later
+decision, and one with more than 256 group pauses keeps them all (logged as critical; no other group can be paused until
+groups are resumed). The budget of a group is removed once every unit it spent has left its window (by the window of
+the latest call about the group, recorded in the file), by any budget call: the budgets of renamed or removed groups do
+not stay in the file.
 
 ```csharp
 .AddHomeostat(h => h.UseFileStore("data/homeostat.json", o => o.PlanStateRetention = TimeSpan.FromDays(90)))
@@ -290,15 +300,17 @@ Kubernetes, a StatefulSet gives each pod a stable name; a Deployment gives a new
 |---|---|---|
 | `{prefix}plan:{key}` | hash | `ended`, `failures`, `held`, `by`; updated by an atomic script; expires after `PlanStateRetention` (7 days) without changes, except while the plan is held |
 | `{prefix}budget` | sorted set | One member per action, scored by time; updated by an atomic script |
+| `{prefix}budget:group:{group}` | sorted set | The budget of a healing group, as `budget` (with `ShareBudget = false`, `{prefix}budget:{instance}:group:{group}`) |
 | `{prefix}runs` | list | Run records as JSON, newest first, trimmed to `RunHistorySize` |
 | `{prefix}lease:plan:{condition}` | string | Lease token, with an expiry |
 | `{prefix}conditions` | list | Condition events as JSON, newest first, trimmed to `ConditionHistorySize` |
 | `{prefix}doc:{key}` | string | A document, such as `doc:baseline:{condition}:{cycle}`; expires after `DocumentRetention` (90 days) without updates |
 | `{prefix}{control}:pause` | string | The pause as JSON (`until`, `by`, `at`) |
+| `{prefix}{control}:group-pauses` | hash | The pauses of healing groups by group name, as JSON (`until`, `by`, `at`), at most 256; written by an atomic script in decision order; a record that cannot be read counts as a pause of its group without an end |
 | `{prefix}{control}:switches` | hash | Application switches by name, as JSON (`name`, `condition`, `instance`, `by`, `at`, `renewedAt`, `renewInterval`); a plan claims, renews or releases one with an atomic script |
 | `{prefix}{control}:approvals` | hash | Approval requests by id, as JSON, with the waiting instance |
 | `{prefix}{control}:answers` | hash | Answers by request id, written by an atomic script so that only the first answer wins; removed with their request by one script |
-| `{prefix}{control}:decided` | hash | When the latest decision about the pause and each switch was taken (Unix microseconds), and when a plan's claim on a switch was made and last renewed: a write that arrives late is refused |
+| `{prefix}{control}:decided` | hash | When the latest decision about the pause (`pause`), the pause of each group (`group-pause:{group}`) and each switch was taken (Unix microseconds), and when a plan's claim on a switch was made and last renewed: a write that arrives late is refused |
 
 The control keys share the hash tag `{control}`, so on Redis Cluster they are in one slot, as the approval script needs.
 
@@ -311,17 +323,17 @@ off and on again.
 
 ## Writing your own store
 
-`IHomeostatStore` has fourteen required methods, and a store you write is registered with `UseStore<T>()` or
+`IHomeostatStore` has seventeen required methods, and a store you write is registered with `UseStore<T>()` or
 `UseStore(sp => ...)`:
 
 | Area | Methods |
 |---|---|
 | Plan state | `GetPlanStateAsync`, `UpdatePlanStateAsync` |
-| Action budget | `TryConsumeBudgetAsync`, `GetBudgetUsedAsync` |
+| Action budget | `TryConsumeBudgetAsync`, `GetBudgetUsedAsync`, `TryConsumeGroupBudgetAsync`, `GetGroupBudgetUsedAsync` |
 | Run history | `AppendRunAsync`, `GetRecentRunsAsync` |
-| Control state | `GetControlStateAsync`, `TrySetPauseAsync`, `TrySetSwitchAsync`, `TryClaimSwitchAsync`, `TryReleaseSwitchAsync`, `AddApprovalAsync`, `TryResolveApprovalAsync`, `RemoveApprovalAsync` |
+| Control state | `GetControlStateAsync`, `TrySetPauseAsync`, `TrySetGroupPauseAsync`, `TrySetSwitchAsync`, `TryClaimSwitchAsync`, `TryReleaseSwitchAsync`, `AddApprovalAsync`, `TryResolveApprovalAsync`, `RemoveApprovalAsync` |
 
-The control state uses the types `ControlState`, `PauseState`, `SwitchState` and `ApprovalRecord` of
+The control state uses the types `ControlState`, `PauseState`, `GroupPauseState`, `SwitchState` and `ApprovalRecord` of
 `Homeostat.Persistence`. Six more members have default implementations, and members added after 1.0 will have them
 too, with a `Supports*` property when the default does nothing, so stores written for 1.0 keep compiling:
 
@@ -342,7 +354,9 @@ Requirements:
     left `null` are kept, and `OnlyIfLastRunBy` is a precondition (when it does not match, the state is returned
     unchanged).
   - `TryConsumeBudgetAsync` consumes one unit only if fewer than `limit` were used within the sliding `window`, and
-    returns whether the action may run.
+    returns whether the action may run. `TryConsumeGroupBudgetAsync` does the same in a separate budget per group
+    (one per group name, separate from the global budget), and `GetGroupBudgetUsedAsync` reads it like
+    `GetBudgetUsedAsync`.
   - `TryResolveApprovalAsync` answers a request only if it is still pending: of two answers given at the same time on
     two instances, exactly one wins (`true` for the call that answered).
 - **Decision order** for the pause and the switches. Every write carries the time the decision was taken
@@ -352,6 +366,11 @@ Requirements:
   On a tie, accept a decision that makes Homeostat do less (a pause, a switch off, a release) and refuse one that
   lets it act (a resume, a switch on, a claim). Decisions about a switch include turning it on or off and a condition
   claiming or releasing it. Each operation is atomic.
+- `TrySetGroupPauseAsync` sets or removes (`null`) the pause of one group, with the decision order of the pause,
+  each group on its own; `GetControlStateAsync` returns the pauses in `ControlState.GroupPauses`, one per group,
+  ordered by name. The pause of a group not paused yet while `ControlState.MaxGroupPauses` (256) groups are paused
+  throws `InvalidOperationException`; replacing a pause or resuming never does. Homeostat confirms this refusal by reading
+  the control state (a store or its client may throw the same type in an outage: the pause is then deferred and retried).
 - `TrySetSwitchAsync` turns an application switch on (replacing its previous state) or, with `null`, off.
 - `TryClaimSwitchAsync` turns a switch on for a condition's cluster plan (`SwitchState.Condition` is set, and
   `SwitchState.At` is the decision). It applies only if the switch is owned by the same condition and was not claimed
@@ -365,12 +384,13 @@ Requirements:
   instance turned it on. A switch that a person took over, or that the condition claimed again or renewed after
   `decidedAt`, stays on. It returns `true` if the switch was turned off.
 - `GetControlStateAsync` skips switch and approval records it cannot read rather than failing: one bad record must not
-  hide the pause. A pause record it cannot read is returned as a pause without an end (fail closed), never as no pause.
+  hide the pause. A pause record it cannot read is returned as a pause without an end (fail closed), never as no pause; the
+  same for the pause record of a group.
 - Keep `SwitchState.RenewInterval` with a claim and its renewals: other instances use it to tell a live owner from one
   that is gone.
 - `GetPlanStateAsync` returns `PlanState.Empty` for unknown plans. `GetRecentRunsAsync` and `GetConditionEventsAsync`
   return the newest first; `AppendRunAsync` and `AppendConditionEventAsync` keep at most the given number of entries.
-- Store every property of `HealingRunRecord`, `RunId` included: it links a stored run to its events and audit lines.
+- Store every property of `HealingRunRecord`, `RunId` and `Group` included: it links a stored run to its events and audit lines.
 - Throw on failure: Homeostat handles it (fail closed).
 - Time out your own calls (the Redis store relies on the client's timeouts). Homeostat bounds every wait and starts
   every call off the caller's thread, but a call that never returns keeps a thread until it does.

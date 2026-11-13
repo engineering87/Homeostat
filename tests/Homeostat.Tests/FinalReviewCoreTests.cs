@@ -321,6 +321,12 @@ public class FinalReviewCoreTests
     /// <summary>An in-memory store (with decision order) with hooks: held unsafe writes, failing answers, documents.</summary>
     private sealed class GateStore : IHomeostatStore
     {
+        public ValueTask<bool> TryConsumeGroupBudgetAsync(string group, DateTimeOffset now, int limit, TimeSpan window, CancellationToken cancellationToken = default) => Inner.TryConsumeGroupBudgetAsync(group, now, limit, window, cancellationToken);
+
+        public ValueTask<int> GetGroupBudgetUsedAsync(string group, DateTimeOffset now, TimeSpan window, CancellationToken cancellationToken = default) => Inner.GetGroupBudgetUsedAsync(group, now, window, cancellationToken);
+
+        public ValueTask<bool> TrySetGroupPauseAsync(string group, PauseState? pause, DateTimeOffset decidedAt, CancellationToken cancellationToken = default) => Inner.TrySetGroupPauseAsync(group, pause, decidedAt, cancellationToken);
+
         public InMemoryHomeostatStore Inner { get; } = new();
 
         public volatile bool HoldUnsafeWrites;
