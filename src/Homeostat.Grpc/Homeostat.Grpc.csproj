@@ -16,6 +16,7 @@
 
   <ItemGroup>
     <PackageReference Include="Grpc.Net.ClientFactory" />
+    <PackageReference Include="Microsoft.Extensions.Configuration.Binder" VersionOverride="8.0.2" />
   </ItemGroup>
 
   <ItemGroup>
